@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.import-catalog]
 verify_jwt = false
+
+[functions.extract-video]
+verify_jwt = false
