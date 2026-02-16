@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
-import { X, Play, ExternalLink, RefreshCw, ChevronRight, Shield, ChevronDown, Mic, Subtitles, Video, Zap, Globe } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { X, Play, ExternalLink, RefreshCw, ChevronRight, ChevronDown, Mic, Subtitles, Video, Globe, Loader2, Zap, Shield } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import CustomPlayer from "./CustomPlayer";
 
 interface PlayerModalProps {
@@ -17,7 +18,7 @@ interface VideoSource {
   url: string;
   quality: string;
   provider: string;
-  type: "mp4" | "m3u8" | "embed";
+  type: "mp4" | "m3u8";
 }
 
 interface EmbedProvider {
@@ -25,35 +26,26 @@ interface EmbedProvider {
   tag: string;
   buildUrl: (tmdbId: number, imdbId: string | null | undefined, type: "movie" | "tv", season?: number, episode?: number) => string;
   externalOnly?: boolean;
-  lang?: string; // Language hint for audio selection
+  lang?: string;
 }
 
 const EMBED_PROVIDERS: EmbedProvider[] = [
   {
-    name: "VidSrc.cc", tag: "Principal", lang: "multi",
-    buildUrl: (_tmdbId, imdbId, type, season, episode) => {
-      const id = imdbId || String(_tmdbId);
-      return type === "movie"
-        ? `https://vidsrc.cc/v2/embed/movie/${id}`
-        : `https://vidsrc.cc/v2/embed/tv/${id}/${season ?? 1}/${episode ?? 1}`;
-    },
+    name: "Videasy", tag: "PT-BR", lang: "pt",
+    buildUrl: (tmdbId, _imdbId, type, season, episode) =>
+      type === "movie" ? `https://player.videasy.net/movie/${tmdbId}` : `https://player.videasy.net/tv/${tmdbId}/${season ?? 1}/${episode ?? 1}`,
   },
   {
-    name: "Videasy", tag: "PT-BR • Multi-Lang", lang: "pt",
-    buildUrl: (tmdbId, _imdbId, type, season, episode) =>
-      type === "movie"
-        ? `https://player.videasy.net/movie/${tmdbId}`
-        : `https://player.videasy.net/tv/${tmdbId}/${season ?? 1}/${episode ?? 1}`,
+    name: "VidSrc.cc", tag: "Multi", lang: "multi",
+    buildUrl: (_tmdbId, imdbId, type, season, episode) => {
+      const id = imdbId || String(_tmdbId);
+      return type === "movie" ? `https://vidsrc.cc/v2/embed/movie/${id}` : `https://vidsrc.cc/v2/embed/tv/${id}/${season ?? 1}/${episode ?? 1}`;
+    },
   },
   {
     name: "Embed.su", tag: "Multi-server", lang: "en",
     buildUrl: (tmdbId, _imdbId, type, season, episode) =>
       type === "movie" ? `https://embed.su/embed/movie/${tmdbId}` : `https://embed.su/embed/tv/${tmdbId}/${season ?? 1}/${episode ?? 1}`,
-  },
-  {
-    name: "VidSrc.net", tag: "Alternativo", lang: "en",
-    buildUrl: (tmdbId, _imdbId, type, season, episode) =>
-      type === "movie" ? `https://vidsrc.net/embed/movie/${tmdbId}` : `https://vidsrc.net/embed/tv/${tmdbId}/${season ?? 1}/${episode ?? 1}`,
   },
   {
     name: "SuperFlix", tag: "PT-BR", externalOnly: true, lang: "pt",
@@ -66,142 +58,159 @@ const EMBED_PROVIDERS: EmbedProvider[] = [
 ];
 
 const AUDIO_OPTIONS = [
-  { key: "dublado", icon: Mic, label: "Dublado PT-BR", description: "Áudio em português brasileiro", className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25" },
-  { key: "legendado", icon: Subtitles, label: "Legendado", description: "Áudio original com legendas", className: "bg-blue-500/15 text-blue-400 border-blue-500/30 hover:bg-blue-500/25" },
-  { key: "cam", icon: Video, label: "CAM", description: "Gravação de câmera (qualidade inferior)", className: "bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25" },
+  { key: "dublado", icon: Mic, label: "Dublado PT-BR", description: "Áudio em português brasileiro", gradient: "from-emerald-500/20 to-emerald-600/5 border-emerald-500/30 hover:border-emerald-400/50" },
+  { key: "legendado", icon: Subtitles, label: "Legendado", description: "Áudio original com legendas em PT-BR", gradient: "from-blue-500/20 to-blue-600/5 border-blue-500/30 hover:border-blue-400/50" },
+  { key: "cam", icon: Video, label: "CAM", description: "Gravação de câmera (qualidade inferior)", gradient: "from-amber-500/20 to-amber-600/5 border-amber-500/30 hover:border-amber-400/50" },
 ];
 
-const AUDIO_BADGES: Record<string, { icon: typeof Mic; label: string; className: string }> = {
-  dublado: { icon: Mic, label: "Dublado PT-BR", className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" },
-  legendado: { icon: Subtitles, label: "Legendado", className: "bg-blue-500/15 text-blue-400 border-blue-500/30" },
-  cam: { icon: Video, label: "CAM", className: "bg-amber-500/15 text-amber-400 border-amber-500/30" },
-};
-
-type PlayerPhase = "audio-select" | "playing";
+type PlayerPhase = "audio-select" | "extracting" | "playing-custom" | "playing-embed";
 
 const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes = [], onClose }: PlayerModalProps) => {
-  const [phase, setPhase] = useState<PlayerPhase>(audioTypes.length > 1 ? "audio-select" : "playing");
+  const [phase, setPhase] = useState<PlayerPhase>(audioTypes.length > 1 ? "audio-select" : "extracting");
   const [selectedAudio, setSelectedAudio] = useState<string>(audioTypes[0] || "legendado");
   const [sources, setSources] = useState<VideoSource[]>([]);
-
-  // Embed state
+  const [extractionStatus, setExtractionStatus] = useState("Iniciando extração...");
   const [currentProviderIdx, setCurrentProviderIdx] = useState(0);
-  const [iframeLoaded, setIframeLoaded] = useState(false);
-  const [iframeError, setIframeError] = useState(false);
   const [iframeKey, setIframeKey] = useState(0);
   const [showProviders, setShowProviders] = useState(false);
+  const extractionAttempted = useRef(false);
 
-  const provider = EMBED_PROVIDERS[currentProviderIdx];
-  const rawUrl = provider.buildUrl(tmdbId, imdbId, type, season, episode);
-  const iframeSrc = provider.externalOnly ? null : rawUrl;
-
-  // Auto-select provider based on audio choice
+  // Start extraction when entering extracting phase
   useEffect(() => {
-    if (phase !== "playing") return;
-    if (selectedAudio === "dublado") {
-      // Prefer Portuguese providers for dubbed content
-      const ptIdx = EMBED_PROVIDERS.findIndex(p => p.lang === "pt" && !p.externalOnly);
-      if (ptIdx >= 0 && ptIdx !== currentProviderIdx) {
-        setCurrentProviderIdx(ptIdx);
-        setIframeKey(k => k + 1);
+    if (phase !== "extracting" || extractionAttempted.current) return;
+    extractionAttempted.current = true;
+
+    const extract = async () => {
+      try {
+        setExtractionStatus("Buscando fontes de vídeo...");
+        
+        const { data, error } = await supabase.functions.invoke("extract-video", {
+          body: { tmdb_id: tmdbId, imdb_id: imdbId, type, season, episode },
+        });
+
+        if (error) throw error;
+
+        if (data?.success && data.sources?.length > 0) {
+          console.log(`Extraction found ${data.sources.length} sources`);
+          setSources(data.sources);
+          setPhase("playing-custom");
+          return;
+        }
+
+        console.log("No sources found, falling back to embed");
+        setExtractionStatus("Extração falhou, carregando player alternativo...");
+        
+        // Auto-select provider based on audio
+        if (selectedAudio === "dublado") {
+          const ptIdx = EMBED_PROVIDERS.findIndex(p => p.lang === "pt" && !p.externalOnly);
+          if (ptIdx >= 0) setCurrentProviderIdx(ptIdx);
+        }
+        
+        setTimeout(() => setPhase("playing-embed"), 1000);
+      } catch (err) {
+        console.error("Extraction error:", err);
+        setExtractionStatus("Carregando player alternativo...");
+        setTimeout(() => setPhase("playing-embed"), 800);
       }
+    };
+
+    extract();
+  }, [phase, tmdbId, imdbId, type, season, episode, selectedAudio]);
+
+  // Auto-start extraction if no audio selection needed
+  useEffect(() => {
+    if (audioTypes.length <= 1 && phase === "audio-select") {
+      setPhase("extracting");
     }
-  }, [phase, selectedAudio]);
+  }, []);
 
   // Escape key + block popups
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
     const origOpen = window.open;
-    window.open = function() { return null; } as typeof window.open;
+    window.open = (() => null) as typeof window.open;
     return () => {
       window.removeEventListener("keydown", handler);
       window.open = origOpen;
     };
   }, [onClose]);
 
-  // Iframe load timeout (25s instead of 12s)
-  useEffect(() => {
-    if (phase !== "playing") return;
-    setIframeError(false);
-    setIframeLoaded(false);
-    const timer = setTimeout(() => {
-      if (!iframeLoaded) setIframeError(true);
-    }, 25000);
-    return () => clearTimeout(timer);
-  }, [iframeKey, currentProviderIdx, phase]);
+  const handleAudioSelect = (audioKey: string) => {
+    setSelectedAudio(audioKey);
+    extractionAttempted.current = false;
+    setPhase("extracting");
+  };
 
-  const nextProvider = useCallback(() => {
-    setIframeError(false);
-    setIframeLoaded(false);
-    setCurrentProviderIdx((i) => (i + 1) % EMBED_PROVIDERS.length);
-    setIframeKey((k) => k + 1);
-  }, []);
+  const provider = EMBED_PROVIDERS[currentProviderIdx];
+  const rawUrl = provider.buildUrl(tmdbId, imdbId, type, season, episode);
 
   const selectProvider = useCallback((idx: number) => {
-    setIframeError(false);
-    setIframeLoaded(false);
     setCurrentProviderIdx(idx);
-    setIframeKey((k) => k + 1);
+    setIframeKey(k => k + 1);
     setShowProviders(false);
   }, []);
 
-  const retryIframe = useCallback(() => { setIframeError(false); setIframeLoaded(false); setIframeKey((k) => k + 1); }, []);
+  const nextProvider = useCallback(() => {
+    setCurrentProviderIdx(i => (i + 1) % EMBED_PROVIDERS.length);
+    setIframeKey(k => k + 1);
+  }, []);
+
   const openExternal = useCallback(() => {
-    // Temporarily restore window.open for this action
     const orig = window.open;
     window.open = Window.prototype.open;
     window.open(rawUrl, "_blank", "noopener,noreferrer");
     window.open = orig;
   }, [rawUrl]);
 
-  const handleAudioSelect = (audioKey: string) => {
-    setSelectedAudio(audioKey);
-    setPhase("playing");
+  const retryExtraction = () => {
+    extractionAttempted.current = false;
+    setSources([]);
+    setPhase("extracting");
   };
 
-  // Audio selection screen
+  // ============ AUDIO SELECT SCREEN ============
   if (phase === "audio-select") {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
-        <div className="absolute inset-0 bg-background/90 backdrop-blur-xl" />
-        <div className="relative w-full max-w-md glass-strong overflow-hidden animate-scale-in" onClick={(e) => e.stopPropagation()}>
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-6">
+        <div className="absolute inset-0 bg-black/95 backdrop-blur-2xl" />
+        <div className="relative w-full max-w-lg animate-scale-in" onClick={e => e.stopPropagation()}>
+          <div className="glass-strong p-8">
+            <div className="flex items-center justify-between mb-8">
               <div>
-                <h2 className="font-display text-xl font-bold">{title}</h2>
-                <p className="text-sm text-muted-foreground mt-1">Escolha o tipo de áudio</p>
+                <h2 className="font-display text-2xl font-bold text-foreground">{title}</h2>
+                <p className="text-sm text-muted-foreground mt-1">Escolha o tipo de áudio para assistir</p>
               </div>
-              <button onClick={onClose} className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors">
-                <X className="w-4 h-4" />
+              <button onClick={onClose} className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors">
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             <div className="space-y-3">
-              {AUDIO_OPTIONS.filter(opt => audioTypes.includes(opt.key)).map((opt) => {
+              {AUDIO_OPTIONS.filter(opt => audioTypes.includes(opt.key)).map(opt => {
                 const Icon = opt.icon;
                 return (
                   <button
                     key={opt.key}
                     onClick={() => handleAudioSelect(opt.key)}
-                    className={`w-full flex items-center gap-4 p-4 rounded-2xl border transition-all duration-200 ${opt.className}`}
+                    className={`w-full flex items-center gap-4 p-5 rounded-2xl border bg-gradient-to-r transition-all duration-300 hover:scale-[1.02] ${opt.gradient}`}
                   >
-                    <div className="w-12 h-12 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
-                      <Icon className="w-6 h-6" />
+                    <div className="w-14 h-14 rounded-xl bg-white/10 flex items-center justify-center flex-shrink-0">
+                      <Icon className="w-7 h-7" />
                     </div>
                     <div className="text-left flex-1">
-                      <p className="font-semibold text-sm">{opt.label}</p>
-                      <p className="text-xs opacity-70 mt-0.5">{opt.description}</p>
+                      <p className="font-semibold text-base">{opt.label}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{opt.description}</p>
                     </div>
-                    <ChevronRight className="w-5 h-5 opacity-50" />
+                    <ChevronRight className="w-5 h-5 text-muted-foreground" />
                   </button>
                 );
               })}
             </div>
 
-            <div className="mt-4 pt-4 border-t border-white/10">
+            <div className="mt-6 pt-4 border-t border-white/10">
               <button
-                onClick={() => setPhase("playing")}
+                onClick={() => { extractionAttempted.current = false; setPhase("extracting"); }}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-muted-foreground hover:bg-white/10 transition-colors"
               >
                 <Globe className="w-4 h-4" />
@@ -214,37 +223,62 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
     );
   }
 
+  // ============ EXTRACTING SCREEN ============
+  if (phase === "extracting") {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+        <div className="absolute inset-0 bg-black/95 backdrop-blur-2xl" />
+        <div className="relative w-full max-w-md animate-scale-in" onClick={e => e.stopPropagation()}>
+          <div className="glass-strong p-8 text-center">
+            <div className="w-20 h-20 rounded-full border-4 border-primary/30 border-t-primary animate-spin mx-auto mb-6" />
+            <h2 className="font-display text-xl font-bold mb-2">{title}</h2>
+            <p className="text-sm text-muted-foreground mb-1">{extractionStatus}</p>
+            <div className="flex items-center justify-center gap-2 mt-4">
+              <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+              <div className="w-2 h-2 rounded-full bg-primary animate-pulse" style={{ animationDelay: "0.2s" }} />
+              <div className="w-2 h-2 rounded-full bg-primary animate-pulse" style={{ animationDelay: "0.4s" }} />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ============ CUSTOM PLAYER (extracted sources) ============
+  if (phase === "playing-custom" && sources.length > 0) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-black animate-fade-in">
+        <CustomPlayer
+          sources={sources}
+          title={title}
+          subtitle={`${type === "tv" && season && episode ? `T${season} • E${episode} • ` : ""}${sources[0]?.provider || "Direto"} • ${selectedAudio === "dublado" ? "Dublado" : selectedAudio === "legendado" ? "Legendado" : selectedAudio.toUpperCase()}`}
+          onClose={onClose}
+          onError={() => {
+            // All sources failed, fallback to embed
+            console.log("All extracted sources failed, falling back to embed");
+            setPhase("playing-embed");
+          }}
+        />
+      </div>
+    );
+  }
+
+  // ============ EMBED PLAYER (fallback) ============
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-background/90 backdrop-blur-xl" />
-      <div className="relative w-full max-w-5xl max-h-[95vh] glass-strong overflow-hidden animate-scale-in flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div className="absolute inset-0 bg-black/95 backdrop-blur-xl" />
+      <div className="relative w-full max-w-6xl max-h-[95vh] glass-strong overflow-hidden animate-scale-in flex flex-col" onClick={e => e.stopPropagation()}>
         
         {/* Header */}
         <div className="flex items-center justify-between p-3 sm:p-4 border-b border-white/10">
           <div className="flex-1 min-w-0 flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center flex-shrink-0">
-              {sources.length > 0 ? <Zap className="w-3.5 h-3.5 text-primary" /> : <Play className="w-3.5 h-3.5 text-primary fill-primary" />}
+              <Play className="w-3.5 h-3.5 text-primary fill-primary" />
             </div>
             <div className="min-w-0">
               <h2 className="font-display text-base sm:text-lg font-bold truncate">{title}</h2>
-              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+              <div className="flex items-center gap-2 mt-0.5">
                 {type === "tv" && season && episode && <span className="text-[10px] text-muted-foreground">T{season} • E{episode}</span>}
-                
-                {/* Selected audio badge */}
-                {selectedAudio && AUDIO_BADGES[selectedAudio] && (() => {
-                  const badge = AUDIO_BADGES[selectedAudio];
-                  const Icon = badge.icon;
-                  return (
-                    <button
-                      onClick={() => audioTypes.length > 1 && setPhase("audio-select")}
-                      className={`text-[9px] px-1.5 py-0.5 rounded-md border font-semibold flex items-center gap-1 ${badge.className} ${audioTypes.length > 1 ? 'cursor-pointer hover:opacity-80' : ''}`}
-                    >
-                      <Icon className="w-2.5 h-2.5" />{badge.label}
-                    </button>
-                  );
-                })()}
-
-                {/* Provider badge */}
                 <span className="text-[9px] px-1.5 py-0.5 rounded-md border font-semibold bg-white/5 text-muted-foreground border-white/10">
                   {provider.name}
                 </span>
@@ -253,6 +287,12 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
           </div>
 
           <div className="flex items-center gap-1.5 ml-2">
+            {/* Retry extraction */}
+            <button onClick={retryExtraction} className="h-8 px-2.5 rounded-xl bg-primary/10 border border-primary/20 flex items-center gap-1.5 hover:bg-primary/20 transition-colors text-[11px] font-medium text-primary" title="Tentar extrair novamente">
+              <Zap className="w-3 h-3" /> Extrair
+            </button>
+            
+            {/* Provider selector */}
             <div className="relative">
               <button onClick={() => setShowProviders(!showProviders)}
                 className="h-8 px-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center gap-1.5 hover:bg-white/10 transition-colors text-[11px] font-medium">
@@ -264,24 +304,21 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
                   {EMBED_PROVIDERS.map((p, i) => (
                     <button key={p.name} onClick={() => selectProvider(i)}
                       className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs transition-colors ${
-                        i === currentProviderIdx ? "bg-primary/15 text-primary" : "hover:bg-white/5 text-foreground"
+                        i === currentProviderIdx ? "bg-primary/15 text-primary" : "hover:bg-white/5"
                       }`}>
                       <span className="font-medium">{p.name}</span>
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded-md ${
-                        p.externalOnly ? "bg-amber-500/10 text-amber-400" : p.lang === "pt" ? "bg-emerald-500/10 text-emerald-400" : "bg-white/5 text-muted-foreground"
-                      }`}>{p.externalOnly ? "Nova aba" : p.tag}</span>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-md ${p.externalOnly ? "bg-amber-500/10 text-amber-400" : "bg-white/5 text-muted-foreground"}`}>
+                        {p.externalOnly ? "Nova aba" : p.tag}
+                      </span>
                     </button>
                   ))}
                 </div>
               )}
             </div>
-            <button onClick={nextProvider} className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors" title="Próximo">
+            <button onClick={nextProvider} className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors">
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
-            <button onClick={retryIframe} className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors" title="Recarregar">
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
-            <button onClick={openExternal} className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors" title="Nova aba">
+            <button onClick={openExternal} className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors">
               <ExternalLink className="w-3.5 h-3.5" />
             </button>
             <button onClick={onClose} className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors">
@@ -290,93 +327,33 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
           </div>
         </div>
 
-        {/* Player area */}
+        {/* Player */}
         <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
-          
-          {/* Ad protection overlays - block common ad click zones */}
-          <div className="absolute top-0 left-0 right-0 h-[4px] z-20 pointer-events-auto bg-background" />
-          <div className="absolute bottom-0 left-0 right-0 h-[4px] z-20 pointer-events-auto bg-background" />
-          <div className="absolute top-0 left-0 w-[4px] h-full z-20 pointer-events-auto bg-background" />
-          <div className="absolute top-0 right-0 w-[4px] h-full z-20 pointer-events-auto bg-background" />
-
-          {iframeSrc ? (
-            <iframe
-              key={iframeKey}
-              src={iframeSrc}
-              className="absolute inset-0 w-full h-full"
-              allowFullScreen
-              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-              style={{ border: 0 }}
-              scrolling="no"
-              title={title}
-              onLoad={() => setIframeLoaded(true)}
-            />
-          ) : (
+          {provider.externalOnly ? (
             <div className="absolute inset-0 flex items-center justify-center bg-background">
               <div className="text-center p-6 max-w-md">
                 <div className="w-14 h-14 rounded-2xl bg-primary/20 flex items-center justify-center mx-auto mb-4">
                   <ExternalLink className="w-7 h-7 text-primary" />
                 </div>
                 <h3 className="font-display text-lg font-bold mb-2">{provider.name}</h3>
-                <p className="text-sm text-muted-foreground mb-5">Este provedor abre em nova aba para melhor experiência.</p>
-                <button onClick={openExternal}
-                  className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all mx-auto">
-                  <ExternalLink className="w-4 h-4" />Abrir {provider.name}
+                <p className="text-sm text-muted-foreground mb-5">Este provedor abre em nova aba.</p>
+                <button onClick={openExternal} className="flex items-center gap-2 px-6 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all mx-auto">
+                  <ExternalLink className="w-4 h-4" /> Abrir {provider.name}
                 </button>
               </div>
             </div>
-          )}
-
-          {iframeError && iframeSrc && (
-            <div className="absolute inset-0 flex items-center justify-center bg-background/95 backdrop-blur-sm z-30">
-              <div className="text-center p-6 max-w-md">
-                <div className="w-14 h-14 rounded-2xl bg-primary/20 flex items-center justify-center mx-auto mb-4">
-                  <Shield className="w-7 h-7 text-primary" />
-                </div>
-                <h3 className="font-display text-lg font-bold mb-2">{provider.name} com acesso restrito</h3>
-                <p className="text-sm text-muted-foreground mb-5">Tente outro provedor ou abra em nova aba.</p>
-                <div className="flex flex-col sm:flex-row items-center gap-3 justify-center">
-                  <button onClick={nextProvider} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90">
-                    <ChevronRight className="w-4 h-4" />Próximo
-                  </button>
-                  <button onClick={openExternal} className="flex items-center gap-2 px-5 py-2.5 rounded-xl glass glass-hover font-semibold text-sm">
-                    <ExternalLink className="w-4 h-4" />Nova Aba
-                  </button>
-                </div>
-                <div className="flex items-center justify-center gap-1.5 mt-4">
-                  {EMBED_PROVIDERS.map((p, i) => (
-                    <button key={p.name} onClick={() => selectProvider(i)}
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-medium border transition-colors ${
-                        i === currentProviderIdx ? "bg-primary/20 text-primary border-primary/30" : "bg-white/5 text-muted-foreground border-white/10 hover:bg-white/10"
-                      }`}>{p.name}</button>
-                  ))}
-                </div>
-              </div>
-            </div>
+          ) : (
+            <iframe
+              key={iframeKey}
+              src={rawUrl}
+              className="absolute inset-0 w-full h-full"
+              allowFullScreen
+              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+              style={{ border: 0 }}
+              title={title}
+            />
           )}
         </div>
-
-        {/* Bottom bar with audio info */}
-        {audioTypes.length > 0 && (
-          <div className="px-4 py-2.5 border-t border-white/10 flex items-center gap-3 overflow-x-auto scrollbar-hide">
-            <span className="text-[10px] text-muted-foreground flex-shrink-0">Disponível em:</span>
-            {audioTypes.map((at) => {
-              const badge = AUDIO_BADGES[at];
-              if (!badge) return null;
-              const Icon = badge.icon;
-              const isSelected = at === selectedAudio;
-              return (
-                <button
-                  key={at}
-                  onClick={() => { setSelectedAudio(at); }}
-                  className={`text-[10px] px-2 py-1 rounded-lg border font-medium flex items-center gap-1.5 flex-shrink-0 transition-all ${badge.className} ${isSelected ? 'ring-1 ring-offset-1 ring-offset-background ring-current scale-105' : 'opacity-60 hover:opacity-100'}`}
-                >
-                  <Icon className="w-3 h-3" />{badge.label}
-                </button>
-              );
-            })}
-          </div>
-        )}
       </div>
     </div>
   );
