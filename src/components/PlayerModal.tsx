@@ -26,18 +26,12 @@ interface EmbedProvider {
   tag: string;
   buildUrl: (tmdbId: number, imdbId: string | null | undefined, type: "movie" | "tv", season?: number, episode?: number) => string;
   externalOnly?: boolean;
-  useProxy?: boolean;
+  sandbox?: boolean; // Enable strict sandboxing (blocks popups/ads)
 }
-
-// Build proxy URL for vidsrc.cc
-const buildProxyUrl = (url: string) => {
-  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-  return `${supabaseUrl}/functions/v1/proxy-player?url=${encodeURIComponent(url)}`;
-};
 
 const EMBED_PROVIDERS: EmbedProvider[] = [
   {
-    name: "VidSrc.cc", tag: "Principal • Anti-Ad", useProxy: true,
+    name: "VidSrc.cc", tag: "Principal • Sem Ads", sandbox: true,
     buildUrl: (_tmdbId, imdbId, type, season, episode) => {
       const id = imdbId || String(_tmdbId);
       return type === "movie"
@@ -86,7 +80,7 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
 
   const provider = EMBED_PROVIDERS[currentProviderIdx];
   const rawUrl = provider.buildUrl(tmdbId, imdbId, type, season, episode);
-  const iframeSrc = provider.externalOnly ? null : provider.useProxy ? buildProxyUrl(rawUrl) : rawUrl;
+  const iframeSrc = provider.externalOnly ? null : rawUrl;
 
   // Extract video sources on mount
   useEffect(() => {
@@ -124,11 +118,19 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
     return () => { cancelled = true; };
   }, [tmdbId, imdbId, type, season, episode]);
 
-  // Escape key
+  // Escape key + block popups from parent
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+
+    // Block any popup attempts from iframes
+    const origOpen = window.open;
+    window.open = function() { return null; } as typeof window.open;
+
+    return () => {
+      window.removeEventListener("keydown", handler);
+      window.open = origOpen;
+    };
   }, [onClose]);
 
   // Embed fallback timeout
@@ -309,8 +311,10 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
               {iframeSrc ? (
                 <iframe key={iframeKey} src={iframeSrc}
                   className="absolute inset-0 w-full h-full" allowFullScreen
-                  allow="autoplay; encrypted-media; picture-in-picture"
-                  style={{ border: 0 }} scrolling="no" title={title} />
+                  allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+                  sandbox={provider.sandbox ? "allow-scripts allow-same-origin allow-forms allow-presentation" : undefined}
+                  style={{ border: 0 }} scrolling="no" title={title}
+                  referrerPolicy="no-referrer" />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center bg-background">
                   <div className="text-center p-6 max-w-md">
