@@ -11,15 +11,13 @@ interface VideoSource {
   type: "mp4" | "m3u8";
 }
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-
 const AUDIO_OPTIONS = [
   { key: "dublado", icon: Mic, label: "Dublado PT-BR", description: "Áudio em português brasileiro" },
   { key: "legendado", icon: Subtitles, label: "Legendado", description: "Áudio original com legendas" },
   { key: "cam", icon: Video, label: "CAM", description: "Gravação de câmera" },
 ];
 
-// Multiple embed providers with fallback
+// Embed providers - loaded DIRECTLY (no proxy) to avoid Cloudflare blocks
 function buildEmbedUrls(imdbId: string | null, tmdbId: string, type: string, season?: number, episode?: number): string[] {
   const isMovie = type === "movie";
   const id = imdbId || tmdbId;
@@ -27,27 +25,10 @@ function buildEmbedUrls(imdbId: string | null, tmdbId: string, type: string, sea
   const e = episode ?? 1;
 
   return [
-    // 1. MegaEmbed (Brazilian, TMDB, minimal ads, high quality)
-    isMovie
-      ? `https://megaembed.com/embed/${tmdbId}`
-      : `https://megaembed.com/embed/${tmdbId}/${s}/${e}`,
-
-    // 2. Embed.su (TMDB)
-    isMovie
-      ? `https://embed.su/embed/movie/${tmdbId}/1/1`
-      : `https://embed.su/embed/tv/${tmdbId}/${s}/${e}`,
-
-    // 3. VidLink (TMDB)
-    isMovie
-      ? `https://vidlink.pro/movie/${tmdbId}?autoplay=true`
-      : `https://vidlink.pro/tv/${tmdbId}/${s}/${e}?autoplay=true`,
-
-    // 4. AutoEmbed (TMDB)
-    isMovie
-      ? `https://autoembed.co/movie/tmdb/${tmdbId}`
-      : `https://autoembed.co/tv/tmdb/${tmdbId}-${s}-${e}`,
-
-    // 5. VikingEmbed (IMDB/TMDB)
+    isMovie ? `https://megaembed.com/embed/${tmdbId}` : `https://megaembed.com/embed/${tmdbId}/${s}/${e}`,
+    isMovie ? `https://embed.su/embed/movie/${tmdbId}/1/1` : `https://embed.su/embed/tv/${tmdbId}/${s}/${e}`,
+    isMovie ? `https://vidlink.pro/movie/${tmdbId}?autoplay=true` : `https://vidlink.pro/tv/${tmdbId}/${s}/${e}?autoplay=true`,
+    isMovie ? `https://autoembed.co/movie/tmdb/${tmdbId}` : `https://autoembed.co/tv/tmdb/${tmdbId}-${s}-${e}`,
     `https://vembed.stream/play/${id}`,
   ];
 }
@@ -73,10 +54,6 @@ const WatchPage = () => {
 
   const isMovie = type === "movie";
   const embedUrls = buildEmbedUrls(imdbId, id || "", type || "movie", season, episode);
-  const currentEmbedUrl = embedUrls[currentProviderIdx] || embedUrls[0];
-  // All embeds go through proxy so interceptor script is injected
-  const iframeSrc = `${SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(currentEmbedUrl)}`;
-  const [intercepting, setIntercepting] = useState(true);
 
   // Load audio types from DB
   useEffect(() => {
@@ -119,17 +96,15 @@ const WatchPage = () => {
         setPhase("playing");
         return;
       }
-
-      // No direct URL found - go to embed fallback (MegaEmbed first)
     } catch {
       // Silent fail
     }
 
-    console.log("[WatchPage] No direct URL, using proxy iframe fallback");
+    console.log("[WatchPage] No direct URL, using embed fallback");
     setPhase("fallback");
   }, [id, imdbId, isMovie, selectedAudio, season, episode]);
 
-  // Start extraction when audio is selected or passed via URL
+  // Start extraction when audio is selected
   useEffect(() => {
     if (phase === "loading" && selectedAudio) {
       tryExtraction();
@@ -143,50 +118,6 @@ const WatchPage = () => {
       setPhase("loading");
     }
   }, [audioParam]);
-
-  // Listen for intercepted video sources from proxy iframe
-  useEffect(() => {
-    if (phase !== "fallback") return;
-
-    const handler = (event: MessageEvent) => {
-      if (event.data?.type === "__VIDEO_SOURCE__" && event.data.url) {
-        const url = event.data.url as string;
-        const isM3u8 = url.includes(".m3u8") || url.includes("/playlist") || url.includes("/master");
-        const isMp4 = url.includes(".mp4");
-
-        if (isM3u8 || isMp4) {
-          console.log(`[WatchPage] Intercepted video: ${url}`);
-          setSources(prev => {
-            if (prev.find(s => s.url === url)) return prev;
-            const newSource: VideoSource = {
-              url,
-              quality: "auto",
-              provider: "intercepted",
-              type: isM3u8 ? "m3u8" : "mp4",
-            };
-            // Switch to native player immediately
-            setTimeout(() => {
-              setIntercepting(false);
-              setPhase("playing");
-            }, 300);
-            return [...prev, newSource];
-          });
-        }
-      }
-    };
-
-    window.addEventListener("message", handler);
-
-    // After 12s, stop intercepting and show iframe as fallback
-    const timeout = setTimeout(() => {
-      setIntercepting(false);
-    }, 12000);
-
-    return () => {
-      window.removeEventListener("message", handler);
-      clearTimeout(timeout);
-    };
-  }, [phase]);
 
   // Block popups
   useEffect(() => {
@@ -203,7 +134,6 @@ const WatchPage = () => {
     setPhase("loading");
   };
 
-  // Try next provider
   const tryNextProvider = () => {
     if (currentProviderIdx < embedUrls.length - 1) {
       setCurrentProviderIdx(prev => prev + 1);
@@ -217,13 +147,10 @@ const WatchPage = () => {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-accent/5" />
-
         <div className="relative w-full max-w-md">
           <button onClick={goBack} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
-            <ArrowLeft className="w-4 h-4" />
-            Voltar
+            <ArrowLeft className="w-4 h-4" /> Voltar
           </button>
-
           <div className="bg-card/50 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
             <div className="p-6 sm:p-8">
               <div className="mb-6">
@@ -231,16 +158,11 @@ const WatchPage = () => {
                 {subtitle && <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>}
                 <p className="text-sm text-muted-foreground mt-2">Escolha o tipo de áudio</p>
               </div>
-
               <div className="space-y-3">
                 {available.map(opt => {
                   const Icon = opt.icon;
                   return (
-                    <button
-                      key={opt.key}
-                      onClick={() => handleAudioSelect(opt.key)}
-                      className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/10 hover:bg-white/[0.08] hover:border-primary/30 transition-all duration-200 group"
-                    >
+                    <button key={opt.key} onClick={() => handleAudioSelect(opt.key)} className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/10 hover:bg-white/[0.08] hover:border-primary/30 transition-all duration-200 group">
                       <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/25 transition-colors">
                         <Icon className="w-6 h-6 text-primary" />
                       </div>
@@ -253,14 +175,9 @@ const WatchPage = () => {
                   );
                 })}
               </div>
-
               <div className="mt-5 pt-5 border-t border-white/10">
-                <button
-                  onClick={() => handleAudioSelect("legendado")}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-muted-foreground hover:bg-white/10 transition-colors"
-                >
-                  <Globe className="w-4 h-4" />
-                  Pular e assistir legendado
+                <button onClick={() => handleAudioSelect("legendado")} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-muted-foreground hover:bg-white/10 transition-colors">
+                  <Globe className="w-4 h-4" /> Pular e assistir legendado
                 </button>
               </div>
             </div>
@@ -282,7 +199,7 @@ const WatchPage = () => {
     );
   }
 
-  // ===== PLAYING (native player with direct source) =====
+  // ===== PLAYING (native CustomPlayer with direct source) =====
   if (phase === "playing" && sources.length > 0) {
     return (
       <div className="fixed inset-0 z-[100] bg-black">
@@ -300,10 +217,9 @@ const WatchPage = () => {
     );
   }
 
-  // ===== FALLBACK (intercept via hidden proxy iframe → native player) =====
+  // ===== FALLBACK (embed iframe loaded DIRECTLY - no proxy, avoids Cloudflare) =====
   return (
     <div className="fixed inset-0 z-[100] bg-black flex flex-col">
-      {/* Header bar */}
       <div className="flex items-center justify-between px-4 py-3 bg-card/90 backdrop-blur-sm border-b border-white/10 z-20">
         <div className="flex items-center gap-3 min-w-0">
           <button onClick={goBack} className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors flex-shrink-0">
@@ -315,33 +231,19 @@ const WatchPage = () => {
           </div>
         </div>
         {currentProviderIdx < embedUrls.length - 1 && (
-          <button
-            onClick={tryNextProvider}
-            className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10 transition-colors"
-          >
+          <button onClick={tryNextProvider} className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10 transition-colors">
             Trocar servidor
           </button>
         )}
       </div>
 
       <div className="relative flex-1">
-        {/* Loading overlay while intercepting */}
-        {intercepting && (
-          <div className="absolute inset-0 z-20 bg-black flex items-center justify-center">
-            <div className="flex flex-col items-center gap-4">
-              <Loader2 className="w-10 h-10 text-primary animate-spin" />
-              <p className="text-sm text-muted-foreground">Preparando player...</p>
-            </div>
-          </div>
-        )}
-
-        {/* Proxy iframe (hidden while intercepting, visible as fallback after timeout) */}
         <iframe
-          src={iframeSrc}
+          src={embedUrls[currentProviderIdx]}
           className="w-full h-full"
           allowFullScreen
           allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-          style={{ border: 0, opacity: intercepting ? 0 : 1 }}
+          style={{ border: 0 }}
           title={title}
         />
       </div>
