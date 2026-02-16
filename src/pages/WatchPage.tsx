@@ -74,11 +74,9 @@ const WatchPage = () => {
   const isMovie = type === "movie";
   const embedUrls = buildEmbedUrls(imdbId, id || "", type || "movie", season, episode);
   const currentEmbedUrl = embedUrls[currentProviderIdx] || embedUrls[0];
-  // Only proxy embedplayapi.site - other providers load directly in iframe
-  const needsProxy = currentEmbedUrl.includes("embedplayapi.site");
-  const iframeSrc = needsProxy 
-    ? `${SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(currentEmbedUrl)}`
-    : currentEmbedUrl;
+  // All embeds go through proxy so interceptor script is injected
+  const iframeSrc = `${SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(currentEmbedUrl)}`;
+  const [intercepting, setIntercepting] = useState(true);
 
   // Load audio types from DB
   useEffect(() => {
@@ -157,6 +155,7 @@ const WatchPage = () => {
         const isMp4 = url.includes(".mp4");
 
         if (isM3u8 || isMp4) {
+          console.log(`[WatchPage] Intercepted video: ${url}`);
           setSources(prev => {
             if (prev.find(s => s.url === url)) return prev;
             const newSource: VideoSource = {
@@ -165,9 +164,11 @@ const WatchPage = () => {
               provider: "intercepted",
               type: isM3u8 ? "m3u8" : "mp4",
             };
-            if (prev.length === 0) {
-              setTimeout(() => setPhase("playing"), 300);
-            }
+            // Switch to native player immediately
+            setTimeout(() => {
+              setIntercepting(false);
+              setPhase("playing");
+            }, 300);
             return [...prev, newSource];
           });
         }
@@ -175,7 +176,16 @@ const WatchPage = () => {
     };
 
     window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
+
+    // After 12s, stop intercepting and show iframe as fallback
+    const timeout = setTimeout(() => {
+      setIntercepting(false);
+    }, 12000);
+
+    return () => {
+      window.removeEventListener("message", handler);
+      clearTimeout(timeout);
+    };
   }, [phase]);
 
   // Block popups
@@ -290,9 +300,10 @@ const WatchPage = () => {
     );
   }
 
-  // ===== FALLBACK (embed via proxy iframe) =====
+  // ===== FALLBACK (intercept via hidden proxy iframe → native player) =====
   return (
     <div className="fixed inset-0 z-[100] bg-black flex flex-col">
+      {/* Header bar */}
       <div className="flex items-center justify-between px-4 py-3 bg-card/90 backdrop-blur-sm border-b border-white/10 z-20">
         <div className="flex items-center gap-3 min-w-0">
           <button onClick={goBack} className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors flex-shrink-0">
@@ -314,17 +325,23 @@ const WatchPage = () => {
       </div>
 
       <div className="relative flex-1">
-        <div className="absolute top-0 left-0 right-0 h-[3px] z-10 bg-black" />
-        <div className="absolute bottom-0 left-0 right-0 h-[3px] z-10 bg-black" />
-        <div className="absolute top-0 left-0 w-[3px] h-full z-10 bg-black" />
-        <div className="absolute top-0 right-0 w-[3px] h-full z-10 bg-black" />
+        {/* Loading overlay while intercepting */}
+        {intercepting && (
+          <div className="absolute inset-0 z-20 bg-black flex items-center justify-center">
+            <div className="flex flex-col items-center gap-4">
+              <Loader2 className="w-10 h-10 text-primary animate-spin" />
+              <p className="text-sm text-muted-foreground">Preparando player...</p>
+            </div>
+          </div>
+        )}
 
+        {/* Proxy iframe (hidden while intercepting, visible as fallback after timeout) */}
         <iframe
           src={iframeSrc}
           className="w-full h-full"
           allowFullScreen
           allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-          style={{ border: 0 }}
+          style={{ border: 0, opacity: intercepting ? 0 : 1 }}
           title={title}
         />
       </div>
