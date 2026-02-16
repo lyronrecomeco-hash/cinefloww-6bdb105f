@@ -63,15 +63,15 @@ Deno.serve(async (req) => {
     const isMovie = cType === "movie";
     const movieId = imdb_id || tmdb_id;
     const superflixUrl = isMovie
-      ? `https://superflixapi.cv/filme/${movieId}`
-      : `https://superflixapi.cv/serie/${tmdb_id}/${season || 1}/${episode || 1}`;
+      ? `https://superflixapi.one/filme/${movieId}`
+      : `https://superflixapi.one/serie/${tmdb_id}/${season || 1}/${episode || 1}`;
 
     console.log(`[extract] Fetching: ${superflixUrl}`);
 
     const response = await fetch(superflixUrl, {
       headers: {
         "User-Agent": UA,
-        "Referer": "https://superflixapi.cv/",
+        "Referer": "https://superflixapi.one/",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
       redirect: "follow",
@@ -116,7 +116,7 @@ Deno.serve(async (req) => {
           try {
             console.log(`[extract] Following iframe: ${url}`);
             const iframeRes = await fetch(url, {
-              headers: { "User-Agent": UA, "Referer": "https://superflixapi.cv/" },
+              headers: { "User-Agent": UA, "Referer": "https://superflixapi.one/" },
               redirect: "follow",
             });
             const iframeHtml = await iframeRes.text();

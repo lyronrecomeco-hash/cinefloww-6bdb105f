@@ -59,8 +59,8 @@ const WatchPage = () => {
   const seriesId = id || "";
   const superflixUrl =
     type === "movie"
-      ? `https://superflixapi.cv/filme/${movieId}`
-      : `https://superflixapi.cv/serie/${seriesId}/${season ?? 1}/${episode ?? 1}`;
+      ? `https://superflixapi.one/filme/${movieId}`
+      : `https://superflixapi.one/serie/${seriesId}/${season ?? 1}/${episode ?? 1}`;
 
   const proxyUrl = `${SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(superflixUrl)}`;
 
