@@ -78,19 +78,20 @@ export interface TMDBEpisode {
   vote_average: number;
 }
 
-interface TMDBList {
+export interface TMDBList {
   results: TMDBMovie[];
   total_pages: number;
+  total_results: number;
 }
 
 // Endpoints
-export const getTrending = () => fetchTMDB<TMDBList>("/trending/all/week");
-export const getPopularMovies = () => fetchTMDB<TMDBList>("/movie/popular");
-export const getPopularSeries = () => fetchTMDB<TMDBList>("/tv/popular");
-export const getTopRatedMovies = () => fetchTMDB<TMDBList>("/movie/top_rated");
-export const getTopRatedSeries = () => fetchTMDB<TMDBList>("/tv/top_rated");
-export const getNowPlayingMovies = () => fetchTMDB<TMDBList>("/movie/now_playing");
-export const getAiringTodaySeries = () => fetchTMDB<TMDBList>("/tv/airing_today");
+export const getTrending = (page = 1) => fetchTMDB<TMDBList>("/trending/all/week", { page: String(page) });
+export const getPopularMovies = (page = 1) => fetchTMDB<TMDBList>("/movie/popular", { page: String(page) });
+export const getPopularSeries = (page = 1) => fetchTMDB<TMDBList>("/tv/popular", { page: String(page) });
+export const getTopRatedMovies = (page = 1) => fetchTMDB<TMDBList>("/movie/top_rated", { page: String(page) });
+export const getTopRatedSeries = (page = 1) => fetchTMDB<TMDBList>("/tv/top_rated", { page: String(page) });
+export const getNowPlayingMovies = (page = 1) => fetchTMDB<TMDBList>("/movie/now_playing", { page: String(page) });
+export const getAiringTodaySeries = (page = 1) => fetchTMDB<TMDBList>("/tv/airing_today", { page: String(page) });
 
 export const getMovieDetails = (id: number) =>
   fetchTMDB<TMDBMovieDetail>(`/movie/${id}`, { append_to_response: "credits,similar,videos,images" });
