@@ -8,6 +8,7 @@ import Index from "./pages/Index";
 import DetailsPage from "./pages/DetailsPage";
 import MoviesPage from "./pages/MoviesPage";
 import SeriesPage from "./pages/SeriesPage";
+import WatchPage from "./pages/WatchPage";
 import NotFound from "./pages/NotFound";
 
 // Admin (lazy loaded)
@@ -40,6 +41,7 @@ const App = () => (
             <Route path="/series" element={<SeriesPage />} />
             <Route path="/filme/:id" element={<DetailsPage type="movie" />} />
             <Route path="/serie/:id" element={<DetailsPage type="tv" />} />
+            <Route path="/assistir/:type/:id" element={<WatchPage />} />
 
             {/* Admin */}
             <Route path="/admin/login" element={<AdminLogin />} />

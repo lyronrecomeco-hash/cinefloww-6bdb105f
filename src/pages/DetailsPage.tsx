@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Play, Star, Clock, Calendar, Users, Clapperboard, Tv, List, Image as ImageIcon } from "lucide-react";
+import { ArrowLeft, Play, Star, Clock, Calendar, Users, Clapperboard, Tv, List, Image as ImageIcon, Mic, Subtitles, Video, Globe, ChevronRight, X } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import ContentRow from "@/components/ContentRow";
 import SeasonsModal from "@/components/SeasonsModal";
 import CastModal from "@/components/CastModal";
-import PlayerModal from "@/components/PlayerModal";
 import {
   TMDBMovieDetail,
   getMovieDetails,
@@ -23,11 +22,12 @@ interface DetailsPageProps {
 
 const DetailsPage = ({ type }: DetailsPageProps) => {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [detail, setDetail] = useState<TMDBMovieDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSeasons, setShowSeasons] = useState(false);
   const [showCast, setShowCast] = useState(false);
-  const [showPlayer, setShowPlayer] = useState(false);
+  const [showAudioModal, setShowAudioModal] = useState(false);
   const [audioTypes, setAudioTypes] = useState<string[]>([]);
 
   useEffect(() => {
@@ -35,7 +35,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     setDetail(null);
     setShowSeasons(false);
     setShowCast(false);
-    setShowPlayer(false);
+    setShowAudioModal(false);
     const fetcher = type === "movie" ? getMovieDetails : getSeriesDetails;
     fetcher(Number(id)).then((data) => {
       setDetail(data);
@@ -171,7 +171,16 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
             {/* Actions */}
             <div className="flex flex-wrap items-center gap-3 mb-6">
               <button
-                onClick={() => setShowPlayer(true)}
+                onClick={() => {
+                  if (audioTypes.length > 1) {
+                    setShowAudioModal(true);
+                  } else {
+                    const imdb = detail.imdb_id || detail.external_ids?.imdb_id || null;
+                    const params = new URLSearchParams({ title: getDisplayTitle(detail) });
+                    if (imdb) params.set("imdb", imdb);
+                    navigate(`/assistir/${type}/${id}?${params.toString()}`);
+                  }
+                }}
                 className="flex items-center gap-2 px-7 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
               >
                 <Play className="w-5 h-5 fill-current" />
@@ -307,16 +316,70 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         />
       )}
       {showCast && <CastModal cast={cast} onClose={() => setShowCast(false)} />}
-      {showPlayer && (
-        <PlayerModal
-          tmdbId={detail.id}
-          imdbId={imdbId}
-          type={type}
-          title={getDisplayTitle(detail)}
-          audioTypes={audioTypes}
-          onClose={() => setShowPlayer(false)}
-        />
-      )}
+
+      {/* Audio Selection Modal */}
+      {showAudioModal && (() => {
+        const AUDIO_OPTIONS = [
+          { key: "dublado", icon: Mic, label: "Dublado PT-BR", description: "Áudio em português brasileiro" },
+          { key: "legendado", icon: Subtitles, label: "Legendado", description: "Áudio original com legendas" },
+          { key: "cam", icon: Video, label: "CAM", description: "Gravação de câmera" },
+        ];
+        const handleSelect = (audioKey: string) => {
+          setShowAudioModal(false);
+          const imdb = detail.imdb_id || detail.external_ids?.imdb_id || null;
+          const params = new URLSearchParams({ title: getDisplayTitle(detail), audio: audioKey });
+          if (imdb) params.set("imdb", imdb);
+          navigate(`/assistir/${type}/${id}?${params.toString()}`);
+        };
+        return (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={() => setShowAudioModal(false)}>
+            <div className="absolute inset-0 bg-background/90 backdrop-blur-xl" />
+            <div className="relative w-full max-w-md glass-strong overflow-hidden animate-scale-in" onClick={e => e.stopPropagation()}>
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h2 className="font-display text-xl font-bold">{getDisplayTitle(detail)}</h2>
+                    <p className="text-sm text-muted-foreground mt-1">Escolha o tipo de áudio</p>
+                  </div>
+                  <button onClick={() => setShowAudioModal(false)} className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {AUDIO_OPTIONS.filter(o => audioTypes.includes(o.key)).map(opt => {
+                    const Icon = opt.icon;
+                    return (
+                      <button
+                        key={opt.key}
+                        onClick={() => handleSelect(opt.key)}
+                        className="w-full flex items-center gap-4 p-4 rounded-2xl glass glass-hover transition-all duration-200"
+                      >
+                        <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center flex-shrink-0">
+                          <Icon className="w-6 h-6 text-primary" />
+                        </div>
+                        <div className="text-left flex-1">
+                          <p className="font-semibold text-sm">{opt.label}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{opt.description}</p>
+                        </div>
+                        <ChevronRight className="w-5 h-5 text-muted-foreground" />
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-4 pt-4 border-t border-white/10">
+                  <button
+                    onClick={() => handleSelect("legendado")}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-muted-foreground hover:bg-white/10 transition-colors"
+                  >
+                    <Globe className="w-4 h-4" />
+                    Pular seleção e assistir
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };
