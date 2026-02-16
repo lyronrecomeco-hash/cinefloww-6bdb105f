@@ -23,34 +23,33 @@ const AUDIO_OPTIONS = [
 function buildEmbedUrls(imdbId: string | null, tmdbId: string, type: string, season?: number, episode?: number): string[] {
   const isMovie = type === "movie";
   const id = imdbId || tmdbId;
+  const s = season ?? 1;
+  const e = episode ?? 1;
 
-  const urls: string[] = [];
+  return [
+    // 1. MegaEmbed (Brazilian, TMDB, minimal ads, high quality)
+    isMovie
+      ? `https://megaembed.com/embed/${tmdbId}`
+      : `https://megaembed.com/embed/${tmdbId}/${s}/${e}`,
 
-  // 1. EmbedPlay (Brazilian, supports IMDB/TMDB)
-  if (isMovie) {
-    urls.push(`https://embedplayapi.site/embed/${id}`);
-  } else {
-    urls.push(`https://embedplayapi.site/embed/${id}/${season ?? 1}/${episode ?? 1}`);
-  }
+    // 2. Embed.su (TMDB)
+    isMovie
+      ? `https://embed.su/embed/movie/${tmdbId}/1/1`
+      : `https://embed.su/embed/tv/${tmdbId}/${s}/${e}`,
 
-  // 2. Embed.su (supports TMDB)
-  if (isMovie) {
-    urls.push(`https://embed.su/embed/movie/${tmdbId}/1/1`);
-  } else {
-    urls.push(`https://embed.su/embed/tv/${tmdbId}/${season ?? 1}/${episode ?? 1}`);
-  }
+    // 3. VidLink (TMDB)
+    isMovie
+      ? `https://vidlink.pro/movie/${tmdbId}?autoplay=true`
+      : `https://vidlink.pro/tv/${tmdbId}/${s}/${e}?autoplay=true`,
 
-  // 3. VidLink (supports TMDB)
-  if (isMovie) {
-    urls.push(`https://vidlink.pro/movie/${tmdbId}?autoplay=true`);
-  } else {
-    urls.push(`https://vidlink.pro/tv/${tmdbId}/${season ?? 1}/${episode ?? 1}?autoplay=true`);
-  }
+    // 4. AutoEmbed (TMDB)
+    isMovie
+      ? `https://autoembed.co/movie/tmdb/${tmdbId}`
+      : `https://autoembed.co/tv/tmdb/${tmdbId}-${s}-${e}`,
 
-  // 4. VikingEmbed (supports IMDB/TMDB)
-  urls.push(`https://vembed.stream/play/${id}`);
-
-  return urls;
+    // 5. VikingEmbed (IMDB/TMDB)
+    `https://vembed.stream/play/${id}`,
+  ];
 }
 
 const WatchPage = () => {
