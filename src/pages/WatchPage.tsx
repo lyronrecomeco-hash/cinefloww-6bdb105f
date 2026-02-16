@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Zap, Mic, Subtitles, Video, Globe, ChevronRight } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import CustomPlayer from "@/components/CustomPlayer";
 
 interface VideoSource {
@@ -13,12 +13,6 @@ interface VideoSource {
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
-const AUDIO_OPTIONS = [
-  { key: "dublado", icon: Mic, label: "Dublado PT-BR", description: "Áudio em português brasileiro" },
-  { key: "legendado", icon: Subtitles, label: "Legendado", description: "Áudio original com legendas" },
-  { key: "cam", icon: Video, label: "CAM", description: "Gravação de câmera" },
-];
-
 const WatchPage = () => {
   const { type, id } = useParams<{ type: string; id: string }>();
   const [searchParams] = useSearchParams();
@@ -26,74 +20,61 @@ const WatchPage = () => {
 
   const title = searchParams.get("title") || "Carregando...";
   const imdbId = searchParams.get("imdb") || null;
-  const audioParam = searchParams.get("audio");
   const season = searchParams.get("s") ? Number(searchParams.get("s")) : undefined;
   const episode = searchParams.get("e") ? Number(searchParams.get("e")) : undefined;
 
   const [sources, setSources] = useState<VideoSource[]>([]);
-  const [phase, setPhase] = useState<"audio-select" | "playing" | "fallback">(
-    audioParam ? "fallback" : "audio-select"
-  );
-  const [selectedAudio, setSelectedAudio] = useState(audioParam || "");
-  const [audioTypes, setAudioTypes] = useState<string[]>([]);
-  const extractTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const [phase, setPhase] = useState<"loading" | "playing" | "fallback">("loading");
+  const [error, setError] = useState<string | null>(null);
 
-  // Load audio types from DB
+  // Build EmbedPlay URL
+  const isMovie = type === "movie";
+  const embedId = imdbId || id || "";
+
+  const embedPlayUrl = isMovie
+    ? `https://embedplayapi.site/embed/${embedId}`
+    : `https://embedplayapi.site/embed/${embedId}/${season ?? 1}/${episode ?? 1}`;
+
+  const proxyUrl = `${SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(embedPlayUrl)}`;
+
+  // Try server-side extraction first
   useEffect(() => {
-    const cType = type === "movie" ? "movie" : "series";
-    supabase
-      .from("content")
-      .select("audio_type")
-      .eq("tmdb_id", Number(id))
-      .eq("content_type", cType)
-      .maybeSingle()
-      .then(({ data }) => {
-        const dbTypes = data?.audio_type?.length ? data.audio_type : [];
-        const merged = new Set([...dbTypes, "dublado", "legendado"]);
-        setAudioTypes([...merged]);
-      });
-  }, [id, type]);
+    const extract = async () => {
+      try {
+        const { data, error: fnError } = await supabase.functions.invoke("extract-video", {
+          body: {
+            tmdb_id: Number(id),
+            imdb_id: imdbId,
+            content_type: isMovie ? "movie" : "series",
+            season,
+            episode,
+          },
+        });
 
-  // Build SuperFlix URL - movies use IMDB ID, series use TMDB ID
-  const movieId = imdbId || id || "";
-  const seriesId = id || "";
-  const superflixUrl =
-    type === "movie"
-      ? `https://superflixapi.one/filme/${movieId}`
-      : `https://superflixapi.one/serie/${seriesId}/${season ?? 1}/${episode ?? 1}`;
-
-  const proxyUrl = `${SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(superflixUrl)}`;
-
-  // Silent background extraction - tries to get direct URL without showing UI
-  const trySilentExtraction = useCallback(async (audio: string) => {
-    try {
-      const { data, error } = await supabase.functions.invoke("extract-video", {
-        body: {
-          tmdb_id: Number(id),
-          imdb_id: imdbId,
-          content_type: type === "movie" ? "movie" : "series",
-          audio_type: audio,
-          season,
-          episode,
-        },
-      });
-
-      if (!error && data?.url) {
-        console.log(`[WatchPage] Got direct URL: ${data.url}`);
-        setSources([{
-          url: data.url,
-          quality: "auto",
-          provider: "SuperFlix",
-          type: data.type === "mp4" ? "mp4" : "m3u8",
-        }]);
-        setPhase("playing");
+        if (!fnError && data?.url) {
+          console.log(`[WatchPage] Got direct URL: ${data.url}`);
+          setSources([{
+            url: data.url,
+            quality: "auto",
+            provider: "EmbedPlay",
+            type: data.type === "mp4" ? "mp4" : "m3u8",
+          }]);
+          setPhase("playing");
+          return;
+        }
+      } catch {
+        // Silent fail
       }
-    } catch {
-      // Silently fail - user is already watching via fallback iframe
-    }
-  }, [id, imdbId, type, season, episode]);
 
-  // Listen for intercepted video sources from proxy iframe (in fallback)
+      // Go to fallback iframe to intercept
+      console.log("[WatchPage] No direct URL, using proxy iframe fallback");
+      setPhase("fallback");
+    };
+
+    extract();
+  }, [id, imdbId, isMovie, season, episode]);
+
+  // Listen for intercepted video sources from proxy iframe
   useEffect(() => {
     if (phase !== "fallback") return;
 
@@ -109,7 +90,7 @@ const WatchPage = () => {
             const newSource: VideoSource = {
               url,
               quality: "auto",
-              provider: "SuperFlix",
+              provider: "EmbedPlay",
               type: isM3u8 ? "m3u8" : "mp4",
             };
             if (prev.length === 0) {
@@ -125,26 +106,6 @@ const WatchPage = () => {
     return () => window.removeEventListener("message", handler);
   }, [phase]);
 
-  // When entering fallback, try silent server extraction in background
-  useEffect(() => {
-    if (phase === "fallback" && selectedAudio) {
-      trySilentExtraction(selectedAudio);
-    }
-  }, [phase, selectedAudio]);
-
-  // Auto-start if audio was passed via URL
-  useEffect(() => {
-    if (audioParam) {
-      setSelectedAudio(audioParam);
-      setPhase("fallback");
-    }
-  }, [audioParam]);
-
-  const handleAudioSelect = (audio: string) => {
-    setSelectedAudio(audio);
-    setPhase("fallback");
-  };
-
   // Block popups
   useEffect(() => {
     const orig = window.open;
@@ -155,61 +116,13 @@ const WatchPage = () => {
   const goBack = () => navigate(-1);
   const subtitle = type === "tv" && season && episode ? `T${season} • E${episode}` : undefined;
 
-  // ===== AUDIO SELECT =====
-  if (phase === "audio-select") {
-    const available = AUDIO_OPTIONS.filter(o => audioTypes.includes(o.key));
-
+  // ===== LOADING =====
+  if (phase === "loading") {
     return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background">
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-accent/5" />
-
-        <div className="relative w-full max-w-md">
-          <button onClick={goBack} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
-            <ArrowLeft className="w-4 h-4" />
-            Voltar
-          </button>
-
-          <div className="bg-card/50 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
-            <div className="p-6 sm:p-8">
-              <div className="mb-6">
-                <h2 className="font-display text-xl sm:text-2xl font-bold text-foreground">{title}</h2>
-                {subtitle && <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>}
-                <p className="text-sm text-muted-foreground mt-2">Escolha o tipo de áudio</p>
-              </div>
-
-              <div className="space-y-3">
-                {available.map(opt => {
-                  const Icon = opt.icon;
-                  return (
-                    <button
-                      key={opt.key}
-                      onClick={() => handleAudioSelect(opt.key)}
-                      className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/10 hover:bg-white/[0.08] hover:border-primary/30 transition-all duration-200 group"
-                    >
-                      <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/25 transition-colors">
-                        <Icon className="w-6 h-6 text-primary" />
-                      </div>
-                      <div className="text-left flex-1">
-                        <p className="font-semibold text-sm text-foreground">{opt.label}</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">{opt.description}</p>
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="mt-5 pt-5 border-t border-white/10">
-                <button
-                  onClick={() => handleAudioSelect("legendado")}
-                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-muted-foreground hover:bg-white/10 transition-colors"
-                >
-                  <Globe className="w-4 h-4" />
-                  Pular e assistir legendado
-                </button>
-              </div>
-            </div>
-          </div>
+      <div className="fixed inset-0 z-[100] bg-black flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-10 h-10 text-primary animate-spin" />
+          <p className="text-sm text-muted-foreground">Carregando player...</p>
         </div>
       </div>
     );
@@ -233,7 +146,7 @@ const WatchPage = () => {
     );
   }
 
-  // ===== FALLBACK (SuperFlix iframe - immediate playback) =====
+  // ===== FALLBACK (EmbedPlay via proxy iframe) =====
   return (
     <div className="fixed inset-0 z-[100] bg-black flex flex-col">
       <div className="flex items-center justify-between px-4 py-3 bg-card/90 backdrop-blur-sm border-b border-white/10 z-20">

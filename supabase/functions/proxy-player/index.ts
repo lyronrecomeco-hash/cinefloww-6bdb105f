@@ -139,9 +139,10 @@ const ANTI_AD_CSS = `
 `;
 
 const ALLOWED_DOMAINS = [
-  "superflixapi.cv", "superflixapi.one", "superflix.one",
+  "embedplayapi.site",
   "embed.su", "autoembed.co", "videasy.net",
   "vidsrc.cc", "vidsrc.net", "vidsrc.xyz", "vidsrc.icu",
+  "megaembed.com",
 ];
 
 function isAllowedUrl(url: string): boolean {
@@ -182,8 +183,8 @@ Deno.serve(async (req) => {
     const response = await fetch(targetUrl, {
       headers: {
         "User-Agent": UA,
-        "Referer": "https://superflix.app/",
-        "Origin": "https://superflix.app",
+        "Referer": "https://embedplayapi.site/",
+        "Origin": "https://embedplayapi.site",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
         "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
         "Sec-Fetch-Dest": "iframe",
