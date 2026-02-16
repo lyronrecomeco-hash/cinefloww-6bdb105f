@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { ArrowLeft, Play, Star, Clock, Calendar, Users, Clapperboard, Tv, List } from "lucide-react";
+import { ArrowLeft, Play, Star, Clock, Calendar, Users, Clapperboard, Tv, List, Image as ImageIcon } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import ContentRow from "@/components/ContentRow";
 import SeasonsModal from "@/components/SeasonsModal";
+import CastModal from "@/components/CastModal";
+import PlayerModal from "@/components/PlayerModal";
 import {
   TMDBMovieDetail,
   getMovieDetails,
@@ -23,11 +25,15 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [detail, setDetail] = useState<TMDBMovieDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSeasons, setShowSeasons] = useState(false);
+  const [showCast, setShowCast] = useState(false);
+  const [showPlayer, setShowPlayer] = useState(false);
 
   useEffect(() => {
     setLoading(true);
     setDetail(null);
     setShowSeasons(false);
+    setShowCast(false);
+    setShowPlayer(false);
     const fetcher = type === "movie" ? getMovieDetails : getSeriesDetails;
     fetcher(Number(id)).then((data) => {
       setDetail(data);
@@ -55,17 +61,20 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     );
   }
 
+  const imdbId = detail.imdb_id || detail.external_ids?.imdb_id || null;
   const director = detail.credits?.crew.find((c) => c.job === "Director");
-  const cast = detail.credits?.cast.slice(0, 8) ?? [];
+  const cast = detail.credits?.cast ?? [];
+  const castPreview = cast.slice(0, 6);
   const similar = detail.similar?.results ?? [];
   const trailer = detail.videos?.results.find((v) => v.type === "Trailer" && v.site === "YouTube");
+  const backdrops = detail.images?.backdrops?.slice(0, 8) ?? [];
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
 
       {/* Backdrop */}
-      <div className="relative h-[55vh] sm:h-[60vh] min-h-[380px] w-full overflow-hidden">
+      <div className="relative h-[50vh] sm:h-[55vh] min-h-[350px] w-full overflow-hidden">
         <img
           src={backdropUrl(detail.backdrop_path, "original")}
           alt={getDisplayTitle(detail)}
@@ -76,11 +85,11 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
       </div>
 
       {/* Main Content */}
-      <div className="relative -mt-48 sm:-mt-56 z-10 px-4 sm:px-6 lg:px-12 pb-20">
+      <div className="relative -mt-44 sm:-mt-52 z-10 px-4 sm:px-6 lg:px-12 pb-20">
         <div className="flex flex-col lg:flex-row gap-6 lg:gap-10">
-          {/* Left: Poster */}
+          {/* Poster */}
           <div className="flex-shrink-0 mx-auto lg:mx-0">
-            <div className="w-[180px] sm:w-[220px] lg:w-[260px] rounded-2xl overflow-hidden shadow-2xl shadow-background/80 border border-white/10">
+            <div className="w-[160px] sm:w-[200px] lg:w-[240px] rounded-2xl overflow-hidden shadow-2xl shadow-background/80 border border-white/10">
               <img
                 src={posterUrl(detail.poster_path)}
                 alt={getDisplayTitle(detail)}
@@ -89,7 +98,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
             </div>
           </div>
 
-          {/* Right: Info */}
+          {/* Info */}
           <div className="flex-1 animate-fade-in">
             <Link
               to="/"
@@ -99,7 +108,6 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
               Voltar
             </Link>
 
-            {/* Type + tagline */}
             <div className="flex items-center gap-2 mb-3">
               <span className="px-3 py-1 rounded-full bg-primary/20 text-primary text-xs font-semibold uppercase tracking-wider border border-primary/30">
                 {type === "tv" ? "Série" : "Filme"}
@@ -114,7 +122,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
             </h1>
 
             {/* Meta */}
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-5">
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2 mb-4">
               {detail.vote_average > 0 && (
                 <div className="flex items-center gap-1.5">
                   <Star className="w-5 h-5 text-primary fill-primary" />
@@ -141,12 +149,9 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
             </div>
 
             {/* Genres */}
-            <div className="flex flex-wrap gap-2 mb-5">
+            <div className="flex flex-wrap gap-2 mb-4">
               {detail.genres.map((g) => (
-                <span
-                  key={g.id}
-                  className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-medium text-secondary-foreground"
-                >
+                <span key={g.id} className="px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-xs font-medium text-secondary-foreground">
                   {g.name}
                 </span>
               ))}
@@ -158,15 +163,22 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
             </p>
 
             {/* Actions */}
-            <div className="flex flex-wrap items-center gap-3 mb-8">
+            <div className="flex flex-wrap items-center gap-3 mb-6">
+              <button
+                onClick={() => setShowPlayer(true)}
+                className="flex items-center gap-2 px-7 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
+              >
+                <Play className="w-5 h-5 fill-current" />
+                Assistir Agora
+              </button>
               {trailer && (
                 <a
                   href={`https://www.youtube.com/watch?v=${trailer.key}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-7 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
+                  className="flex items-center gap-2 px-7 py-3 rounded-2xl glass glass-hover font-semibold text-sm"
                 >
-                  <Play className="w-5 h-5 fill-current" />
+                  <Play className="w-4 h-4" />
                   Trailer
                 </a>
               )}
@@ -176,7 +188,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                   className="flex items-center gap-2 px-7 py-3 rounded-2xl glass glass-hover font-semibold text-sm"
                 >
                   <List className="w-5 h-5" />
-                  Temporadas & Episódios
+                  Temporadas
                 </button>
               )}
             </div>
@@ -195,30 +207,38 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                 </div>
               )}
               {cast.length > 0 && (
-                <div className="glass p-4 sm:col-span-1">
+                <button onClick={() => setShowCast(true)} className="glass p-4 text-left hover:bg-white/[0.08] transition-colors group">
                   <div className="flex items-center gap-2 mb-2">
                     <div className="w-7 h-7 rounded-lg bg-primary/20 flex items-center justify-center">
                       <Users className="w-3.5 h-3.5 text-primary" />
                     </div>
                     <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Elenco</span>
+                    <span className="text-xs text-primary ml-auto opacity-0 group-hover:opacity-100 transition-opacity">Ver todos →</span>
                   </div>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    {cast.map((c) => c.name).join(", ")}
+                  <p className="text-sm text-muted-foreground leading-relaxed line-clamp-1">
+                    {castPreview.map((c) => c.name).join(", ")}
                   </p>
-                </div>
+                </button>
               )}
             </div>
           </div>
         </div>
 
-        {/* Cast Grid */}
-        {cast.length > 0 && (
-          <div className="mt-12">
-            <h2 className="font-display text-xl font-bold mb-5 px-0">Elenco Principal</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4">
-              {cast.map((person) => (
-                <div key={person.id} className="text-center group">
-                  <div className="w-full aspect-square rounded-2xl overflow-hidden mb-2 bg-muted border border-white/5">
+        {/* Cast Preview */}
+        {castPreview.length > 0 && (
+          <div className="mt-10">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="font-display text-xl font-bold">Elenco Principal</h2>
+              {cast.length > 6 && (
+                <button onClick={() => setShowCast(true)} className="text-sm text-primary hover:underline">
+                  Ver todos ({cast.length})
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
+              {castPreview.map((person) => (
+                <div key={person.id} className="text-center group cursor-pointer" onClick={() => setShowCast(true)}>
+                  <div className="w-full aspect-[3/4] rounded-2xl overflow-hidden mb-2 bg-muted border border-white/5">
                     {person.profile_path ? (
                       <img
                         src={posterUrl(person.profile_path, "w185")}
@@ -240,20 +260,54 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
           </div>
         )}
 
+        {/* Gallery */}
+        {backdrops.length > 0 && (
+          <div className="mt-10">
+            <div className="flex items-center gap-2 mb-5">
+              <ImageIcon className="w-4 h-4 text-primary" />
+              <h2 className="font-display text-xl font-bold">Galeria</h2>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {backdrops.map((img, i) => (
+                <div key={i} className="aspect-video rounded-xl overflow-hidden border border-white/5 bg-muted">
+                  <img
+                    src={backdropUrl(img.file_path, "w780")}
+                    alt={`Cena ${i + 1}`}
+                    className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                    loading="lazy"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Similar */}
         {similar.length > 0 && (
-          <div className="mt-14">
+          <div className="mt-12">
             <ContentRow title="Títulos Semelhantes" movies={similar} />
           </div>
         )}
       </div>
 
-      {/* Seasons Modal */}
+      {/* Modals */}
       {showSeasons && detail.seasons && (
         <SeasonsModal
           seriesId={detail.id}
+          seriesTitle={getDisplayTitle(detail)}
           seasons={detail.seasons}
+          imdbId={imdbId}
           onClose={() => setShowSeasons(false)}
+        />
+      )}
+      {showCast && <CastModal cast={cast} onClose={() => setShowCast(false)} />}
+      {showPlayer && (
+        <PlayerModal
+          tmdbId={detail.id}
+          imdbId={imdbId}
+          type={type}
+          title={getDisplayTitle(detail)}
+          onClose={() => setShowPlayer(false)}
         />
       )}
     </div>

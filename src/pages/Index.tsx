@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Flame, Film, Tv, Sparkles, Trophy, Zap } from "lucide-react";
+import { Flame, Film, Tv, Trophy, Zap } from "lucide-react";
 import Navbar from "@/components/Navbar";
-import HeroSection from "@/components/HeroSection";
+import HeroSlider from "@/components/HeroSlider";
 import ContentRow from "@/components/ContentRow";
 import {
   TMDBMovie,
@@ -37,8 +37,6 @@ const Index = () => {
     }).catch(() => setLoading(false));
   }, []);
 
-  const featured = trending[0];
-
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -50,9 +48,9 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      {featured && <HeroSection movie={featured} />}
+      <HeroSlider movies={trending} />
 
-      <div className="-mt-20 relative z-10 pb-20">
+      <div className="-mt-16 relative z-10 pb-20">
         <ContentRow title="Em Alta" movies={trending} icon={<Flame className="w-4 h-4" />} />
         <ContentRow title="Nos Cinemas" movies={nowPlaying} icon={<Zap className="w-4 h-4" />} />
         <ContentRow title="Filmes Populares" movies={popularMovies} icon={<Film className="w-4 h-4" />} />

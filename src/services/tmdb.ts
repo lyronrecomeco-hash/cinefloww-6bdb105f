@@ -47,6 +47,8 @@ export interface TMDBMovieDetail {
   genres: { id: number; name: string }[];
   tagline?: string;
   status: string;
+  imdb_id?: string | null;
+  external_ids?: { imdb_id?: string | null };
   credits?: {
     cast: { id: number; name: string; character: string; profile_path: string | null }[];
     crew: { id: number; name: string; job: string }[];
@@ -54,6 +56,7 @@ export interface TMDBMovieDetail {
   seasons?: { id: number; name: string; season_number: number; episode_count: number; poster_path: string | null; air_date: string | null }[];
   similar?: { results: TMDBMovie[] };
   videos?: { results: { key: string; site: string; type: string }[] };
+  images?: { backdrops: { file_path: string; width: number }[]; posters: { file_path: string }[] };
 }
 
 export interface TMDBSeason {
@@ -90,10 +93,10 @@ export const getNowPlayingMovies = () => fetchTMDB<TMDBList>("/movie/now_playing
 export const getAiringTodaySeries = () => fetchTMDB<TMDBList>("/tv/airing_today");
 
 export const getMovieDetails = (id: number) =>
-  fetchTMDB<TMDBMovieDetail>(`/movie/${id}`, { append_to_response: "credits,similar,videos" });
+  fetchTMDB<TMDBMovieDetail>(`/movie/${id}`, { append_to_response: "credits,similar,videos,images" });
 
 export const getSeriesDetails = (id: number) =>
-  fetchTMDB<TMDBMovieDetail>(`/tv/${id}`, { append_to_response: "credits,similar,videos" });
+  fetchTMDB<TMDBMovieDetail>(`/tv/${id}`, { append_to_response: "credits,similar,videos,images,external_ids" });
 
 export const getSeasonDetails = (seriesId: number, seasonNumber: number) =>
   fetchTMDB<TMDBSeason>(`/tv/${seriesId}/season/${seasonNumber}`);
