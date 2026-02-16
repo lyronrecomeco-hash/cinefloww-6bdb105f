@@ -43,10 +43,10 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
 
   return (
     <>
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+      <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
         <div className="absolute inset-0 bg-background/80 backdrop-blur-xl" />
         <div
-          className="relative w-full max-w-4xl max-h-[85vh] glass-strong overflow-hidden animate-scale-in flex flex-col"
+          className="relative w-full sm:max-w-4xl h-[90vh] sm:h-auto sm:max-h-[85vh] glass-strong overflow-hidden animate-scale-in flex flex-col rounded-t-3xl sm:rounded-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -145,9 +145,9 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
 };
 
 const EpisodeCard = ({ episode, onPlay }: { episode: TMDBEpisode; onPlay: () => void }) => (
-  <div className="flex gap-4 p-3 rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.06] hover:border-white/10 transition-all group">
+  <div className="flex gap-3 sm:gap-4 p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.06] hover:border-white/10 transition-all group">
     {/* Thumbnail */}
-    <div className="flex-shrink-0 w-28 sm:w-36 aspect-video rounded-xl overflow-hidden bg-muted relative cursor-pointer" onClick={onPlay}>
+    <div className="flex-shrink-0 w-24 sm:w-36 aspect-video rounded-lg sm:rounded-xl overflow-hidden bg-muted relative cursor-pointer" onClick={onPlay}>
       {episode.still_path ? (
         <img src={posterUrl(episode.still_path, "w300")} alt={episode.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />
       ) : (

@@ -21,7 +21,6 @@ interface VideoSource {
   type: "mp4" | "m3u8";
 }
 
-// Embed providers (MegaEmbed first - loads directly, no proxy needed)
 function buildEmbedUrls(tmdbId: number, imdbId: string | null, type: string, season?: number, episode?: number): string[] {
   const isMovie = type === "movie";
   const s = season ?? 1;
@@ -45,7 +44,6 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
   const embedUrls = buildEmbedUrls(tmdbId, imdbId || null, type, season, episode);
   const subtitle = type === "tv" && season && episode ? `T${season} • E${episode}` : undefined;
 
-  // Try extraction, then fallback to embed
   const tryExtraction = useCallback(async () => {
     try {
       const { data, error: fnError } = await supabase.functions.invoke("extract-video", {
@@ -60,7 +58,6 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
       });
 
       if (!fnError && data?.url) {
-        console.log(`[PlayerModal] Direct URL found: ${data.url}`);
         setSources([{
           url: data.url,
           quality: "auto",
@@ -74,8 +71,7 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
       // Silent fail
     }
 
-    // No direct URL - use embed iframe (MegaEmbed first, loaded directly)
-    console.log("[PlayerModal] No direct URL, using embed fallback");
+    // No direct URL - go straight to embed
     setPhase("embed");
   }, [tmdbId, imdbId, type, season, episode, audioTypes]);
 
@@ -83,7 +79,6 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
     tryExtraction();
   }, [tryExtraction]);
 
-  // Escape handler + popup blocker
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", h);
@@ -98,7 +93,6 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
     }
   };
 
-  // ===== LOADING =====
   if (phase === "loading") {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
@@ -115,7 +109,6 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
     );
   }
 
-  // ===== CUSTOM PLAYER (direct stream in our player) =====
   if (phase === "custom" && sources.length > 0) {
     return (
       <div className="fixed inset-0 z-[100] bg-black animate-fade-in">
@@ -125,7 +118,7 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
           subtitle={subtitle}
           onClose={onClose}
           onError={() => {
-            console.log("[PlayerModal] Player error, switching to embed");
+            // Fallback to embed when custom player fails
             setPhase("embed");
           }}
         />
@@ -133,19 +126,18 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
     );
   }
 
-  // ===== EMBED FALLBACK (MegaEmbed loaded DIRECTLY - no proxy, avoids Cloudflare) =====
+  // EMBED FALLBACK
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-0 sm:p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-background/90 backdrop-blur-xl" />
-      <div className="relative w-full max-w-5xl max-h-[95vh] glass-strong overflow-hidden animate-scale-in flex flex-col" onClick={e => e.stopPropagation()}>
-        {/* Header */}
+      <div className="relative w-full h-full sm:h-auto sm:max-w-5xl sm:max-h-[95vh] glass-strong overflow-hidden animate-scale-in flex flex-col sm:rounded-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between p-3 sm:p-4 border-b border-white/10">
           <div className="flex-1 min-w-0 flex items-center gap-3">
             <div className="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center flex-shrink-0">
               <Play className="w-3.5 h-3.5 text-primary fill-primary" />
             </div>
             <div className="min-w-0">
-              <h2 className="font-display text-base sm:text-lg font-bold truncate">{title}</h2>
+              <h2 className="font-display text-sm sm:text-lg font-bold truncate">{title}</h2>
               {subtitle && <span className="text-[10px] text-muted-foreground">{subtitle}</span>}
             </div>
           </div>
@@ -155,7 +147,7 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
                 onClick={tryNextProvider}
                 className="h-8 px-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center gap-1.5 hover:bg-white/10 transition-colors text-[11px] font-medium text-muted-foreground"
               >
-                <ChevronRight className="w-3 h-3" /> Trocar servidor
+                <ChevronRight className="w-3 h-3" /> Trocar
               </button>
             )}
             <button onClick={onClose} className="w-8 h-8 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors">
@@ -164,8 +156,7 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
           </div>
         </div>
 
-        {/* Iframe - loaded DIRECTLY (not proxied) to avoid Cloudflare blocks */}
-        <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
+        <div className="relative flex-1 sm:w-full" style={{ paddingBottom: "56.25%" }}>
           <iframe
             src={embedUrls[currentProviderIdx]}
             className="absolute inset-0 w-full h-full"

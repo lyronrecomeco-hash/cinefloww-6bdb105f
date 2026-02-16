@@ -28,7 +28,6 @@ const Index = () => {
       getPopularSeries(),
     ]).then(([t, np, at, pm, ps]) => {
       setTrending(t.results);
-      // Merge now playing movies + airing today series for "Lançamentos"
       const launches = [...np.results.slice(0, 10), ...at.results.slice(0, 10)];
       setNowPlaying(launches);
       setPopularMovies(pm.results);
@@ -50,13 +49,13 @@ const Index = () => {
       <Navbar />
       <HeroSlider movies={trending} />
 
-      <div className="-mt-16 relative z-10 pb-20">
-        <ContentRow title="Lançamentos" movies={nowPlaying} icon={<Flame className="w-4 h-4" />} />
-        <ContentRow title="Filmes" movies={popularMovies} icon={<Film className="w-4 h-4" />} />
-        <ContentRow title="Séries" movies={popularSeries} icon={<Tv className="w-4 h-4" />} />
+      <div className="-mt-16 relative z-10 pb-20 space-y-2">
+        <ContentRow title="🔥 Lançamentos" movies={nowPlaying} icon={<Flame className="w-4 h-4" />} />
+        <ContentRow title="🎬 Filmes" movies={popularMovies} icon={<Film className="w-4 h-4" />} />
+        <ContentRow title="📺 Séries" movies={popularSeries} icon={<Tv className="w-4 h-4" />} />
       </div>
 
-      <footer className="border-t border-white/5 py-8 px-4 sm:px-6 lg:px-12">
+      <footer className="border-t border-white/5 py-6 sm:py-8 px-4 sm:px-6 lg:px-12">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <span className="font-display font-bold text-lg">
             Cine<span className="text-gradient">flow</span>

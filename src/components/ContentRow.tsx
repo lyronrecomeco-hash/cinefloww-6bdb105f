@@ -24,26 +24,26 @@ const ContentRow = ({ title, movies, icon }: ContentRowProps) => {
   if (movies.length === 0) return null;
 
   return (
-    <section className="mb-10 lg:mb-14">
-      <div className="flex items-center justify-between px-4 sm:px-6 lg:px-12 mb-4 lg:mb-6">
-        <div className="flex items-center gap-3">
+    <section className="mb-8 sm:mb-10 lg:mb-14">
+      <div className="flex items-center justify-between px-3 sm:px-6 lg:px-12 mb-3 sm:mb-4 lg:mb-6">
+        <div className="flex items-center gap-2 sm:gap-3">
           {icon && (
-            <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
               {icon}
             </div>
           )}
-          <h2 className="font-display text-lg sm:text-xl lg:text-2xl font-bold">{title}</h2>
+          <h2 className="font-display text-base sm:text-xl lg:text-2xl font-bold">{title}</h2>
         </div>
         <div className="hidden sm:flex items-center gap-1">
           <button
             onClick={() => scroll("left")}
-            className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
           <button
             onClick={() => scroll("right")}
-            className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -52,10 +52,12 @@ const ContentRow = ({ title, movies, icon }: ContentRowProps) => {
 
       <div
         ref={scrollRef}
-        className="flex gap-4 overflow-x-auto scrollbar-hide px-4 sm:px-6 lg:px-12 pb-2"
+        className="flex gap-2.5 sm:gap-4 overflow-x-auto scrollbar-hide px-3 sm:px-6 lg:px-12 pb-2"
       >
         {movies.map((movie) => (
-          <MovieCard key={movie.id} movie={movie} />
+          <div key={movie.id} className="flex-shrink-0 w-[120px] sm:w-[160px] lg:w-[180px]">
+            <MovieCard movie={movie} />
+          </div>
         ))}
       </div>
     </section>
