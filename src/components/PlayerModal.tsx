@@ -13,15 +13,39 @@ interface PlayerModalProps {
 
 const BASE = "https://superflixapi.one";
 
-function buildPlayerUrl(tmdbId: number, imdbId: string | null | undefined, type: "movie" | "tv", season?: number, episode?: number): string {
-  if (type === "movie") {
-    const id = imdbId || String(tmdbId);
-    return `${BASE}/filme/${id}`;
-  }
-  let url = `${BASE}/serie/${tmdbId}`;
-  if (season != null && episode != null) {
-    url += `/${season}/${episode}`;
-  }
+/**
+ * Builds player URL following the exact SuperFlixAPI documentation:
+ * - Movies: /filme/{imdbId or tmdbId}
+ * - Series: /serie/{tmdbId}/{season}/{episode}
+ * 
+ * Mirrors the official EmbedPlayer JS function:
+ *   var u = BASE + "/" + type + "/" + id + "/" + season + "/" + episode;
+ *   u = u.replace(/([^:])(\/\/{2,})/, "$1/");
+ * 
+ * Customization hashes: #noEpList, #color:hex, #noLink, #transparent
+ */
+function buildPlayerUrl(
+  tmdbId: number,
+  imdbId: string | null | undefined,
+  type: "movie" | "tv",
+  season?: number,
+  episode?: number
+): string {
+  const apiType = type === "movie" ? "filme" : "serie";
+  const id = type === "movie" ? (imdbId || String(tmdbId)) : String(tmdbId);
+  
+  // Mirror official logic: always concatenate all parts
+  const s = type === "movie" ? "" : String(season ?? "");
+  const e = type === "movie" ? "" : String(episode ?? "");
+  
+  let url = `${BASE}/${apiType}/${id}/${s}/${e}`;
+  
+  // Remove double slashes (except after protocol), exactly like the official plugin
+  url = url.replace(/([^:])(\/\/{1,})/g, "$1/");
+  
+  // Remove trailing slash
+  url = url.replace(/\/$/, "");
+  
   return url;
 }
 
