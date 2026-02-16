@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { X, Play, ExternalLink, RefreshCw, ChevronRight, Mic, Subtitles, Video, Globe, Loader2, Zap } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { X, Play, ExternalLink, RefreshCw, Mic, Subtitles, Video, Globe, Loader2, Zap, ChevronRight } from "lucide-react";
 import CustomPlayer from "./CustomPlayer";
 
 interface PlayerModalProps {
@@ -29,13 +28,16 @@ const AUDIO_OPTIONS = [
 
 type Phase = "audio-select" | "extracting" | "custom" | "embed";
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+
 const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes = [], onClose }: PlayerModalProps) => {
   const needsAudioSelect = audioTypes.length > 1;
   const [phase, setPhase] = useState<Phase>(needsAudioSelect ? "audio-select" : "extracting");
   const [selectedAudio, setSelectedAudio] = useState(audioTypes[0] || "legendado");
   const [sources, setSources] = useState<VideoSource[]>([]);
   const [statusText, setStatusText] = useState("Extraindo vídeo...");
-  const tried = useRef(false);
+  const extractTimeoutRef = useRef<ReturnType<typeof setTimeout>>();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Build vidsrc.cc URL
   const vidsrcUrl = (() => {
@@ -45,32 +47,65 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
       : `https://vidsrc.cc/v2/embed/tv/${id}/${season ?? 1}/${episode ?? 1}`;
   })();
 
-  // Extraction logic
+  // Build proxy URL
+  const proxyUrl = `${SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(vidsrcUrl)}`;
+
+  // Listen for intercepted video sources from proxy iframe
   useEffect(() => {
-    if (phase !== "extracting" || tried.current) return;
-    tried.current = true;
+    if (phase !== "extracting") return;
 
-    (async () => {
-      try {
-        setStatusText("Buscando fontes diretas...");
-        const { data, error } = await supabase.functions.invoke("extract-video", {
-          body: { tmdb_id: tmdbId, imdb_id: imdbId, type, season, episode },
-        });
-        if (!error && data?.success && data.sources?.length > 0) {
-          setSources(data.sources);
-          setPhase("custom");
-          return;
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === "__VIDEO_SOURCE__" && event.data.url) {
+        const url = event.data.url as string;
+        console.log(`[PlayerModal] Intercepted video: ${event.data.source} -> ${url}`);
+        
+        const isM3u8 = url.includes(".m3u8") || url.includes("/playlist") || url.includes("/master");
+        const isMp4 = url.includes(".mp4");
+        
+        if (isM3u8 || isMp4) {
+          setSources(prev => {
+            // Avoid duplicates
+            if (prev.find(s => s.url === url)) return prev;
+            const newSource: VideoSource = {
+              url,
+              quality: "auto",
+              provider: "VidSrc.cc",
+              type: isM3u8 ? "m3u8" : "mp4",
+            };
+            const updated = [...prev, newSource];
+            
+            // Switch to custom player on first source found
+            if (prev.length === 0) {
+              clearTimeout(extractTimeoutRef.current);
+              // Small delay to collect more sources
+              setTimeout(() => setPhase("custom"), 500);
+            }
+            return updated;
+          });
         }
-      } catch (e) {
-        console.error("Extraction failed:", e);
       }
-      // Fallback to embed
-      setStatusText("Carregando player...");
-      setTimeout(() => setPhase("embed"), 600);
-    })();
-  }, [phase, tmdbId, imdbId, type, season, episode]);
+    };
 
-  // Start extraction if no audio select needed
+    window.addEventListener("message", handler);
+
+    // Timeout: if no source found in 20s, fallback to embed
+    extractTimeoutRef.current = setTimeout(() => {
+      setSources(prev => {
+        if (prev.length === 0) {
+          console.log("[PlayerModal] Extraction timeout, falling back to embed");
+          setPhase("embed");
+        }
+        return prev;
+      });
+    }, 20000);
+
+    return () => {
+      window.removeEventListener("message", handler);
+      clearTimeout(extractTimeoutRef.current);
+    };
+  }, [phase]);
+
+  // Auto-start extraction if no audio select needed
   useEffect(() => {
     if (!needsAudioSelect && phase === "audio-select") setPhase("extracting");
   }, []);
@@ -86,13 +121,13 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
 
   const handleAudioSelect = (key: string) => {
     setSelectedAudio(key);
-    tried.current = false;
+    setSources([]);
     setPhase("extracting");
   };
 
   const retryExtraction = () => {
-    tried.current = false;
     setSources([]);
+    setStatusText("Extraindo vídeo...");
     setPhase("extracting");
   };
 
@@ -142,7 +177,7 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
             </div>
             <div className="mt-4 pt-4 border-t border-white/10">
               <button
-                onClick={() => { tried.current = false; setPhase("extracting"); }}
+                onClick={() => { setSources([]); setPhase("extracting"); }}
                 className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-muted-foreground hover:bg-white/10 transition-colors"
               >
                 <Globe className="w-4 h-4" />
@@ -155,7 +190,7 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
     );
   }
 
-  // ===== EXTRACTING =====
+  // ===== EXTRACTING (hidden proxy iframe + loading UI) =====
   if (phase === "extracting") {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
@@ -165,13 +200,23 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
             <Loader2 className="w-10 h-10 text-primary animate-spin mx-auto mb-4" />
             <h2 className="font-display text-lg font-bold mb-1">{title}</h2>
             <p className="text-sm text-muted-foreground">{statusText}</p>
+            <p className="text-xs text-muted-foreground/60 mt-2">Interceptando fonte de vídeo...</p>
           </div>
         </div>
+
+        {/* Hidden proxy iframe that loads vidsrc.cc through our proxy with interceptor */}
+        <iframe
+          ref={iframeRef}
+          src={proxyUrl}
+          className="fixed top-0 left-0 w-[1px] h-[1px] opacity-0 pointer-events-none"
+          sandbox="allow-scripts allow-same-origin allow-forms"
+          title="extractor"
+        />
       </div>
     );
   }
 
-  // ===== CUSTOM PLAYER (extracted sources) =====
+  // ===== CUSTOM PLAYER (extracted sources — our own player, no ads) =====
   if (phase === "custom" && sources.length > 0) {
     return (
       <div className="fixed inset-0 z-[100] bg-black animate-fade-in">
@@ -180,13 +225,16 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
           title={title}
           subtitle={type === "tv" && season && episode ? `T${season} • E${episode}` : undefined}
           onClose={onClose}
-          onError={() => setPhase("embed")}
+          onError={() => {
+            console.log("[PlayerModal] Custom player error, falling back to embed");
+            setPhase("embed");
+          }}
         />
       </div>
     );
   }
 
-  // ===== EMBED PLAYER (vidsrc.cc iframe) =====
+  // ===== EMBED FALLBACK (vidsrc.cc iframe with ad protection) =====
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-background/90 backdrop-blur-xl" />
@@ -223,9 +271,8 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
           </div>
         </div>
 
-        {/* Iframe */}
+        {/* Iframe with ad protection */}
         <div className="relative w-full" style={{ paddingBottom: "56.25%" }}>
-          {/* Ad protection borders */}
           <div className="absolute top-0 left-0 right-0 h-[3px] z-20 bg-card" />
           <div className="absolute bottom-0 left-0 right-0 h-[3px] z-20 bg-card" />
           <div className="absolute top-0 left-0 w-[3px] h-full z-20 bg-card" />
