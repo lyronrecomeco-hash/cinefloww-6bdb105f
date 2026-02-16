@@ -1,0 +1,4 @@
+project_id = "mfcnkltcdvitxczjwoer"
+
+[functions.proxy-player]
+verify_jwt = false
