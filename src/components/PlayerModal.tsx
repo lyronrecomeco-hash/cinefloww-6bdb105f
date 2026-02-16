@@ -26,23 +26,34 @@ interface EmbedProvider {
   tag: string;
   buildUrl: (tmdbId: number, imdbId: string | null | undefined, type: "movie" | "tv", season?: number, episode?: number) => string;
   externalOnly?: boolean;
+  useProxy?: boolean;
 }
+
+// Build proxy URL for vidsrc.cc
+const buildProxyUrl = (url: string) => {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  return `${supabaseUrl}/functions/v1/proxy-player?url=${encodeURIComponent(url)}`;
+};
 
 const EMBED_PROVIDERS: EmbedProvider[] = [
   {
-    name: "Embed.su", tag: "Multi-server",
+    name: "VidSrc.cc", tag: "Principal • Anti-Ad", useProxy: true,
+    buildUrl: (_tmdbId, imdbId, type, season, episode) => {
+      const id = imdbId || String(_tmdbId);
+      return type === "movie"
+        ? `https://vidsrc.cc/v2/embed/movie/${id}`
+        : `https://vidsrc.cc/v2/embed/tv/${id}/${season ?? 1}/${episode ?? 1}`;
+    },
+  },
+  {
+    name: "Embed.su", tag: "Fallback",
     buildUrl: (tmdbId, _imdbId, type, season, episode) =>
       type === "movie" ? `https://embed.su/embed/movie/${tmdbId}` : `https://embed.su/embed/tv/${tmdbId}/${season ?? 1}/${episode ?? 1}`,
   },
   {
-    name: "VidSrc", tag: "Rápido",
+    name: "VidSrc.net", tag: "Alternativo",
     buildUrl: (tmdbId, _imdbId, type, season, episode) =>
       type === "movie" ? `https://vidsrc.net/embed/movie/${tmdbId}` : `https://vidsrc.net/embed/tv/${tmdbId}/${season ?? 1}/${episode ?? 1}`,
-  },
-  {
-    name: "VidSrc.icu", tag: "Alternativo",
-    buildUrl: (tmdbId, _imdbId, type, season, episode) =>
-      type === "movie" ? `https://vidsrc.icu/embed/movie/${tmdbId}` : `https://vidsrc.icu/embed/tv/${tmdbId}/${season ?? 1}/${episode ?? 1}`,
   },
   {
     name: "SuperFlix", tag: "PT-BR", externalOnly: true,
@@ -75,7 +86,7 @@ const PlayerModal = ({ tmdbId, imdbId, type, season, episode, title, audioTypes 
 
   const provider = EMBED_PROVIDERS[currentProviderIdx];
   const rawUrl = provider.buildUrl(tmdbId, imdbId, type, season, episode);
-  const iframeSrc = provider.externalOnly ? null : rawUrl;
+  const iframeSrc = provider.externalOnly ? null : provider.useProxy ? buildProxyUrl(rawUrl) : rawUrl;
 
   // Extract video sources on mount
   useEffect(() => {
