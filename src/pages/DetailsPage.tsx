@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Play, Star, Clock, Calendar, Users, Clapperboard, Tv, List, Mic, Globe, X } from "lucide-react";
+import { Play, Star, Clock, Calendar, Users, Clapperboard, Tv, List } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import ContentRow from "@/components/ContentRow";
 import SeasonsModal from "@/components/SeasonsModal";
 import CastModal from "@/components/CastModal";
+import AudioSelectModal from "@/components/AudioSelectModal";
 import {
   TMDBMovieDetail,
   getMovieDetails,
@@ -28,7 +29,6 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [showSeasons, setShowSeasons] = useState(false);
   const [showCast, setShowCast] = useState(false);
   const [showAudioModal, setShowAudioModal] = useState(false);
-  const [audioTypes, setAudioTypes] = useState<string[]>([]);
 
   useEffect(() => {
     setLoading(true);
@@ -40,10 +40,6 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     fetcher(Number(id)).then((data) => {
       setDetail(data);
       setLoading(false);
-      // Fetch audio types from DB
-      const cType = type === "movie" ? "movie" : "series";
-      supabase.from("content").select("audio_type").eq("tmdb_id", Number(id)).eq("content_type", cType).maybeSingle()
-        .then(({ data: content }) => { if (content?.audio_type) setAudioTypes(content.audio_type); });
     }).catch(() => setLoading(false));
   }, [id, type]);
 
@@ -72,6 +68,18 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const cast = detail.credits?.cast ?? [];
   const similar = detail.similar?.results ?? [];
   const trailer = detail.videos?.results.find((v) => v.type === "Trailer" && v.site === "YouTube");
+
+  const handleWatchClick = () => {
+    // Both movies and series go through audio selection first
+    setShowAudioModal(true);
+  };
+
+  const handleAudioSelect = (audio: string) => {
+    setShowAudioModal(false);
+    const params = new URLSearchParams({ title: getDisplayTitle(detail), audio });
+    if (imdbId) params.set("imdb", imdbId);
+    navigate(`/assistir/${type}/${id}?${params.toString()}`);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -104,7 +112,6 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
           {/* Info */}
           <div className="flex-1 animate-fade-in">
-
             <div className="flex items-center gap-2 mb-3">
               <span className="px-3 py-1 rounded-full bg-primary/20 text-primary text-xs font-semibold uppercase tracking-wider border border-primary/30">
                 {type === "tv" ? "Série" : "Filme"}
@@ -162,12 +169,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
             {/* Actions */}
             <div className="flex flex-wrap items-center gap-3 mb-6">
               <button
-                onClick={() => {
-                  const imdb = detail.imdb_id || detail.external_ids?.imdb_id || null;
-                  const params = new URLSearchParams({ title: getDisplayTitle(detail) });
-                  if (imdb) params.set("imdb", imdb);
-                  navigate(`/assistir/${type}/${id}?${params.toString()}`);
-                }}
+                onClick={handleWatchClick}
                 className="flex items-center gap-2 px-7 py-3 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
               >
                 <Play className="w-5 h-5 fill-current" />
@@ -245,7 +247,16 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         />
       )}
       {showCast && <CastModal cast={cast} onClose={() => setShowCast(false)} />}
-
+      {showAudioModal && (
+        <AudioSelectModal
+          tmdbId={detail.id}
+          type={type}
+          title={getDisplayTitle(detail)}
+          subtitle={type === "tv" ? `${detail.number_of_seasons} Temporadas` : undefined}
+          onSelect={handleAudioSelect}
+          onClose={() => setShowAudioModal(false)}
+        />
+      )}
     </div>
   );
 };

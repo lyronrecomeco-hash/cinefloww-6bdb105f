@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Flame, Film, Tv, Trophy, Zap } from "lucide-react";
+import { Flame, Film, Tv } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import HeroSlider from "@/components/HeroSlider";
 import ContentRow from "@/components/ContentRow";
@@ -8,31 +8,31 @@ import {
   getTrending,
   getPopularMovies,
   getPopularSeries,
-  getTopRatedMovies,
   getNowPlayingMovies,
+  getAiringTodaySeries,
 } from "@/services/tmdb";
 
 const Index = () => {
   const [trending, setTrending] = useState<TMDBMovie[]>([]);
+  const [nowPlaying, setNowPlaying] = useState<TMDBMovie[]>([]);
   const [popularMovies, setPopularMovies] = useState<TMDBMovie[]>([]);
   const [popularSeries, setPopularSeries] = useState<TMDBMovie[]>([]);
-  const [topRated, setTopRated] = useState<TMDBMovie[]>([]);
-  const [nowPlaying, setNowPlaying] = useState<TMDBMovie[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       getTrending(),
+      getNowPlayingMovies(),
+      getAiringTodaySeries(),
       getPopularMovies(),
       getPopularSeries(),
-      getTopRatedMovies(),
-      getNowPlayingMovies(),
-    ]).then(([t, pm, ps, tr, np]) => {
+    ]).then(([t, np, at, pm, ps]) => {
       setTrending(t.results);
+      // Merge now playing movies + airing today series for "Lançamentos"
+      const launches = [...np.results.slice(0, 10), ...at.results.slice(0, 10)];
+      setNowPlaying(launches);
       setPopularMovies(pm.results);
       setPopularSeries(ps.results);
-      setTopRated(tr.results);
-      setNowPlaying(np.results);
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
@@ -51,11 +51,9 @@ const Index = () => {
       <HeroSlider movies={trending} />
 
       <div className="-mt-16 relative z-10 pb-20">
-        <ContentRow title="Em Alta" movies={trending} icon={<Flame className="w-4 h-4" />} />
-        <ContentRow title="Nos Cinemas" movies={nowPlaying} icon={<Zap className="w-4 h-4" />} />
-        <ContentRow title="Filmes Populares" movies={popularMovies} icon={<Film className="w-4 h-4" />} />
-        <ContentRow title="Séries Populares" movies={popularSeries} icon={<Tv className="w-4 h-4" />} />
-        <ContentRow title="Mais Bem Avaliados" movies={topRated} icon={<Trophy className="w-4 h-4" />} />
+        <ContentRow title="Lançamentos" movies={nowPlaying} icon={<Flame className="w-4 h-4" />} />
+        <ContentRow title="Filmes" movies={popularMovies} icon={<Film className="w-4 h-4" />} />
+        <ContentRow title="Séries" movies={popularSeries} icon={<Tv className="w-4 h-4" />} />
       </div>
 
       <footer className="border-t border-white/5 py-8 px-4 sm:px-6 lg:px-12">

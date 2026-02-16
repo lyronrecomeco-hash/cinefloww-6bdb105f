@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { X, Clock, Star, ChevronDown, Play } from "lucide-react";
 import { TMDBSeason, TMDBEpisode, getSeasonDetails, posterUrl } from "@/services/tmdb";
+import AudioSelectModal from "@/components/AudioSelectModal";
 import PlayerModal from "@/components/PlayerModal";
 
 interface SeasonsModalProps {
@@ -17,7 +18,8 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
   const [seasonData, setSeasonData] = useState<TMDBSeason | null>(null);
   const [loading, setLoading] = useState(true);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [playEpisode, setPlayEpisode] = useState<{ season: number; episode: number } | null>(null);
+  const [pendingEpisode, setPendingEpisode] = useState<{ season: number; episode: number } | null>(null);
+  const [playEpisode, setPlayEpisode] = useState<{ season: number; episode: number; audio: string } | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -32,6 +34,12 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
+
+  const handleAudioSelect = (audio: string) => {
+    if (!pendingEpisode) return;
+    setPlayEpisode({ ...pendingEpisode, audio });
+    setPendingEpisode(null);
+  };
 
   return (
     <>
@@ -97,7 +105,7 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
                 <EpisodeCard
                   key={ep.id}
                   episode={ep}
-                  onPlay={() => setPlayEpisode({ season: ep.season_number, episode: ep.episode_number })}
+                  onPlay={() => setPendingEpisode({ season: ep.season_number, episode: ep.episode_number })}
                 />
               ))
             ) : (
@@ -107,6 +115,19 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
         </div>
       </div>
 
+      {/* Audio selection modal for episodes */}
+      {pendingEpisode && (
+        <AudioSelectModal
+          tmdbId={seriesId}
+          type="tv"
+          title={seriesTitle}
+          subtitle={`T${pendingEpisode.season} • E${pendingEpisode.episode}`}
+          onSelect={handleAudioSelect}
+          onClose={() => setPendingEpisode(null)}
+        />
+      )}
+
+      {/* Player modal after audio selection */}
       {playEpisode && (
         <PlayerModal
           tmdbId={seriesId}
@@ -115,6 +136,7 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
           season={playEpisode.season}
           episode={playEpisode.episode}
           title={seriesTitle}
+          audioTypes={[playEpisode.audio]}
           onClose={() => setPlayEpisode(null)}
         />
       )}
