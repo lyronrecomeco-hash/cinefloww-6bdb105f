@@ -18,10 +18,11 @@ async function fetchTMDB(endpoint: string, params: Record<string, string> = {}) 
   return res.json();
 }
 
-async function fetchAllPages(endpoint: string, maxPages = 5) {
+async function fetchAllPagesWithParams(endpoint: string, params: Record<string, string> = {}, maxPages = 20) {
   const results: any[] = [];
   for (let page = 1; page <= maxPages; page++) {
-    const data = await fetchTMDB(endpoint, { page: String(page) });
+    const data = await fetchTMDB(endpoint, { ...params, page: String(page) });
+    if (!data.results?.length) break;
     results.push(...data.results);
     if (page >= data.total_pages) break;
   }
@@ -53,63 +54,51 @@ Deno.serve(async (req) => {
     if (!roles?.length) throw new Error("Not admin");
 
     const body = await req.json();
-    const contentType = body.content_type || "movie"; // movie, series, dorama, anime
-    const maxPages = body.max_pages || 5;
+    const contentType = body.content_type || "movie";
+    const maxPages = body.max_pages || 20;
 
-    // Determine TMDB endpoints
-    let endpoints: string[] = [];
-    const tmdbType = contentType === "movie" ? "movie" : "tv";
+    // Build endpoint list with params for maximum coverage
+    type EP = { path: string; params?: Record<string, string> };
+    let endpoints: EP[] = [];
     
     if (contentType === "movie") {
-      endpoints = ["/movie/popular", "/movie/top_rated", "/movie/now_playing", "/trending/movie/week"];
+      endpoints = [
+        { path: "/movie/popular" },
+        { path: "/movie/top_rated" },
+        { path: "/movie/now_playing" },
+        { path: "/trending/movie/week" },
+        { path: "/discover/movie", params: { sort_by: "popularity.desc" } },
+        { path: "/discover/movie", params: { sort_by: "vote_count.desc" } },
+        { path: "/discover/movie", params: { sort_by: "revenue.desc" } },
+        { path: "/discover/movie", params: { "primary_release_date.gte": "2020-01-01", sort_by: "popularity.desc" } },
+        { path: "/discover/movie", params: { "primary_release_date.gte": "2010-01-01", "primary_release_date.lte": "2019-12-31", sort_by: "popularity.desc" } },
+        { path: "/discover/movie", params: { "primary_release_date.gte": "2000-01-01", "primary_release_date.lte": "2009-12-31", sort_by: "popularity.desc" } },
+        { path: "/discover/movie", params: { "primary_release_date.lte": "1999-12-31", sort_by: "vote_count.desc" } },
+      ];
     } else if (contentType === "series") {
-      endpoints = ["/tv/popular", "/tv/top_rated", "/tv/airing_today", "/trending/tv/week"];
+      endpoints = [
+        { path: "/tv/popular" },
+        { path: "/tv/top_rated" },
+        { path: "/tv/airing_today" },
+        { path: "/trending/tv/week" },
+        { path: "/discover/tv", params: { sort_by: "popularity.desc" } },
+        { path: "/discover/tv", params: { sort_by: "vote_count.desc" } },
+      ];
     } else if (contentType === "dorama") {
-      // Korean/Japanese dramas
-      endpoints = ["/discover/tv"];
+      endpoints = [
+        { path: "/discover/tv", params: { with_origin_country: "KR|JP", sort_by: "popularity.desc" } },
+      ];
     } else if (contentType === "anime") {
-      // Anime (Japanese animation genre 16)
-      endpoints = ["/discover/tv"];
+      endpoints = [
+        { path: "/discover/tv", params: { with_genres: "16", with_origin_country: "JP", sort_by: "popularity.desc" } },
+      ];
     }
 
     let allItems: any[] = [];
     const seenIds = new Set<number>();
 
-    for (const endpoint of endpoints) {
-      let params: Record<string, string> = {};
-      if (contentType === "dorama") {
-        params = { with_origin_country: "KR|JP", sort_by: "popularity.desc" };
-      } else if (contentType === "anime") {
-        params = { with_genres: "16", with_origin_country: "JP", sort_by: "popularity.desc" };
-      }
-
-      const items = await fetchAllPages(endpoint + (Object.keys(params).length ? "" : ""), 
-        contentType === "dorama" || contentType === "anime" ? maxPages : Math.min(maxPages, 3));
-      
-      // For discover endpoint, add params
-      if (endpoint === "/discover/tv") {
-        const url = new URL(`${TMDB_BASE}${endpoint}`);
-        url.searchParams.set("language", "pt-BR");
-        Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-        
-        const discoverResults: any[] = [];
-        for (let page = 1; page <= maxPages; page++) {
-          url.searchParams.set("page", String(page));
-          const res = await fetch(url.toString(), { headers: tmdbHeaders });
-          const data = await res.json();
-          discoverResults.push(...data.results);
-          if (page >= data.total_pages) break;
-        }
-        
-        for (const item of discoverResults) {
-          if (!seenIds.has(item.id)) {
-            seenIds.add(item.id);
-            allItems.push(item);
-          }
-        }
-        continue;
-      }
-
+    for (const ep of endpoints) {
+      const items = await fetchAllPagesWithParams(ep.path, ep.params || {}, maxPages);
       for (const item of items) {
         if (!seenIds.has(item.id)) {
           seenIds.add(item.id);

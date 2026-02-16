@@ -108,7 +108,7 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
     setImportProgress("Importando catálogo do TMDB...");
     try {
       const { data, error } = await supabase.functions.invoke("import-catalog", {
-        body: { content_type: contentType, max_pages: 5 },
+        body: { content_type: contentType, max_pages: 20 },
       });
 
       if (error) throw error;
