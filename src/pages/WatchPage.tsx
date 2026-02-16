@@ -256,11 +256,10 @@ const WatchPage = () => {
         <div className="absolute top-0 right-0 w-[3px] h-full z-10 bg-black" />
 
         <iframe
-          src={superflixUrl}
+          src={proxyUrl}
           className="w-full h-full"
           allowFullScreen
           allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-          referrerPolicy="no-referrer"
           style={{ border: 0 }}
           title={title}
         />
