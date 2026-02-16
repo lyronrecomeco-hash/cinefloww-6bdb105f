@@ -139,8 +139,9 @@ const ANTI_AD_CSS = `
 `;
 
 const ALLOWED_DOMAINS = [
-  "vidsrc.cc", "vidsrc.net", "vidsrc.xyz", "vidsrc.icu",
+  "superflixapi.one", "superflix.one",
   "embed.su", "autoembed.co", "videasy.net",
+  "vidsrc.cc", "vidsrc.net", "vidsrc.xyz", "vidsrc.icu",
 ];
 
 function isAllowedUrl(url: string): boolean {

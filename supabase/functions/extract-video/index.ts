@@ -59,26 +59,26 @@ Deno.serve(async (req) => {
       });
     }
 
-    // 2. Build vidsrc.cc URL and try to extract
+    // 2. Build SuperFlix URL
     const contentId = imdb_id || tmdb_id;
     const isMovie = cType === "movie";
-    const vidsrcUrl = isMovie
-      ? `https://vidsrc.cc/v2/embed/movie/${contentId}`
-      : `https://vidsrc.cc/v2/embed/tv/${contentId}/${season || 1}/${episode || 1}`;
+    const superflixUrl = isMovie
+      ? `https://superflixapi.one/filme/${contentId}`
+      : `https://superflixapi.one/serie/${contentId}/${season || 1}/${episode || 1}`;
 
-    console.log(`[extract] Fetching: ${vidsrcUrl}`);
+    console.log(`[extract] Fetching: ${superflixUrl}`);
 
-    const response = await fetch(vidsrcUrl, {
+    const response = await fetch(superflixUrl, {
       headers: {
         "User-Agent": UA,
-        "Referer": "https://vidsrc.cc/",
+        "Referer": "https://superflixapi.one/",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
       redirect: "follow",
     });
 
     if (!response.ok) {
-      return new Response(JSON.stringify({ error: `Provider returned ${response.status}`, embed_url: vidsrcUrl }), {
+      return new Response(JSON.stringify({ error: `Provider returned ${response.status}`, embed_url: superflixUrl }), {
         status: 502,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -112,11 +112,11 @@ Deno.serve(async (req) => {
     if (!videoUrl) {
       const iframeSrcs = [...html.matchAll(/src=["'](https?:\/\/[^"']+)["']/gi)].map(m => m[1]);
       for (const url of iframeSrcs) {
-        if (url.includes("vidsrc") || url.includes("embed") || url.includes("player")) {
+        if (url.includes("superflix") || url.includes("embed") || url.includes("player")) {
           try {
             console.log(`[extract] Following iframe: ${url}`);
             const iframeRes = await fetch(url, {
-              headers: { "User-Agent": UA, "Referer": "https://vidsrc.cc/" },
+              headers: { "User-Agent": UA, "Referer": "https://superflixapi.one/" },
               redirect: "follow",
             });
             const iframeHtml = await iframeRes.text();
@@ -150,7 +150,7 @@ Deno.serve(async (req) => {
         episode: episode || null,
         video_url: videoUrl,
         video_type: videoType,
-        provider: "vidsrc",
+        provider: "superflix",
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       }, {
         onConflict: "tmdb_id,content_type,audio_type,season,episode",
@@ -159,7 +159,7 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({
         url: videoUrl,
         type: videoType,
-        provider: "vidsrc",
+        provider: "superflix",
         cached: false,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -170,8 +170,8 @@ Deno.serve(async (req) => {
     console.log(`[extract] No direct URL, returning embed for client extraction`);
     return new Response(JSON.stringify({
       url: null,
-      embed_url: vidsrcUrl,
-      provider: "vidsrc",
+      embed_url: superflixUrl,
+      provider: "superflix",
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

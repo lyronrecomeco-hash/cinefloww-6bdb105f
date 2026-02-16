@@ -56,14 +56,14 @@ const WatchPage = () => {
       });
   }, [id, type]);
 
-  // Build vidsrc URL
+  // Build SuperFlix URL
   const contentId = imdbId || id || "";
-  const vidsrcUrl =
+  const superflixUrl =
     type === "movie"
-      ? `https://vidsrc.cc/v2/embed/movie/${contentId}`
-      : `https://vidsrc.cc/v2/embed/tv/${contentId}/${season ?? 1}/${episode ?? 1}`;
+      ? `https://superflixapi.one/filme/${contentId}`
+      : `https://superflixapi.one/serie/${contentId}/${season ?? 1}/${episode ?? 1}`;
 
-  const proxyUrl = `${SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(vidsrcUrl)}`;
+  const proxyUrl = `${SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(superflixUrl)}`;
 
   // Animated dots
   useEffect(() => {
@@ -98,7 +98,7 @@ const WatchPage = () => {
         setSources([{
           url: data.url,
           quality: "auto",
-          provider: "VidSrc",
+           provider: "SuperFlix",
           type: data.type === "mp4" ? "mp4" : "m3u8",
         }]);
         
@@ -134,7 +134,7 @@ const WatchPage = () => {
             const newSource: VideoSource = {
               url,
               quality: "auto",
-              provider: "VidSrc",
+              provider: "SuperFlix",
               type: isM3u8 ? "m3u8" : "mp4",
             };
 
@@ -366,7 +366,7 @@ const WatchPage = () => {
         <div className="absolute top-0 right-0 w-[3px] h-full z-10 bg-black" />
 
         <iframe
-          src={vidsrcUrl}
+          src={superflixUrl}
           className="w-full h-full"
           allowFullScreen
           allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
