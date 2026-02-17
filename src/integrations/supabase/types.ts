@@ -228,6 +228,45 @@ export type Database = {
         }
         Relationships: []
       }
+      site_alerts: {
+        Row: {
+          active: boolean
+          button_link: string | null
+          button_style: string
+          button_text: string
+          created_at: string
+          id: string
+          interval_minutes: number
+          message: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          button_link?: string | null
+          button_style?: string
+          button_text?: string
+          created_at?: string
+          id?: string
+          interval_minutes?: number
+          message: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          button_link?: string | null
+          button_style?: string
+          button_text?: string
+          created_at?: string
+          id?: string
+          interval_minutes?: number
+          message?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       site_settings: {
         Row: {
           id: string

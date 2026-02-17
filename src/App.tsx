@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense } from "react";
+import SiteAlertModal from "./components/SiteAlertModal";
 import Index from "./pages/Index";
 import DetailsPage from "./pages/DetailsPage";
 import MoviesPage from "./pages/MoviesPage";
@@ -22,6 +23,7 @@ const SettingsPage = lazy(() => import("./pages/admin/SettingsPage"));
 const CineveoTester = lazy(() => import("./pages/admin/CineveoTester"));
 const BancoPage = lazy(() => import("./pages/admin/BancoPage"));
 const RequestsPage = lazy(() => import("./pages/admin/RequestsPage"));
+const AlertsPage = lazy(() => import("./pages/admin/AlertsPage"));
 
 const queryClient = new QueryClient();
 
@@ -36,6 +38,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <SiteAlertModal />
       <BrowserRouter>
         <Suspense fallback={<AdminLoader />}>
           <Routes>
@@ -64,6 +67,7 @@ const App = () => (
               <Route path="pedidos" element={<RequestsPage />} />
               <Route path="banco" element={<BancoPage />} />
               <Route path="cineveo" element={<CineveoTester />} />
+              <Route path="avisos" element={<AlertsPage />} />
               <Route path="config" element={<SettingsPage />} />
             </Route>
 
