@@ -9,6 +9,7 @@ interface ImportModalProps {
   onImport: (startPage: number, maxPages: number, enrich: boolean) => void;
   importing: boolean;
   progress: string;
+  onCancel?: () => void;
 }
 
 const ImportModal = ({
@@ -19,6 +20,7 @@ const ImportModal = ({
   onImport,
   importing,
   progress,
+  onCancel,
 }: ImportModalProps) => {
   const [startPage, setStartPage] = useState(1);
   const [pagesToImport, setPagesToImport] = useState(totalPages);
@@ -151,11 +153,10 @@ const ImportModal = ({
         {/* Footer */}
         <div className="px-6 py-4 border-t border-border flex items-center gap-3">
           <button
-            onClick={onClose}
-            disabled={importing}
-            className="flex-1 h-10 rounded-xl bg-white/5 border border-white/10 text-sm font-medium hover:bg-white/10 transition-colors disabled:opacity-50"
+            onClick={importing ? onCancel : onClose}
+            className="flex-1 h-10 rounded-xl bg-white/5 border border-white/10 text-sm font-medium hover:bg-white/10 transition-colors"
           >
-            Cancelar
+            {importing ? "Cancelar" : "Fechar"}
           </button>
           <button
             onClick={() => onImport(startPage, pagesToImport, enrich)}
