@@ -120,6 +120,7 @@ Deno.serve(async (req) => {
     if (!roles?.length) throw new Error("Not admin");
 
     const body = await req.json();
+    const action: string = body.action || "import";
     const contentType: string = body.content_type || "movie";
     const maxPages: number = body.max_pages || 10;
     const startPage: number = body.start_page || 1;
@@ -128,6 +129,15 @@ Deno.serve(async (req) => {
     // Map content_type to cineveo type
     const cineveoType: "movie" | "tv" =
       contentType === "movie" ? "movie" : "tv";
+
+    // Action: just get total pages count
+    if (action === "count") {
+      const totalAvailable = await getTotalPages(cineveoType);
+      return new Response(
+        JSON.stringify({ success: true, total_pages: totalAvailable, estimated_items: totalAvailable * 30 }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     // Get total pages
     const totalAvailable = await getTotalPages(cineveoType);

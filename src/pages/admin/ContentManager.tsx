@@ -64,22 +64,12 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
     setImportProgress("");
     setLoadingPages(true);
 
-    // Fetch total pages from CineVeo
     try {
-      const cineveoType = contentType === "movie" ? "movie" : "tv";
-      const res = await fetch(`https://cineveo.site/category.php?type=${cineveoType}`, {
-        headers: { Accept: "text/html,*/*" },
+      const { data, error } = await supabase.functions.invoke("import-catalog", {
+        body: { action: "count", content_type: contentType },
       });
-      if (res.ok) {
-        const html = await res.text();
-        const pageMatches = [...html.matchAll(/class="pagination-btn[^"]*">(\d+)<\/button>/g)];
-        let maxPage = 1;
-        for (const m of pageMatches) {
-          const p = parseInt(m[1]);
-          if (p > maxPage) maxPage = p;
-        }
-        setCineveoTotalPages(maxPage);
-      }
+      if (error) throw error;
+      setCineveoTotalPages(data.total_pages || 0);
     } catch {
       setCineveoTotalPages(0);
     }
