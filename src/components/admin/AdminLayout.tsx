@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import {
   LayoutDashboard, Film, Tv, Sparkles, Drama, FolderOpen,
-  Settings, LogOut, Menu, X, ChevronRight, MonitorPlay, Database
+  Settings, LogOut, Menu, X, ChevronRight, MonitorPlay, Database, MessageSquare
 } from "lucide-react";
 
 const menuItems = [
@@ -12,6 +12,7 @@ const menuItems = [
   { label: "Séries", path: "/admin/series", icon: Tv },
   { label: "Doramas", path: "/admin/doramas", icon: Drama },
   { label: "Animes", path: "/admin/animes", icon: Sparkles },
+  { label: "Pedidos", path: "/admin/pedidos", icon: MessageSquare, badge: true },
   { label: "Categorias", path: "/admin/categorias", icon: FolderOpen },
   { label: "Banco", path: "/admin/banco", icon: Database },
   { label: "CineFlow", path: "/admin/cineveo", icon: MonitorPlay },
@@ -23,6 +24,7 @@ const AdminLayout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [pendingRequests, setPendingRequests] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -40,6 +42,9 @@ const AdminLayout = () => {
       if (!roles?.length) { await supabase.auth.signOut(); navigate("/admin/login"); return; }
       setUserEmail(session.user.email || "");
       setLoading(false);
+      // Fetch pending requests count
+      supabase.from("content_requests").select("*", { count: "exact", head: true }).eq("status", "pending")
+        .then(({ count }) => setPendingRequests(count || 0));
     };
 
     checkAuth();
@@ -95,7 +100,16 @@ const AdminLayout = () => {
               }`}
             >
               <item.icon className="w-4.5 h-4.5 flex-shrink-0" />
-              {sidebarOpen && <span>{item.label}</span>}
+              {sidebarOpen && (
+                <span className="relative">
+                  {item.label}
+                  {(item as any).badge && pendingRequests > 0 && (
+                    <span className="absolute -top-2 -right-5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                      {pendingRequests}
+                    </span>
+                  )}
+                </span>
+              )}
               {isActive && sidebarOpen && <ChevronRight className="w-3.5 h-3.5 ml-auto" />}
             </button>
           );

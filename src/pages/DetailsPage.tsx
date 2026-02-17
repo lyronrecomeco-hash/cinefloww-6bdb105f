@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Play, Star, Clock, Calendar, Users, Clapperboard, Tv, List } from "lucide-react";
+import { Play, Star, Clock, Calendar, Users, Tv, List, MessageSquare } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import ContentRow from "@/components/ContentRow";
 import SeasonsModal from "@/components/SeasonsModal";
 import CastModal from "@/components/CastModal";
 import AudioSelectModal from "@/components/AudioSelectModal";
 import TrailerModal from "@/components/TrailerModal";
+import RequestModal from "@/components/RequestModal";
 import {
   TMDBMovieDetail,
   getMovieDetails,
@@ -31,6 +32,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [showCast, setShowCast] = useState(false);
   const [showAudioModal, setShowAudioModal] = useState(false);
   const [showTrailer, setShowTrailer] = useState(false);
+  const [showRequest, setShowRequest] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -67,7 +69,6 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   }
 
   const imdbId = detail.imdb_id || detail.external_ids?.imdb_id || null;
-  const director = detail.credits?.crew.find((c) => c.job === "Director");
   const cast = detail.credits?.cast ?? [];
   const similar = detail.similar?.results ?? [];
   const trailer = detail.videos?.results.find((v) => v.type === "Trailer" && v.site === "YouTube");
@@ -197,34 +198,21 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
               )}
             </div>
 
-            {/* Info Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 max-w-2xl">
-              {director && (
-                <div className="glass p-3 sm:p-4">
-                  <div className="flex items-center gap-2 mb-1.5 sm:mb-2">
-                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-primary/20 flex items-center justify-center">
-                      <Clapperboard className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-primary" />
-                    </div>
-                    <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground">Diretor</span>
+            {/* Cast - Netflix style */}
+            {cast.length > 0 && (
+              <button onClick={() => setShowCast(true)} className="glass p-3 sm:p-4 text-left hover:bg-white/[0.08] transition-colors group max-w-2xl w-full">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-primary/20 flex items-center justify-center">
+                    <Users className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-primary" />
                   </div>
-                  <p className="text-xs sm:text-sm font-medium">{director.name}</p>
+                  <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground">Elenco</span>
+                  <span className="text-[10px] sm:text-xs text-primary ml-auto opacity-0 group-hover:opacity-100 transition-opacity">Ver todos →</span>
                 </div>
-              )}
-              {cast.length > 0 && (
-               <button onClick={() => setShowCast(true)} className="glass p-3 sm:p-4 text-left hover:bg-white/[0.08] transition-colors group">
-                  <div className="flex items-center gap-2 mb-1.5 sm:mb-2">
-                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-primary/20 flex items-center justify-center">
-                      <Users className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-primary" />
-                    </div>
-                    <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider text-muted-foreground">Elenco</span>
-                    <span className="text-[10px] sm:text-xs text-primary ml-auto opacity-0 group-hover:opacity-100 transition-opacity">Ver todos →</span>
-                  </div>
-                  <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-1">
-                    {cast.slice(0, 6).map((c) => c.name).join(", ")}
-                  </p>
-                </button>
-              )}
-            </div>
+                <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed line-clamp-1">
+                  {cast.slice(0, 8).map((c) => c.name).join(", ")}
+                </p>
+              </button>
+            )}
           </div>
         </div>
 
@@ -264,6 +252,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
           onClose={() => setShowTrailer(false)}
         />
       )}
+      {showRequest && <RequestModal onClose={() => setShowRequest(false)} />}
     </div>
   );
 };

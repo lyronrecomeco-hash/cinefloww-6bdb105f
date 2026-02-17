@@ -121,6 +121,63 @@ export type Database = {
           },
         ]
       }
+      content_requests: {
+        Row: {
+          admin_notes: string | null
+          backdrop_path: string | null
+          content_type: string
+          created_at: string
+          id: string
+          original_title: string | null
+          overview: string | null
+          poster_path: string | null
+          release_date: string | null
+          requester_email: string | null
+          requester_name: string
+          status: string
+          title: string
+          tmdb_id: number
+          updated_at: string
+          vote_average: number | null
+        }
+        Insert: {
+          admin_notes?: string | null
+          backdrop_path?: string | null
+          content_type: string
+          created_at?: string
+          id?: string
+          original_title?: string | null
+          overview?: string | null
+          poster_path?: string | null
+          release_date?: string | null
+          requester_email?: string | null
+          requester_name: string
+          status?: string
+          title: string
+          tmdb_id: number
+          updated_at?: string
+          vote_average?: number | null
+        }
+        Update: {
+          admin_notes?: string | null
+          backdrop_path?: string | null
+          content_type?: string
+          created_at?: string
+          id?: string
+          original_title?: string | null
+          overview?: string | null
+          poster_path?: string | null
+          release_date?: string | null
+          requester_email?: string | null
+          requester_name?: string
+          status?: string
+          title?: string
+          tmdb_id?: number
+          updated_at?: string
+          vote_average?: number | null
+        }
+        Relationships: []
+      }
       content_views: {
         Row: {
           content_id: string | null
@@ -234,6 +291,45 @@ export type Database = {
           tmdb_id?: number
           video_type?: string
           video_url?: string
+        }
+        Relationships: []
+      }
+      watch_progress: {
+        Row: {
+          completed: boolean
+          content_type: string
+          device_id: string
+          duration_seconds: number
+          episode: number | null
+          id: string
+          progress_seconds: number
+          season: number | null
+          tmdb_id: number
+          updated_at: string
+        }
+        Insert: {
+          completed?: boolean
+          content_type: string
+          device_id: string
+          duration_seconds?: number
+          episode?: number | null
+          id?: string
+          progress_seconds?: number
+          season?: number | null
+          tmdb_id: number
+          updated_at?: string
+        }
+        Update: {
+          completed?: boolean
+          content_type?: string
+          device_id?: string
+          duration_seconds?: number
+          episode?: number | null
+          id?: string
+          progress_seconds?: number
+          season?: number | null
+          tmdb_id?: number
+          updated_at?: string
         }
         Relationships: []
       }
