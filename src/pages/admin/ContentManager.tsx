@@ -25,7 +25,11 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState("");
+  const [importedCount, setImportedCount] = useState(0);
+  const [totalToImport, setTotalToImport] = useState(0);
   const [cineveoTotalPages, setCineveoTotalPages] = useState(0);
+  const [syncStats, setSyncStats] = useState<any>(null);
+  const [loadingSyncStats, setLoadingSyncStats] = useState(false);
   const [loadingPages, setLoadingPages] = useState(false);
   const [editItem, setEditItem] = useState<any | null>(null);
   const [page, setPage] = useState(0);
@@ -59,22 +63,27 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
 
   useEffect(() => { fetchContent(); }, [fetchContent]);
 
+  const fetchSyncStats = useCallback(async () => {
+    setLoadingSyncStats(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("import-catalog", {
+        body: { action: "sync-check", content_type: contentType },
+      });
+      if (!error && data?.success) {
+        setSyncStats(data);
+        setCineveoTotalPages(data.total_pages);
+      }
+    } catch { /* skip */ }
+    setLoadingSyncStats(false);
+  }, [contentType]);
+
   const openImportModal = async () => {
     setShowImportModal(true);
     setImportProgress("");
-    setLoadingPages(true);
+    setImportedCount(0);
+    setTotalToImport(0);
     cancelRef.current = false;
-
-    try {
-      const { data, error } = await supabase.functions.invoke("import-catalog", {
-        body: { action: "count", content_type: contentType },
-      });
-      if (error) throw error;
-      setCineveoTotalPages(data.total_pages || 0);
-    } catch {
-      setCineveoTotalPages(0);
-    }
-    setLoadingPages(false);
+    fetchSyncStats();
   };
 
   const handleImport = async (startPage: number, maxPages: number, enrich: boolean) => {
@@ -85,20 +94,14 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
     let totalImported = 0;
     let totalFound = 0;
 
+    setTotalToImport(maxPages * 30);
+
     try {
       while (currentPage <= targetEndPage && !cancelRef.current) {
-        const pagesLeft = targetEndPage - currentPage + 1;
-        setImportProgress(
-          `⏳ Importando página ${currentPage}... (${totalImported} importados até agora)`
-        );
+        setImportProgress(`⏳ Páginas ${currentPage}-${Math.min(currentPage + 9, targetEndPage)}...`);
 
         const { data, error } = await supabase.functions.invoke("import-catalog", {
-          body: {
-            action: "import",
-            content_type: contentType,
-            start_page: currentPage,
-            enrich,
-          },
+          body: { action: "import", content_type: contentType, start_page: currentPage, enrich },
         });
 
         if (error) throw error;
@@ -106,33 +109,29 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
 
         totalImported += data.imported || 0;
         totalFound += data.total || 0;
+        setImportedCount(totalImported);
 
-        if (!data.has_more || !data.next_page) {
-          // No more data
-          break;
-        }
-
+        if (!data.has_more || !data.next_page) break;
         currentPage = data.next_page;
       }
 
       if (cancelRef.current) {
-        setImportProgress(`⚠️ Cancelado. ${totalImported} itens importados até o momento.`);
+        setImportProgress(`⚠️ Cancelado. ${totalImported} importados.`);
       } else {
-        setImportProgress(`✅ Concluído! ${totalImported} itens importados (${totalFound} encontrados no CineVeo)`);
+        setImportProgress(`✅ ${totalImported} importados (${totalFound} encontrados)`);
       }
-      toast({ title: "Importação concluída!", description: `${totalImported} itens do CineVeo adicionados.` });
+      toast({ title: "Importação concluída!", description: `${totalImported} itens adicionados.` });
       fetchContent();
+      fetchSyncStats();
     } catch (err: any) {
-      setImportProgress(`❌ Erro na página ${currentPage}: ${err.message}. ${totalImported} importados antes do erro.`);
+      setImportProgress(`❌ Erro: ${err.message}. ${totalImported} importados antes do erro.`);
       toast({ title: "Erro na importação", description: err.message, variant: "destructive" });
       if (totalImported > 0) fetchContent();
     }
     setImporting(false);
   };
 
-  const handleCancelImport = () => {
-    cancelRef.current = true;
-  };
+  const handleCancelImport = () => { cancelRef.current = true; };
 
   const handleDelete = async (id: string, itemTitle: string) => {
     if (!confirm(`Remover "${itemTitle}" do catálogo?`)) return;
@@ -159,10 +158,8 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
           <p className="text-sm text-muted-foreground mt-1">{totalCount} itens no catálogo</p>
         </div>
         <div className="flex items-center gap-2 self-start">
-          <button
-            onClick={openImportModal}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
-          >
+          <button onClick={openImportModal}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors">
             <Download className="w-4 h-4" />
             Importar CineVeo
           </button>
@@ -172,13 +169,10 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
       {/* Filter */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <input
-          type="text"
-          value={filterText}
+        <input type="text" value={filterText}
           onChange={(e) => { setFilterText(e.target.value); setPage(0); }}
           placeholder="Filtrar por título..."
-          className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
-        />
+          className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50" />
       </div>
 
       {/* Content list */}
@@ -289,25 +283,21 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
       )}
 
       {showImportModal && (
-        loadingPages ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              <p className="text-sm text-muted-foreground">Consultando CineVeo...</p>
-            </div>
-          </div>
-        ) : (
-          <ImportModal
-            contentType={contentType}
-            title={title}
-            totalPages={cineveoTotalPages}
-            onClose={() => { setShowImportModal(false); setImportProgress(""); handleCancelImport(); }}
-            onImport={handleImport}
-            importing={importing}
-            progress={importProgress}
-            onCancel={handleCancelImport}
-          />
-        )
+        <ImportModal
+          contentType={contentType}
+          title={title}
+          totalPages={cineveoTotalPages}
+          syncStats={syncStats}
+          loadingSyncStats={loadingSyncStats}
+          onRefreshSync={fetchSyncStats}
+          onClose={() => { setShowImportModal(false); setImportProgress(""); handleCancelImport(); }}
+          onImport={handleImport}
+          importing={importing}
+          progress={importProgress}
+          importedCount={importedCount}
+          totalToImport={totalToImport}
+          onCancel={handleCancelImport}
+        />
       )}
     </div>
   );

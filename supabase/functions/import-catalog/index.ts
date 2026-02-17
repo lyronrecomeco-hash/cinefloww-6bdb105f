@@ -29,18 +29,12 @@ interface CineveoItem {
   vote_average: string;
 }
 
-async function fetchCineveoPage(
-  type: "movie" | "tv",
-  page: number,
-): Promise<CineveoItem[]> {
+async function fetchCineveoPage(type: "movie" | "tv", page: number): Promise<CineveoItem[]> {
   const url = `https://cineveo.site/category.php?fetch_mode=1&type=${type}&page=${page}&genre=`;
   try {
-    const res = await fetch(url, {
-      headers: { "User-Agent": UA, Accept: "application/json, */*" },
-    });
+    const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json, */*" } });
     if (!res.ok) return [];
-    const text = await res.text();
-    const data = JSON.parse(text);
+    const data = await res.json();
     if (data.success && Array.isArray(data.results)) return data.results;
   } catch { /* skip */ }
   return [];
@@ -50,12 +44,9 @@ async function getTotalPages(type: "movie" | "tv"): Promise<number> {
   async function pageHasResults(page: number): Promise<boolean> {
     const url = `https://cineveo.site/category.php?fetch_mode=1&type=${type}&page=${page}&genre=`;
     try {
-      const res = await fetch(url, {
-        headers: { "User-Agent": UA, Accept: "application/json, */*" },
-      });
+      const res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json, */*" } });
       if (!res.ok) return false;
-      const text = await res.text();
-      const data = JSON.parse(text);
+      const data = await res.json();
       return data.success && Array.isArray(data.results) && data.results.length > 0;
     } catch { return false; }
   }
@@ -72,21 +63,35 @@ async function getTotalPages(type: "movie" | "tv"): Promise<number> {
     if (await pageHasResults(mid)) low = mid;
     else high = mid - 1;
   }
-  console.log(`[cineveo] Total pages for ${type}: ${low}`);
   return low;
 }
 
-async function fetchTMDBDetails(tmdbId: number, type: "movie" | "tv"): Promise<any | null> {
-  try {
-    const url = `${TMDB_BASE}/${type}/${tmdbId}?language=pt-BR&append_to_response=external_ids`;
-    const res = await fetch(url, { headers: tmdbHeaders });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch { return null; }
+// Parallel TMDB fetch with concurrency limit
+async function fetchTMDBBatch(items: { tmdbId: number; type: "movie" | "tv" }[], concurrency = 8): Promise<Map<number, any>> {
+  const results = new Map<number, any>();
+  const queue = [...items];
+
+  async function worker() {
+    while (queue.length > 0) {
+      const item = queue.shift();
+      if (!item) break;
+      try {
+        const url = `${TMDB_BASE}/${item.type}/${item.tmdbId}?language=pt-BR&append_to_response=external_ids`;
+        const res = await fetch(url, { headers: tmdbHeaders });
+        if (res.ok) {
+          results.set(item.tmdbId, await res.json());
+        }
+      } catch { /* skip */ }
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, () => worker());
+  await Promise.all(workers);
+  return results;
 }
 
-// Max pages per single call to avoid timeout
-const MAX_PAGES_PER_CALL = 5;
+// Max pages per single call
+const MAX_PAGES_PER_CALL = 10;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS")
@@ -126,18 +131,57 @@ Deno.serve(async (req) => {
       );
     }
 
-    // ── BATCH IMPORT action ── (processes only MAX_PAGES_PER_CALL pages)
+    // ── SYNC-CHECK action: compare CineVeo first page sample with DB ──
+    if (action === "sync-check") {
+      const totalPages = await getTotalPages(cineveoType);
+      // Sample pages 1, middle, last to estimate total unique items
+      const samplePages = [1, Math.ceil(totalPages / 2), totalPages];
+      const sampleItems: string[] = [];
+      for (const p of samplePages) {
+        const items = await fetchCineveoPage(cineveoType, p);
+        items.forEach(i => sampleItems.push(i.tmdb_id));
+      }
+
+      // Count existing in DB
+      const { count: dbCount } = await adminClient
+        .from("content")
+        .select("*", { count: "exact", head: true })
+        .eq("content_type", contentType);
+
+      const estimatedTotal = totalPages * 30;
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          total_pages: totalPages,
+          estimated_total: estimatedTotal,
+          in_database: dbCount || 0,
+          estimated_missing: Math.max(0, estimatedTotal - (dbCount || 0)),
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // ── BATCH IMPORT action ── (processes MAX_PAGES_PER_CALL pages)
     const endPage = startPage + MAX_PAGES_PER_CALL - 1;
     console.log(`[import] CineVeo ${cineveoType} pages ${startPage}-${endPage}`);
+
+    // Fetch all pages in parallel
+    const pagePromises = [];
+    for (let p = startPage; p <= endPage; p++) {
+      pagePromises.push(fetchCineveoPage(cineveoType, p).then(items => ({ page: p, items })));
+    }
+    const pageResults = await Promise.all(pagePromises);
 
     const allItems: CineveoItem[] = [];
     const seenIds = new Set<string>();
     let lastPageWithData = startPage - 1;
 
-    for (let p = startPage; p <= endPage; p++) {
-      const items = await fetchCineveoPage(cineveoType, p);
+    // Sort by page number to maintain order
+    pageResults.sort((a, b) => a.page - b.page);
+    for (const { page: pg, items } of pageResults) {
       if (items.length === 0) break;
-      lastPageWithData = p;
+      lastPageWithData = pg;
       for (const item of items) {
         if (!seenIds.has(item.tmdb_id)) {
           seenIds.add(item.tmdb_id);
@@ -148,72 +192,74 @@ Deno.serve(async (req) => {
 
     console.log(`[import] Fetched ${allItems.length} items from pages ${startPage}-${lastPageWithData}`);
 
+    // Enrich with TMDB in parallel
+    let tmdbResults = new Map<number, any>();
+    if (enrichWithTmdb && allItems.length > 0) {
+      const tmdbRequests = allItems.map(item => ({
+        tmdbId: parseInt(item.tmdb_id),
+        type: cineveoType,
+      }));
+      tmdbResults = await fetchTMDBBatch(tmdbRequests, 8);
+    }
+
+    // Build rows
+    const rows = allItems.map(item => {
+      const tmdbId = parseInt(item.tmdb_id);
+      const detail = tmdbResults.get(tmdbId);
+
+      if (detail) {
+        return {
+          tmdb_id: tmdbId,
+          imdb_id: detail.imdb_id || detail.external_ids?.imdb_id || null,
+          content_type: contentType,
+          title: detail.title || detail.name || item.title || item.name,
+          original_title: detail.original_title || detail.original_name || null,
+          overview: detail.overview || "",
+          poster_path: detail.poster_path || item.poster_path || null,
+          backdrop_path: detail.backdrop_path || null,
+          release_date: detail.release_date || detail.first_air_date || item.release_date || null,
+          vote_average: detail.vote_average || 0,
+          runtime: detail.runtime || (parseInt(item.runtime) || null),
+          number_of_seasons: detail.number_of_seasons || null,
+          number_of_episodes: detail.number_of_episodes || null,
+          status: "published",
+          featured: false,
+          audio_type: ["legendado"],
+          created_by: user.id,
+        };
+      }
+      return {
+        tmdb_id: tmdbId,
+        content_type: contentType,
+        title: item.title || item.name || "Sem título",
+        poster_path: item.poster_path || null,
+        release_date: item.release_date || null,
+        runtime: parseInt(item.runtime) || null,
+        vote_average: parseFloat(item.vote_average) || 0,
+        status: "published",
+        featured: false,
+        audio_type: ["legendado"],
+        created_by: user.id,
+      };
+    });
+
+    // Upsert in one batch
     let imported = 0;
     const errors: string[] = [];
-    const BATCH_SIZE = 50;
 
-    for (let i = 0; i < allItems.length; i += BATCH_SIZE) {
-      const batch = allItems.slice(i, i + BATCH_SIZE);
-      const rows = [];
-
-      for (const item of batch) {
-        const tmdbId = parseInt(item.tmdb_id);
-        let detail: any = null;
-        if (enrichWithTmdb) {
-          detail = await fetchTMDBDetails(tmdbId, cineveoType);
-        }
-
-        if (detail) {
-          rows.push({
-            tmdb_id: tmdbId,
-            imdb_id: detail.imdb_id || detail.external_ids?.imdb_id || null,
-            content_type: contentType,
-            title: detail.title || detail.name || item.title || item.name,
-            original_title: detail.original_title || detail.original_name || null,
-            overview: detail.overview || "",
-            poster_path: detail.poster_path || item.poster_path || null,
-            backdrop_path: detail.backdrop_path || null,
-            release_date: detail.release_date || detail.first_air_date || item.release_date || null,
-            vote_average: detail.vote_average || 0,
-            runtime: detail.runtime || (parseInt(item.runtime) || null),
-            number_of_seasons: detail.number_of_seasons || null,
-            number_of_episodes: detail.number_of_episodes || null,
-            status: "published",
-            featured: false,
-            audio_type: ["legendado"],
-            created_by: user.id,
-          });
-        } else {
-          rows.push({
-            tmdb_id: tmdbId,
-            content_type: contentType,
-            title: item.title || item.name || "Sem título",
-            poster_path: item.poster_path || null,
-            release_date: item.release_date || null,
-            runtime: parseInt(item.runtime) || null,
-            vote_average: parseFloat(item.vote_average) || 0,
-            status: "published",
-            featured: false,
-            audio_type: ["legendado"],
-            created_by: user.id,
-          });
-        }
-      }
-
+    if (rows.length > 0) {
       const { error } = await adminClient.from("content").upsert(rows, {
         onConflict: "tmdb_id,content_type",
         ignoreDuplicates: true,
       });
-
       if (error) {
         errors.push(error.message);
-        console.log(`[import] Batch error: ${error.message}`);
+        console.log(`[import] Upsert error: ${error.message}`);
       } else {
-        imported += rows.length;
+        imported = rows.length;
       }
     }
 
-    // Determine if there are more pages
     const hasMore = lastPageWithData >= endPage && allItems.length > 0;
     const nextPage = hasMore ? endPage + 1 : null;
 
