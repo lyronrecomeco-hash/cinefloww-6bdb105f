@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { X, Save, Loader2, Play, ExternalLink, Star } from "lucide-react";
+import { X, Save, Loader2, Play, Star } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface ContentEditModalProps {
@@ -29,6 +29,9 @@ const ContentEditModal = ({ item, onClose, onSave }: ContentEditModalProps) => {
   const [audioType, setAudioType] = useState<string[]>(item.audio_type || []);
   const [saving, setSaving] = useState(false);
   const [showPlayer, setShowPlayer] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [extractError, setExtractError] = useState<string | null>(null);
   const { toast } = useToast();
 
   const toggleAudio = (value: string) => {
@@ -52,16 +55,43 @@ const ContentEditModal = ({ item, onClose, onSave }: ContentEditModalProps) => {
     setSaving(false);
   };
 
-  // Build player URL
   const tmdbId = item.tmdb_id;
-  const imdbId = item.imdb_id;
   const isMovie = item.content_type === "movie";
-  const playerUrl = isMovie
-    ? `https://embed.su/embed/movie/${tmdbId}`
-    : `https://embed.su/embed/tv/${tmdbId}/1/1`;
-  const externalUrl = isMovie
-    ? `https://superflixapi.one/filme/${imdbId || tmdbId}`
-    : `https://superflixapi.one/serie/${tmdbId}/1/1`;
+
+  const handleTestPlayer = async () => {
+    setShowPlayer(true);
+    setExtracting(true);
+    setExtractError(null);
+    setVideoUrl(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("extract-video", {
+        body: {
+          tmdb_id: tmdbId,
+          content_type: isMovie ? "movie" : "tv",
+          audio_type: audioType[0] || "legendado",
+        },
+      });
+
+      if (error) throw new Error(error.message);
+      if (data?.url) {
+        setVideoUrl(data.url);
+      } else {
+        setExtractError("Nenhum vídeo encontrado para este conteúdo.");
+      }
+    } catch (err: any) {
+      setExtractError(err.message || "Erro ao extrair vídeo");
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const openInPlayer = () => {
+    if (videoUrl) {
+      const params = new URLSearchParams({ url: videoUrl, title: item.title });
+      window.open(`/player?${params.toString()}`, "_blank");
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
@@ -137,22 +167,44 @@ const ContentEditModal = ({ item, onClose, onSave }: ContentEditModalProps) => {
             <span className="px-2 py-1 rounded-lg bg-white/5 border border-white/10 capitalize">{item.content_type}</span>
           </div>
 
-          {/* Player test */}
+          {/* Player test - CineVeo */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Player de Teste</label>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Player CineVeo</label>
               <div className="flex gap-2">
-                <button onClick={() => setShowPlayer(!showPlayer)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/15 text-primary text-xs font-medium border border-primary/20 hover:bg-primary/25 transition-colors">
-                  <Play className="w-3 h-3 fill-primary" />{showPlayer ? "Fechar" : "Testar Player"}
+                <button onClick={handleTestPlayer} disabled={extracting}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/15 text-primary text-xs font-medium border border-primary/20 hover:bg-primary/25 transition-colors disabled:opacity-50">
+                  {extracting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3 fill-primary" />}
+                  {extracting ? "Extraindo..." : showPlayer ? "Re-extrair" : "Testar Player"}
                 </button>
-                <a href={externalUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 text-muted-foreground text-xs font-medium border border-white/10 hover:bg-white/10 transition-colors">
-                  <ExternalLink className="w-3 h-3" />SuperFlix
-                </a>
+                {videoUrl && (
+                  <button onClick={openInPlayer}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 text-xs font-medium border border-emerald-500/20 hover:bg-emerald-500/25 transition-colors">
+                    <Play className="w-3 h-3" />Abrir no Player
+                  </button>
+                )}
               </div>
             </div>
+
             {showPlayer && (
-              <div className="relative w-full rounded-xl overflow-hidden border border-white/10" style={{ paddingBottom: "56.25%" }}>
-                <iframe src={playerUrl} className="absolute inset-0 w-full h-full" allowFullScreen allow="autoplay; encrypted-media; picture-in-picture" style={{ border: 0 }} title="Player test" />
+              <div className="space-y-2">
+                {extracting && (
+                  <div className="flex items-center justify-center h-32 rounded-xl bg-white/5 border border-white/10">
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="w-4 h-4 animate-spin" />Extraindo vídeo do CineVeo...
+                    </div>
+                  </div>
+                )}
+                {extractError && (
+                  <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+                    {extractError}
+                  </div>
+                )}
+                {videoUrl && (
+                  <div className="relative w-full rounded-xl overflow-hidden border border-white/10" style={{ paddingBottom: "56.25%" }}>
+                    <video src={videoUrl} controls autoPlay className="absolute inset-0 w-full h-full bg-black" />
+                  </div>
+                )}
               </div>
             )}
           </div>

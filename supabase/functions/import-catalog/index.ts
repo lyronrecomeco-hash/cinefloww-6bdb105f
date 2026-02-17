@@ -243,20 +243,21 @@ Deno.serve(async (req) => {
       };
     });
 
-    // Upsert in one batch
+    // Upsert in batches of 100 for reliability
     let imported = 0;
     const errors: string[] = [];
+    const BATCH_SIZE = 100;
 
-    if (rows.length > 0) {
-      const { error } = await adminClient.from("content").upsert(rows, {
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+      const batch = rows.slice(i, i + BATCH_SIZE);
+      const { data: upserted, error } = await adminClient.from("content").upsert(batch, {
         onConflict: "tmdb_id,content_type",
-        ignoreDuplicates: true,
-      });
+      }).select("id");
       if (error) {
         errors.push(error.message);
-        console.log(`[import] Upsert error: ${error.message}`);
+        console.log(`[import] Upsert batch error: ${error.message}`);
       } else {
-        imported = rows.length;
+        imported += upserted?.length || 0;
       }
     }
 
