@@ -294,7 +294,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { tmdb_id, imdb_id, content_type, audio_type, season, episode } = await req.json();
+    const { tmdb_id, imdb_id, content_type, audio_type, season, episode, force_provider } = await req.json();
 
     if (!tmdb_id) {
       return new Response(JSON.stringify({ error: "tmdb_id required" }), {
@@ -314,63 +314,55 @@ Deno.serve(async (req) => {
     const s = season || 1;
     const e = episode || 1;
 
-    // 1. Check cache
-    let query = supabase
-      .from("video_cache")
-      .select("*")
-      .eq("tmdb_id", tmdb_id)
-      .eq("content_type", cType)
-      .eq("audio_type", aType)
-      .gt("expires_at", new Date().toISOString());
+    // 1. Check cache (skip if force_provider is set — tester mode)
+    if (!force_provider) {
+      let query = supabase
+        .from("video_cache")
+        .select("*")
+        .eq("tmdb_id", tmdb_id)
+        .eq("content_type", cType)
+        .eq("audio_type", aType)
+        .gt("expires_at", new Date().toISOString());
 
-    if (season) query = query.eq("season", season);
-    else query = query.is("season", null);
-    if (episode) query = query.eq("episode", episode);
-    else query = query.is("episode", null);
+      if (season) query = query.eq("season", season);
+      else query = query.is("season", null);
+      if (episode) query = query.eq("episode", episode);
+      else query = query.is("episode", null);
 
-    const { data: cached } = await query.maybeSingle();
-    if (cached) {
-      console.log(`[extract] Cache hit for tmdb_id=${tmdb_id}`);
-      return new Response(JSON.stringify({
-        url: cached.video_url, type: cached.video_type, provider: cached.provider, cached: true,
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const { data: cached } = await query.maybeSingle();
+      if (cached) {
+        console.log(`[extract] Cache hit for tmdb_id=${tmdb_id}`);
+        return new Response(JSON.stringify({
+          url: cached.video_url, type: cached.video_type, provider: cached.provider, cached: true,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
     }
 
-    // 2. Try providers in order: CineVeo → MegaEmbed → EmbedPlay
+    // 2. Try providers based on force_provider or default chain
     let videoUrl: string | null = null;
     let videoType: "mp4" | "m3u8" = "mp4";
     let provider = "cineveo";
 
-    // ── CineVeo (primary) ──
-    try {
-      const cv = await tryCineveo(tmdb_id, cType, season, episode);
-      if (cv) {
-        videoUrl = cv.url;
-        videoType = cv.type;
-        provider = "cineveo";
-      }
-    } catch (err) {
-      console.log(`[extract] CineVeo error: ${err}`);
+    const shouldTry = (p: string) => !force_provider || force_provider === p;
+
+    // ── CineVeo ──
+    if (shouldTry("cineveo") && !videoUrl) {
+      try {
+        const cv = await tryCineveo(tmdb_id, cType, season, episode);
+        if (cv) { videoUrl = cv.url; videoType = cv.type; provider = "cineveo"; }
+      } catch (err) { console.log(`[extract] CineVeo error: ${err}`); }
     }
 
-    // ── MegaEmbed (fallback 1) ──
-    if (!videoUrl) {
+    // ── MegaEmbed ──
+    if (shouldTry("megaembed") && !videoUrl) {
       const me = await tryMegaEmbed(tmdb_id, isMovie, s, e);
-      if (me) {
-        videoUrl = me.url;
-        videoType = me.type;
-        provider = "megaembed";
-      }
+      if (me) { videoUrl = me.url; videoType = me.type; provider = "megaembed"; }
     }
 
-    // ── EmbedPlay (fallback 2) ──
-    if (!videoUrl) {
+    // ── EmbedPlay ──
+    if (shouldTry("embedplay") && !videoUrl) {
       const ep = await tryEmbedPlay(tmdb_id, imdb_id || null, isMovie, s, e);
-      if (ep) {
-        videoUrl = ep.url;
-        videoType = ep.type;
-        provider = "embedplay";
-      }
+      if (ep) { videoUrl = ep.url; videoType = ep.type; provider = "embedplay"; }
     }
 
     // 3. Save to cache & return
