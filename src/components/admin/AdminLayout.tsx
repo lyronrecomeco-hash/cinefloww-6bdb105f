@@ -14,7 +14,7 @@ const menuItems = [
   { label: "Animes", path: "/admin/animes", icon: Sparkles },
   { label: "Categorias", path: "/admin/categorias", icon: FolderOpen },
   { label: "Banco", path: "/admin/banco", icon: Database },
-  { label: "CineVeo", path: "/admin/cineveo", icon: MonitorPlay },
+  { label: "CineFlow", path: "/admin/cineveo", icon: MonitorPlay },
   { label: "Configurações", path: "/admin/config", icon: Settings },
 ];
 
@@ -74,7 +74,7 @@ const AdminLayout = () => {
           </div>
           {sidebarOpen && (
             <span className="font-display font-bold text-lg tracking-tight">
-              Cine<span className="text-gradient">Veo</span>
+              Cine<span className="text-gradient">Flow</span>
             </span>
           )}
         </div>

@@ -167,10 +167,10 @@ const ContentEditModal = ({ item, onClose, onSave }: ContentEditModalProps) => {
             <span className="px-2 py-1 rounded-lg bg-white/5 border border-white/10 capitalize">{item.content_type}</span>
           </div>
 
-          {/* Player test - CineVeo */}
+          {/* Player test - CineFlow */}
           <div>
             <div className="flex items-center justify-between mb-3">
-              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Player CineVeo</label>
+              <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Player CineFlow</label>
               <div className="flex gap-2">
                 <button onClick={handleTestPlayer} disabled={extracting}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/15 text-primary text-xs font-medium border border-primary/20 hover:bg-primary/25 transition-colors disabled:opacity-50">
@@ -191,7 +191,7 @@ const ContentEditModal = ({ item, onClose, onSave }: ContentEditModalProps) => {
                 {extracting && (
                   <div className="flex items-center justify-center h-32 rounded-xl bg-white/5 border border-white/10">
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="w-4 h-4 animate-spin" />Extraindo vídeo do CineVeo...
+                      <Loader2 className="w-4 h-4 animate-spin" />Extraindo vídeo do CineFlow...
                     </div>
                   </div>
                 )}

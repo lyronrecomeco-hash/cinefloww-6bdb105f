@@ -215,7 +215,8 @@ const BancoPage = () => {
   const openPlayer = (item: ContentItem) => {
     const status = videoStatuses.get(item.tmdb_id);
     if (status?.video_url) {
-      window.open(`/player?url=${encodeURIComponent(status.video_url)}&title=${encodeURIComponent(item.title)}`, "_blank");
+      const vType = status.video_type || (status.video_url.includes(".mp4") ? "mp4" : "m3u8");
+      window.open(`/player?url=${encodeURIComponent(status.video_url)}&type=${vType}&title=${encodeURIComponent(item.title)}`, "_blank");
     }
   };
 
