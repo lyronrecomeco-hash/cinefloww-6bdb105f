@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { X, Clock, Star, ChevronDown, Play, Check } from "lucide-react";
 import { TMDBSeason, TMDBEpisode, getSeasonDetails, posterUrl } from "@/services/tmdb";
 import { getEpisodeProgress } from "@/lib/watchProgress";
 import AudioSelectModal from "@/components/AudioSelectModal";
-import PlayerModal from "@/components/PlayerModal";
 
 interface SeasonsModalProps {
   seriesId: number;
@@ -14,13 +14,13 @@ interface SeasonsModalProps {
 }
 
 const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: SeasonsModalProps) => {
+  const navigate = useNavigate();
   const validSeasons = seasons.filter((s) => s.season_number > 0);
   const [selectedSeason, setSelectedSeason] = useState(validSeasons[0]?.season_number ?? 1);
   const [seasonData, setSeasonData] = useState<TMDBSeason | null>(null);
   const [loading, setLoading] = useState(true);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [pendingEpisode, setPendingEpisode] = useState<{ season: number; episode: number } | null>(null);
-  const [playEpisode, setPlayEpisode] = useState<{ season: number; episode: number; audio: string } | null>(null);
   const [progressMap, setProgressMap] = useState<Map<string, { progress: number; duration: number; completed: boolean }>>(new Map());
 
   useEffect(() => {
@@ -34,7 +34,7 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
   // Load watch progress for all episodes
   useEffect(() => {
     getEpisodeProgress(seriesId, "tv").then(setProgressMap);
-  }, [seriesId, playEpisode]); // refresh after playing
+  }, [seriesId]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -44,8 +44,15 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
 
   const handleAudioSelect = (audio: string) => {
     if (!pendingEpisode) return;
-    setPlayEpisode({ ...pendingEpisode, audio });
-    setPendingEpisode(null);
+    const params = new URLSearchParams({
+      title: seriesTitle,
+      audio,
+      s: String(pendingEpisode.season),
+      e: String(pendingEpisode.episode),
+    });
+    if (imdbId) params.set("imdb", imdbId);
+    onClose();
+    navigate(`/assistir/tv/${seriesId}?${params.toString()}`);
   };
 
   return (
@@ -127,14 +134,6 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
           tmdbId={seriesId} type="tv" title={seriesTitle}
           subtitle={`T${pendingEpisode.season} • E${pendingEpisode.episode}`}
           onSelect={handleAudioSelect} onClose={() => setPendingEpisode(null)}
-        />
-      )}
-      {playEpisode && (
-        <PlayerModal
-          tmdbId={seriesId} imdbId={imdbId} type="tv"
-          season={playEpisode.season} episode={playEpisode.episode}
-          title={seriesTitle} audioTypes={[playEpisode.audio]}
-          onClose={() => setPlayEpisode(null)}
         />
       )}
     </>
