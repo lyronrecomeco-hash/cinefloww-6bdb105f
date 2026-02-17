@@ -10,15 +10,15 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const TMDB_KEY = "678cf2db5c3ab4a315d8ec632c493c7d";
 
 // ── Helpers ──────────────────────────────────────────────────────────
+// CineVeo slug: does NOT normalize accents (NFD), just strips non-ASCII chars
+// and does NOT collapse multiple hyphens. E.g. "Irmãos à Obra" → "irmos--obra"
 function slugify(text: string): string {
   return text
     .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // remove accents
-    .replace(/[^a-z0-9\s-]/g, "")   // remove special chars
+    .replace(/[^a-z0-9\s-]/g, "")   // remove non-ASCII & special chars (no NFD first!)
     .trim()
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-");
+    .replace(/\s+/g, "-");
+    // intentionally NO .replace(/-+/g, "-") — CineVeo keeps double hyphens
 }
 
 // ── CineVeo extraction ──────────────────────────────────────────────
