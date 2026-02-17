@@ -174,15 +174,45 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
     setMuted(!muted);
   };
 
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
   const toggleFullscreen = () => {
     const container = containerRef.current;
+    const video = videoRef.current;
     if (!container) return;
+
+    // iOS: use webkit fullscreen on video element
+    if (isIOS && video) {
+      try {
+        if ((video as any).webkitDisplayingFullscreen) {
+          (video as any).webkitExitFullscreen?.();
+        } else {
+          (video as any).webkitEnterFullscreen?.();
+        }
+      } catch {}
+      return;
+    }
+
     if (!document.fullscreenElement) {
       container.requestFullscreen().then(() => setFullscreen(true)).catch(() => {});
     } else {
       document.exitFullscreen().then(() => setFullscreen(false)).catch(() => {});
     }
   };
+
+  // Listen for iOS webkit fullscreen events
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !isIOS) return;
+    const onBegin = () => setFullscreen(true);
+    const onEnd = () => setFullscreen(false);
+    video.addEventListener("webkitbeginfullscreen", onBegin);
+    video.addEventListener("webkitendfullscreen", onEnd);
+    return () => {
+      video.removeEventListener("webkitbeginfullscreen", onBegin);
+      video.removeEventListener("webkitendfullscreen", onEnd);
+    };
+  }, [isIOS]);
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
     const video = videoRef.current;

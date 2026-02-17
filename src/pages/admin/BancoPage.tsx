@@ -105,6 +105,36 @@ const BancoPage = () => {
     fetchStats();
   }, [fetchContent, fetchStats]);
 
+  // Realtime subscription for live updates
+  useEffect(() => {
+    const channel = supabase
+      .channel('video-cache-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'video_cache' }, (payload) => {
+        const newItem = payload.new as any;
+        setStats(prev => ({
+          ...prev,
+          withVideo: prev.withVideo + 1,
+          withoutVideo: Math.max(0, prev.withoutVideo - 1),
+        }));
+        setVideoStatuses(prev => {
+          const next = new Map(prev);
+          next.set(newItem.tmdb_id, {
+            tmdb_id: newItem.tmdb_id,
+            has_video: true,
+            video_url: newItem.video_url,
+            provider: newItem.provider,
+            video_type: newItem.video_type,
+          });
+          return next;
+        });
+        if (resolving) {
+          setResolveProgress(prev => ({ ...prev, current: prev.current + 1 }));
+        }
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [resolving]);
+
   const resolveLink = async (item: ContentItem) => {
     const status = videoStatuses.get(item.tmdb_id);
     if (status?.has_video) return status;
@@ -126,70 +156,38 @@ const BancoPage = () => {
     }
   };
 
-  // Resolve ALL links in order: page by page, alphabetically
+  // Resolve ALL links via server-side batch-resolve (much faster)
   const resolveAllLinks = async () => {
     setResolving(true);
     cancelRef.current = false;
 
-    const { count: totalItems } = await supabase
-      .from("content")
-      .select("*", { count: "exact", head: true });
-    if (!totalItems) { setResolving(false); return; }
-
-    // Get ALL cached tmdb_ids
-    const cachedIds = new Set<number>();
-    let offset = 0;
-    while (true) {
-      const { data } = await supabase
-        .from("video_cache")
-        .select("tmdb_id")
-        .gt("expires_at", new Date().toISOString())
-        .range(offset, offset + 999);
-      if (!data?.length) break;
-      data.forEach(c => cachedIds.add(c.tmdb_id));
-      if (data.length < 1000) break;
-      offset += 1000;
-    }
-
-    const PAGE_SIZE = 50;
-    const CONCURRENCY = 15;
-    let totalResolved = 0;
-    const totalToResolve = Math.max(0, totalItems - cachedIds.size);
+    const totalToResolve = stats.withoutVideo;
     setResolveProgress({ current: 0, total: totalToResolve });
 
-    let pageOffset = 0;
-    while (pageOffset < totalItems && !cancelRef.current) {
-      const { data: pageItems } = await supabase
-        .from("content")
-        .select("id, tmdb_id, imdb_id, title, content_type, poster_path, release_date")
-        .order("title", { ascending: true })
-        .range(pageOffset, pageOffset + PAGE_SIZE - 1);
-
-      if (!pageItems?.length) break;
-
-      const toResolve = pageItems.filter(i => !cachedIds.has(i.tmdb_id));
-
-      if (toResolve.length > 0) {
-        const queue = [...toResolve];
-        const worker = async () => {
-          while (queue.length > 0 && !cancelRef.current) {
-            const item = queue.shift();
-            if (!item) break;
-            await resolveLink(item);
-            totalResolved++;
-            setResolveProgress({ current: totalResolved, total: totalToResolve });
-          }
-        };
-        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => worker()));
+    try {
+      // Call batch-resolve repeatedly until done or cancelled
+      let totalResolved = 0;
+      while (!cancelRef.current) {
+        const { data, error } = await supabase.functions.invoke("batch-resolve");
+        if (error) {
+          console.error("[banco] batch-resolve error:", error);
+          break;
+        }
+        if (data?.resolved === 0 && data?.failed === 0) {
+          // All done
+          break;
+        }
+        totalResolved += (data?.resolved || 0);
+        if (data?.message === "All items processed!") break;
       }
 
-      pageOffset += PAGE_SIZE;
+      toast({
+        title: cancelRef.current ? "Resolução cancelada" : "Resolução concluída",
+        description: `Processado com sucesso`,
+      });
+    } catch (e) {
+      toast({ title: "Erro", description: "Falha na resolução", variant: "destructive" });
     }
-
-    toast({
-      title: cancelRef.current ? "Resolução cancelada" : "Resolução concluída",
-      description: `${totalResolved} links processados`,
-    });
 
     setResolving(false);
     fetchStats();

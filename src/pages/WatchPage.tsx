@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Mic, Subtitles, Video, Globe, ChevronRight, Loader2 } from "lucide-react";
+import { ArrowLeft, Mic, Subtitles, Video, Globe, ChevronRight, Loader2, AlertTriangle } from "lucide-react";
 import CustomPlayer from "@/components/CustomPlayer";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
 
@@ -18,22 +18,6 @@ const AUDIO_OPTIONS = [
   { key: "cam", icon: Video, label: "CAM", description: "Gravação de câmera" },
 ];
 
-// Embed providers - loaded DIRECTLY (no proxy) to avoid Cloudflare blocks
-function buildEmbedUrls(imdbId: string | null, tmdbId: string, type: string, season?: number, episode?: number): string[] {
-  const isMovie = type === "movie";
-  const id = imdbId || tmdbId;
-  const s = season ?? 1;
-  const e = episode ?? 1;
-
-  return [
-    isMovie ? `https://megaembed.com/embed/${tmdbId}` : `https://megaembed.com/embed/${tmdbId}/${s}/${e}`,
-    isMovie ? `https://embed.su/embed/movie/${tmdbId}/1/1` : `https://embed.su/embed/tv/${tmdbId}/${s}/${e}`,
-    isMovie ? `https://vidlink.pro/movie/${tmdbId}?autoplay=true` : `https://vidlink.pro/tv/${tmdbId}/${s}/${e}?autoplay=true`,
-    isMovie ? `https://autoembed.co/movie/tmdb/${tmdbId}` : `https://autoembed.co/tv/tmdb/${tmdbId}-${s}-${e}`,
-    `https://vembed.stream/play/${id}`,
-  ];
-}
-
 const WatchPage = () => {
   const { type, id } = useParams<{ type: string; id: string }>();
   const [searchParams] = useSearchParams();
@@ -46,16 +30,14 @@ const WatchPage = () => {
   const episode = searchParams.get("e") ? Number(searchParams.get("e")) : undefined;
 
   const [sources, setSources] = useState<VideoSource[]>([]);
-  const [phase, setPhase] = useState<"audio-select" | "loading" | "playing" | "fallback">(
+  const [phase, setPhase] = useState<"audio-select" | "loading" | "playing" | "unavailable">(
     audioParam ? "loading" : "audio-select"
   );
   const [selectedAudio, setSelectedAudio] = useState(audioParam || "");
   const [audioTypes, setAudioTypes] = useState<string[]>([]);
-  const [currentProviderIdx, setCurrentProviderIdx] = useState(0);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
   const [savedTime, setSavedTime] = useState(0);
   const resumeChecked = useRef(false);
-  const progressTimer = useRef<ReturnType<typeof setInterval>>();
   const videoStartTime = useRef(0);
   const lastSaveTime = useRef(0);
 
@@ -63,23 +45,21 @@ const WatchPage = () => {
   const isMovie = type === "movie";
   const ct = isMovie ? "movie" : "tv";
 
-  // Check for resume on mount
+  // Check resume
   useEffect(() => {
     if (resumeChecked.current || !id) return;
     resumeChecked.current = true;
     getWatchProgress(tmdbId, ct, season, episode).then((p) => {
       if (p && p.progress_seconds > 30 && !p.completed && p.duration_seconds > 0) {
-        const pct = p.progress_seconds / p.duration_seconds;
-        if (pct < 0.9) {
+        if (p.progress_seconds / p.duration_seconds < 0.9) {
           setSavedTime(p.progress_seconds);
           setShowResumePrompt(true);
         }
       }
     });
   }, [tmdbId, ct, season, episode, id]);
-  const embedUrls = buildEmbedUrls(imdbId, id || "", type || "movie", season, episode);
 
-  // Load audio types from DB
+  // Load audio types
   useEffect(() => {
     const cType = type === "movie" ? "movie" : "series";
     supabase
@@ -95,7 +75,7 @@ const WatchPage = () => {
       });
   }, [id, type]);
 
-  // Try server-side extraction
+  // Try extraction — player próprio only (no embeds)
   const tryExtraction = useCallback(async () => {
     try {
       const { data, error: fnError } = await supabase.functions.invoke("extract-video", {
@@ -110,45 +90,29 @@ const WatchPage = () => {
       });
 
       if (!fnError && data?.url) {
-        console.log(`[WatchPage] Got direct URL: ${data.url}`);
         setSources([{
           url: data.url,
           quality: "auto",
-          provider: data.provider || "extract",
+          provider: data.provider || "banco",
           type: data.type === "mp4" ? "mp4" : "m3u8",
         }]);
         setPhase("playing");
         return;
       }
-    } catch {
-      // Silent fail
-    }
-
-    console.log("[WatchPage] No direct URL, using embed fallback");
-    setPhase("fallback");
+    } catch { /* silent */ }
+    setPhase("unavailable");
   }, [id, imdbId, isMovie, selectedAudio, season, episode]);
 
-  // Start extraction when audio is selected
   useEffect(() => {
-    if (phase === "loading" && selectedAudio) {
-      tryExtraction();
-    }
+    if (phase === "loading" && selectedAudio) tryExtraction();
   }, [phase, selectedAudio, tryExtraction]);
 
-  // Auto-start if audio was passed via URL
   useEffect(() => {
     if (audioParam) {
       setSelectedAudio(audioParam);
       setPhase("loading");
     }
   }, [audioParam]);
-
-  // Block popups
-  useEffect(() => {
-    const orig = window.open;
-    window.open = (() => null) as typeof window.open;
-    return () => { window.open = orig; };
-  }, []);
 
   const goBack = () => navigate(-1);
   const subtitle = type === "tv" && season && episode ? `T${season} • E${episode}` : undefined;
@@ -163,16 +127,9 @@ const WatchPage = () => {
     setPhase("loading");
   };
 
-  const tryNextProvider = () => {
-    if (currentProviderIdx < embedUrls.length - 1) {
-      setCurrentProviderIdx(prev => prev + 1);
-    }
-  };
-
   // ===== AUDIO SELECT =====
   if (phase === "audio-select") {
     const available = AUDIO_OPTIONS.filter(o => audioTypes.includes(o.key));
-
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-background">
         <div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-background to-accent/5" />
@@ -232,12 +189,8 @@ const WatchPage = () => {
           <p className="text-sm text-muted-foreground mb-1">{title}</p>
           <p className="text-sm text-muted-foreground mb-4">Você parou em {formatTime(savedTime)}</p>
           <div className="flex gap-3 justify-center">
-            <button onClick={() => handleResumeChoice(false)} className="px-5 py-2.5 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/20 transition-colors">
-              Do início
-            </button>
-            <button onClick={() => handleResumeChoice(true)} className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors">
-              Continuar
-            </button>
+            <button onClick={() => handleResumeChoice(false)} className="px-5 py-2.5 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/20 transition-colors">Do início</button>
+            <button onClick={() => handleResumeChoice(true)} className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors">Continuar</button>
           </div>
         </div>
       </div>
@@ -256,7 +209,7 @@ const WatchPage = () => {
     );
   }
 
-  // ===== PLAYING (native CustomPlayer with direct source) =====
+  // ===== PLAYING (native CustomPlayer) =====
   if (phase === "playing" && sources.length > 0) {
     return (
       <div className="fixed inset-0 z-[100] bg-black">
@@ -265,13 +218,8 @@ const WatchPage = () => {
           title={title}
           subtitle={subtitle}
           startTime={videoStartTime.current || undefined}
-          onClose={() => {
-            goBack();
-          }}
-          onError={() => {
-            console.log("[WatchPage] Player error, switching to fallback");
-            setPhase("fallback");
-          }}
+          onClose={goBack}
+          onError={() => setPhase("unavailable")}
           onProgress={(currentTime, dur) => {
             const now = Date.now();
             if (currentTime > 5 && dur > 0 && now - lastSaveTime.current > 10000) {
@@ -292,35 +240,18 @@ const WatchPage = () => {
     );
   }
 
-  // ===== FALLBACK (embed iframe loaded DIRECTLY - no proxy, avoids Cloudflare) =====
+  // ===== UNAVAILABLE =====
   return (
-    <div className="fixed inset-0 z-[100] bg-black flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 bg-card/90 backdrop-blur-sm border-b border-white/10 z-20">
-        <div className="flex items-center gap-3 min-w-0">
-          <button onClick={goBack} className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 transition-colors flex-shrink-0">
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <div className="min-w-0">
-            <h2 className="font-display text-sm font-bold truncate">{title}</h2>
-            {subtitle && <p className="text-[10px] text-muted-foreground">{subtitle}</p>}
-          </div>
+    <div className="fixed inset-0 z-[100] bg-black flex items-center justify-center p-4">
+      <div className="text-center max-w-sm">
+        <div className="w-16 h-16 rounded-full bg-destructive/20 flex items-center justify-center mx-auto mb-4">
+          <AlertTriangle className="w-8 h-8 text-destructive" />
         </div>
-        {currentProviderIdx < embedUrls.length - 1 && (
-          <button onClick={tryNextProvider} className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10 transition-colors">
-            Trocar servidor
-          </button>
-        )}
-      </div>
-
-      <div className="relative flex-1">
-        <iframe
-          src={embedUrls[currentProviderIdx]}
-          className="w-full h-full"
-          allowFullScreen
-          allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-          style={{ border: 0 }}
-          title={title}
-        />
+        <h3 className="text-xl font-bold text-white mb-2">Vídeo indisponível</h3>
+        <p className="text-sm text-white/50 mb-6">Este conteúdo ainda não foi indexado no banco. Tente novamente mais tarde.</p>
+        <button onClick={goBack} className="flex items-center gap-2 px-6 py-3 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors mx-auto">
+          <ArrowLeft className="w-4 h-4" /> Voltar
+        </button>
       </div>
     </div>
   );

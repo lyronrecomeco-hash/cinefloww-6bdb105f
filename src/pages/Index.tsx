@@ -3,6 +3,7 @@ import { Flame, Film, Tv } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import HeroSlider from "@/components/HeroSlider";
 import ContentRow from "@/components/ContentRow";
+import ContinueWatchingRow from "@/components/ContinueWatchingRow";
 import {
   TMDBMovie,
   getTrending,
@@ -50,6 +51,7 @@ const Index = () => {
       <HeroSlider movies={trending} />
 
       <div className="-mt-12 sm:-mt-16 relative z-10 pb-12 sm:pb-20 space-y-1 sm:space-y-2">
+        <ContinueWatchingRow />
         <ContentRow title="🔥 Lançamentos" movies={nowPlaying} icon={<Flame className="w-4 h-4" />} />
         <ContentRow title="🎬 Filmes" movies={popularMovies} icon={<Film className="w-4 h-4" />} />
         <ContentRow title="📺 Séries" movies={popularSeries} icon={<Tv className="w-4 h-4" />} />

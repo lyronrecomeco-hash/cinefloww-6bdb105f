@@ -10,6 +10,7 @@ import MoviesPage from "./pages/MoviesPage";
 import SeriesPage from "./pages/SeriesPage";
 import WatchPage from "./pages/WatchPage";
 import PlayerPage from "./pages/PlayerPage";
+import ApiRedirect from "./pages/ApiRedirect";
 import NotFound from "./pages/NotFound";
 
 // Admin (lazy loaded)
@@ -47,6 +48,10 @@ const App = () => (
             <Route path="/serie/:id" element={<DetailsPage type="tv" />} />
             <Route path="/assistir/:type/:id" element={<WatchPage />} />
             <Route path="/player" element={<PlayerPage />} />
+            <Route path="/player/:type/:id" element={<PlayerPage />} />
+
+            {/* API redirects */}
+            <Route path="/api/:type/:id" element={<ApiRedirect />} />
 
             {/* Admin */}
             <Route path="/admin/login" element={<AdminLogin />} />

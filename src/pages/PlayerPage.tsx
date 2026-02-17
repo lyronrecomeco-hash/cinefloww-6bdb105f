@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useSearchParams, useNavigate } from "react-router-dom";
+import { useSearchParams, useNavigate, useParams } from "react-router-dom";
 import Hls from "hls.js";
+import { supabase } from "@/integrations/supabase/client";
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Settings, AlertTriangle,
@@ -34,20 +35,66 @@ const DEMO_SOURCES: VideoSource[] = [
 const PlayerPage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const params = useParams<{ type?: string; id?: string }>();
 
   const title = searchParams.get("title") || "CineFlow Player";
   const subtitle = searchParams.get("subtitle") || undefined;
   const videoUrl = searchParams.get("url");
   const videoType = (searchParams.get("type") as "mp4" | "m3u8") || "m3u8";
-  const tmdbId = searchParams.get("tmdb") ? Number(searchParams.get("tmdb")) : undefined;
-  const contentType = searchParams.get("ct") || "movie";
+  const tmdbId = params.id ? Number(params.id) : (searchParams.get("tmdb") ? Number(searchParams.get("tmdb")) : undefined);
+  const contentType = params.type || searchParams.get("ct") || "movie";
   const season = searchParams.get("s") ? Number(searchParams.get("s")) : undefined;
   const episode = searchParams.get("e") ? Number(searchParams.get("e")) : undefined;
   const nextEpUrl = searchParams.get("next") || null;
 
-  const sources: VideoSource[] = videoUrl
-    ? [{ url: videoUrl, quality: "auto", provider: "Stream", type: videoType }]
-    : DEMO_SOURCES;
+  const [bankSources, setBankSources] = useState<VideoSource[]>([]);
+  const [bankLoading, setBankLoading] = useState(false);
+  const [bankTitle, setBankTitle] = useState(title);
+
+  // If accessed via /player/:type/:id, fetch from video_cache
+  useEffect(() => {
+    if (!params.id || !params.type) return;
+    setBankLoading(true);
+    const load = async () => {
+      const cType = params.type === "movie" ? "movie" : "series";
+      // Get video from cache
+      const { data: cached } = await supabase
+        .from("video_cache")
+        .select("video_url, video_type, provider")
+        .eq("tmdb_id", Number(params.id))
+        .eq("content_type", cType)
+        .gt("expires_at", new Date().toISOString())
+        .limit(1)
+        .maybeSingle();
+
+      if (cached) {
+        setBankSources([{
+          url: cached.video_url,
+          quality: "auto",
+          provider: cached.provider || "banco",
+          type: (cached.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
+        }]);
+      }
+
+      // Get title from content table
+      const { data: content } = await supabase
+        .from("content")
+        .select("title")
+        .eq("tmdb_id", Number(params.id))
+        .eq("content_type", cType)
+        .maybeSingle();
+
+      if (content?.title) setBankTitle(content.title);
+      setBankLoading(false);
+    };
+    load();
+  }, [params.id, params.type]);
+
+  const sources: VideoSource[] = bankSources.length > 0
+    ? bankSources
+    : videoUrl
+      ? [{ url: videoUrl, quality: "auto", provider: "Stream", type: videoType }]
+      : DEMO_SOURCES;
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -258,12 +305,40 @@ const PlayerPage = () => {
   const togglePlay = () => { const v = videoRef.current; if (v) playing ? v.pause() : v.play(); };
   const toggleMute = () => { const v = videoRef.current; if (v) { v.muted = !muted; setMuted(!muted); } };
 
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
   const toggleFullscreen = () => {
     const c = containerRef.current;
+    const video = videoRef.current;
     if (!c) return;
+
+    if (isIOS && video) {
+      try {
+        if ((video as any).webkitDisplayingFullscreen) {
+          (video as any).webkitExitFullscreen?.();
+        } else {
+          (video as any).webkitEnterFullscreen?.();
+        }
+      } catch {}
+      return;
+    }
+
     if (!document.fullscreenElement) c.requestFullscreen().then(() => setFullscreen(true)).catch(() => {});
     else document.exitFullscreen().then(() => setFullscreen(false)).catch(() => {});
   };
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !isIOS) return;
+    const onBegin = () => setFullscreen(true);
+    const onEnd = () => setFullscreen(false);
+    video.addEventListener("webkitbeginfullscreen", onBegin);
+    video.addEventListener("webkitendfullscreen", onEnd);
+    return () => {
+      video.removeEventListener("webkitbeginfullscreen", onBegin);
+      video.removeEventListener("webkitendfullscreen", onEnd);
+    };
+  }, [isIOS]);
 
   const togglePiP = async () => {
     const v = videoRef.current;
