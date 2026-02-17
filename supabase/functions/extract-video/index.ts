@@ -10,15 +10,12 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const TMDB_KEY = "678cf2db5c3ab4a315d8ec632c493c7d";
 
 // ── Helpers ──────────────────────────────────────────────────────────
-// CineVeo slug: does NOT normalize accents (NFD), just strips non-ASCII chars
-// and does NOT collapse multiple hyphens. E.g. "Irmãos à Obra" → "irmos--obra"
 function slugify(text: string): string {
   return text
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")   // remove non-ASCII & special chars (no NFD first!)
+    .replace(/[^a-z0-9\s-]/g, "")
     .trim()
     .replace(/\s+/g, "-");
-    // intentionally NO .replace(/-+/g, "-") — CineVeo keeps double hyphens
 }
 
 // ── CineVeo extraction ──────────────────────────────────────────────
@@ -47,25 +44,14 @@ async function tryCineveo(
     return null;
   }
 
-  // 2. Build slug
+  // 2. Try slug-based URL (works for ~70% of content)
   const slug = `${slugify(title)}-${tmdbId}`;
   const pathType = isMovie ? "filme" : "serie";
-  let pageUrl = `https://cineveo.site/${pathType}/${slug}.html`;
+  const pageUrl = `https://cineveo.site/${pathType}/${slug}.html`;
+  console.log(`[cineveo] Trying: ${pageUrl}`);
 
-  // For series episodes, some sites append season/episode params
-  if (!isMovie && season && episode) {
-    pageUrl = `https://cineveo.site/${pathType}/${slug}.html`;
-  }
-
-  console.log(`[cineveo] Page URL: ${pageUrl}`);
-
-  // 3. Fetch the page
   const pageRes = await fetch(pageUrl, {
-    headers: {
-      "User-Agent": UA,
-      "Referer": "https://cineveo.site/",
-      "Accept": "text/html,*/*",
-    },
+    headers: { "User-Agent": UA, "Referer": "https://cineveo.site/", "Accept": "text/html,*/*" },
     redirect: "follow",
   });
 
@@ -76,9 +62,16 @@ async function tryCineveo(
 
   const html = await pageRes.text();
 
-  // 4. Extract iframe src pointing to the player
-  const iframeMatch = html.match(/src=["']((?:\.\.)?\/player\/[^"']+)/i)
-    || html.match(/src=["'](\/player\/index\.php[^"']+)/i);
+  // Check for soft 404
+  if (html.includes('text-yellow-500">404')) {
+    console.log(`[cineveo] Soft 404 detected`);
+    return null;
+  }
+
+  // 5. Extract iframe src pointing to the player
+  const iframeMatch =
+    html.match(/src=["']((?:\.\.)?\/player\/[^"']+)/i) ||
+    html.match(/src=["'](\/player\/index\.php[^"']+)/i);
 
   if (!iframeMatch?.[1]) {
     // Try direct CDN link in the page itself
@@ -98,18 +91,14 @@ async function tryCineveo(
   // For series, append season/episode if not already in URL
   if (!isMovie && season && episode && !playerPath.includes("s=") && !playerPath.includes("ep=")) {
     const sep = playerPath.includes("?") ? "&" : "?";
-    playerUrl += `${sep}s=${season}&ep=${episode}`;
+    playerUrl += `${sep}s=${season}&e=${episode}`;
   }
 
   console.log(`[cineveo] Player URL: ${playerUrl}`);
 
-  // 5. Fetch the player page
+  // 6. Fetch the player page
   const playerRes = await fetch(playerUrl, {
-    headers: {
-      "User-Agent": UA,
-      "Referer": pageUrl,
-      "Accept": "text/html,*/*",
-    },
+    headers: { "User-Agent": UA, "Referer": pageUrl, "Accept": "text/html,*/*" },
     redirect: "follow",
   });
 
@@ -120,7 +109,7 @@ async function tryCineveo(
 
   const playerHtml = await playerRes.text();
 
-  // 6. Extract CDN mp4 URL
+  // 7. Extract CDN mp4 URL
   const cdnMatch = playerHtml.match(/(https?:\/\/cdn\.cineveo\.site\/[^\s"'<>\\]+\.mp4)/i);
   if (cdnMatch?.[1]) {
     console.log(`[cineveo] Found CDN URL: ${cdnMatch[1]}`);
@@ -130,13 +119,12 @@ async function tryCineveo(
   // Try VOD URL from the v= parameter
   const vodMatch = playerPath.match(/[?&]v=([^&]+)/);
   if (vodMatch?.[1]) {
-    const vodUrl = `https://vodcinevs.com/movie/${vodMatch[1]}.mp4`;
-    console.log(`[cineveo] Trying VOD URL: ${vodUrl}`);
-    // Quick HEAD check
+    const decodedVod = decodeURIComponent(vodMatch[1]);
+    console.log(`[cineveo] Trying VOD URL: ${decodedVod}`);
     try {
-      const headRes = await fetch(vodUrl, { method: "HEAD", headers: { "User-Agent": UA } });
+      const headRes = await fetch(decodedVod, { method: "HEAD", headers: { "User-Agent": UA } });
       if (headRes.ok) {
-        return { url: vodUrl, type: "mp4" };
+        return { url: decodedVod, type: "mp4" };
       }
     } catch { /* skip */ }
   }
