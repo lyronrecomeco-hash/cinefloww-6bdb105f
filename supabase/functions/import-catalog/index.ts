@@ -91,7 +91,7 @@ async function fetchTMDBBatch(items: { tmdbId: number; type: "movie" | "tv" }[],
 }
 
 // Max pages per single call
-const MAX_PAGES_PER_CALL = 10;
+const MAX_PAGES_PER_CALL = 20;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS")

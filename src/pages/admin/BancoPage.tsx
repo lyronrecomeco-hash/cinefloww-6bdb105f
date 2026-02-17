@@ -141,41 +141,66 @@ const BancoPage = () => {
     }
   };
 
+  const fetchAllContent = async (): Promise<ContentItem[]> => {
+    const all: ContentItem[] = [];
+    let offset = 0;
+    const BATCH = 1000;
+    while (true) {
+      const { data } = await supabase
+        .from("content")
+        .select("id, tmdb_id, imdb_id, title, content_type, poster_path, release_date")
+        .order("title", { ascending: true })
+        .range(offset, offset + BATCH - 1);
+      if (!data?.length) break;
+      all.push(...data);
+      if (data.length < BATCH) break;
+      offset += BATCH;
+    }
+    return all;
+  };
+
   const resolveAllLinks = async () => {
     setResolving(true);
     cancelRef.current = false;
 
-    // Get all items without cached video
-    const { data: allContent } = await supabase
-      .from("content")
-      .select("id, tmdb_id, imdb_id, title, content_type, poster_path, release_date")
-      .order("title", { ascending: true })
-      .limit(1000);
+    // Get ALL items (paginated)
+    const allContent = await fetchAllContent();
+    if (!allContent.length) { setResolving(false); return; }
 
-    if (!allContent?.length) {
-      setResolving(false);
-      return;
+    // Get ALL cached tmdb_ids (paginated)
+    const cachedIds = new Set<number>();
+    let offset = 0;
+    while (true) {
+      const { data } = await supabase
+        .from("video_cache")
+        .select("tmdb_id")
+        .gt("expires_at", new Date().toISOString())
+        .range(offset, offset + 999);
+      if (!data?.length) break;
+      data.forEach(c => cachedIds.add(c.tmdb_id));
+      if (data.length < 1000) break;
+      offset += 1000;
     }
 
-    // Filter out items that already have cache
-    const { data: cached } = await supabase
-      .from("video_cache")
-      .select("tmdb_id")
-      .gt("expires_at", new Date().toISOString());
-
-    const cachedIds = new Set(cached?.map(c => c.tmdb_id) || []);
     const toResolve = allContent.filter(i => !cachedIds.has(i.tmdb_id));
-
     setResolveProgress({ current: 0, total: toResolve.length });
 
+    // Parallel workers (10 concurrent)
+    const CONCURRENCY = 10;
     let resolved = 0;
-    for (const item of toResolve) {
-      if (cancelRef.current) break;
+    const queue = [...toResolve];
 
-      await resolveLink(item);
-      resolved++;
-      setResolveProgress({ current: resolved, total: toResolve.length });
-    }
+    const worker = async () => {
+      while (queue.length > 0 && !cancelRef.current) {
+        const item = queue.shift();
+        if (!item) break;
+        await resolveLink(item);
+        resolved++;
+        setResolveProgress({ current: resolved, total: toResolve.length });
+      }
+    };
+
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, () => worker()));
 
     toast({
       title: cancelRef.current ? "Resolução cancelada" : "Resolução concluída",

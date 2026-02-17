@@ -89,30 +89,40 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
   const handleImport = async (startPage: number, maxPages: number, enrich: boolean) => {
     setImporting(true);
     cancelRef.current = false;
-    let currentPage = startPage;
     const targetEndPage = startPage + maxPages - 1;
     let totalImported = 0;
     let totalFound = 0;
+    const CONCURRENCY = 5;
+    const PAGES_PER_BATCH = 20;
 
     setTotalToImport(maxPages * 30);
 
     try {
-      while (currentPage <= targetEndPage && !cancelRef.current) {
-        setImportProgress(`⏳ Páginas ${currentPage}-${Math.min(currentPage + 9, targetEndPage)}...`);
+      let nextPages: number[] = [];
+      // Build initial queue of start pages
+      for (let p = startPage; p <= targetEndPage; p += PAGES_PER_BATCH) {
+        nextPages.push(p);
+      }
 
-        const { data, error } = await supabase.functions.invoke("import-catalog", {
-          body: { action: "import", content_type: contentType, start_page: currentPage, enrich },
-        });
+      while (nextPages.length > 0 && !cancelRef.current) {
+        const batch = nextPages.splice(0, CONCURRENCY);
+        setImportProgress(`⚡ Importando ${batch.length} lotes em paralelo (pág ${batch[0]}-${batch[batch.length - 1] + PAGES_PER_BATCH - 1})...`);
 
-        if (error) throw error;
-        if (!data.success) throw new Error(data.error || "Falha na importação");
+        const results = await Promise.allSettled(
+          batch.map(sp =>
+            supabase.functions.invoke("import-catalog", {
+              body: { action: "import", content_type: contentType, start_page: sp, enrich },
+            })
+          )
+        );
 
-        totalImported += data.imported || 0;
-        totalFound += data.total || 0;
+        for (const result of results) {
+          if (result.status === "fulfilled" && result.value.data?.success) {
+            totalImported += result.value.data.imported || 0;
+            totalFound += result.value.data.total || 0;
+          }
+        }
         setImportedCount(totalImported);
-
-        if (!data.has_more || !data.next_page) break;
-        currentPage = data.next_page;
       }
 
       if (cancelRef.current) {
