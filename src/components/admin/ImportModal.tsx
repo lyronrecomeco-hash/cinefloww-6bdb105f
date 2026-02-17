@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { X, Download, Loader2, Film, Tv, Database, RefreshCw } from "lucide-react";
+import { X, Download, Loader2, Film, Tv, RefreshCw, Zap } from "lucide-react";
 
 interface SyncStats {
   total_pages: number;
@@ -17,6 +17,7 @@ interface ImportModalProps {
   onRefreshSync: () => void;
   onClose: () => void;
   onImport: (startPage: number, maxPages: number, enrich: boolean) => void;
+  onAutoImport?: (enrich: boolean) => void;
   importing: boolean;
   progress: string;
   importedCount: number;
@@ -33,6 +34,7 @@ const ImportModal = ({
   onRefreshSync,
   onClose,
   onImport,
+  onAutoImport,
   importing,
   progress,
   importedCount,
@@ -160,11 +162,21 @@ const ImportModal = ({
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-border flex items-center gap-3">
+        <div className="px-6 py-4 border-t border-border flex items-center gap-2">
           <button onClick={importing ? onCancel : onClose}
             className="flex-1 h-10 rounded-xl bg-white/5 border border-white/10 text-sm font-medium hover:bg-white/10 transition-colors">
             {importing ? "Cancelar" : "Fechar"}
           </button>
+          {onAutoImport && (
+            <button onClick={() => onAutoImport(enrich)} disabled={importing}
+              className="flex-1 h-10 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+              {importing ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Auto...</>
+              ) : (
+                <><Zap className="w-4 h-4" />Auto-Importar</>
+              )}
+            </button>
+          )}
           <button onClick={() => onImport(startPage, pagesToImport, enrich)} disabled={importing}
             className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
             {importing ? (

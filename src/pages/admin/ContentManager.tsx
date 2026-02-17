@@ -131,6 +131,14 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
     setImporting(false);
   };
 
+  const handleAutoImport = async (enrich: boolean) => {
+    if (!cineveoTotalPages) {
+      toast({ title: "Aguarde", description: "Carregando total de páginas..." });
+      return;
+    }
+    handleImport(1, cineveoTotalPages, enrich);
+  };
+
   const handleCancelImport = () => { cancelRef.current = true; };
 
   const handleDelete = async (id: string, itemTitle: string) => {
@@ -292,6 +300,7 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
           onRefreshSync={fetchSyncStats}
           onClose={() => { setShowImportModal(false); setImportProgress(""); handleCancelImport(); }}
           onImport={handleImport}
+          onAutoImport={handleAutoImport}
           importing={importing}
           progress={importProgress}
           importedCount={importedCount}

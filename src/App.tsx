@@ -20,6 +20,7 @@ const ContentManager = lazy(() => import("./pages/admin/ContentManager"));
 const CategoriesManager = lazy(() => import("./pages/admin/CategoriesManager"));
 const SettingsPage = lazy(() => import("./pages/admin/SettingsPage"));
 const CineveoTester = lazy(() => import("./pages/admin/CineveoTester"));
+const BancoPage = lazy(() => import("./pages/admin/BancoPage"));
 
 const queryClient = new QueryClient();
 
@@ -55,6 +56,7 @@ const App = () => (
               <Route path="doramas" element={<ContentManager contentType="dorama" title="Doramas" />} />
               <Route path="animes" element={<ContentManager contentType="anime" title="Animes" />} />
               <Route path="categorias" element={<CategoriesManager />} />
+              <Route path="banco" element={<BancoPage />} />
               <Route path="cineveo" element={<CineveoTester />} />
               <Route path="config" element={<SettingsPage />} />
             </Route>

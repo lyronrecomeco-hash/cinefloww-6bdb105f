@@ -250,14 +250,14 @@ Deno.serve(async (req) => {
 
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
       const batch = rows.slice(i, i + BATCH_SIZE);
-      const { data: upserted, error } = await adminClient.from("content").upsert(batch, {
+      const { error } = await adminClient.from("content").upsert(batch, {
         onConflict: "tmdb_id,content_type",
-      }).select("id");
+      });
       if (error) {
         errors.push(error.message);
         console.log(`[import] Upsert batch error: ${error.message}`);
       } else {
-        imported += upserted?.length || 0;
+        imported += batch.length;
       }
     }
 
