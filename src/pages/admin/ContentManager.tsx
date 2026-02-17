@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Search, Trash2, Star, Loader2, Film, Eye, EyeOff, Download, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -30,6 +30,7 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
   const [editItem, setEditItem] = useState<any | null>(null);
   const [page, setPage] = useState(0);
   const [filterText, setFilterText] = useState("");
+  const cancelRef = useRef(false);
   const { toast } = useToast();
 
   const fetchContent = useCallback(async () => {
@@ -49,7 +50,6 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
     }
 
     const { data, error, count } = await query;
-
     if (!error) {
       setItems(data || []);
       setTotalCount(count || 0);
@@ -63,6 +63,7 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
     setShowImportModal(true);
     setImportProgress("");
     setLoadingPages(true);
+    cancelRef.current = false;
 
     try {
       const { data, error } = await supabase.functions.invoke("import-catalog", {
@@ -78,22 +79,59 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
 
   const handleImport = async (startPage: number, maxPages: number, enrich: boolean) => {
     setImporting(true);
-    setImportProgress("Conectando ao CineVeo...");
+    cancelRef.current = false;
+    let currentPage = startPage;
+    const targetEndPage = startPage + maxPages - 1;
+    let totalImported = 0;
+    let totalFound = 0;
+
     try {
-      const { data, error } = await supabase.functions.invoke("import-catalog", {
-        body: { content_type: contentType, max_pages: maxPages, start_page: startPage, enrich },
-      });
+      while (currentPage <= targetEndPage && !cancelRef.current) {
+        const pagesLeft = targetEndPage - currentPage + 1;
+        setImportProgress(
+          `⏳ Importando página ${currentPage}... (${totalImported} importados até agora)`
+        );
 
-      if (error) throw error;
+        const { data, error } = await supabase.functions.invoke("import-catalog", {
+          body: {
+            action: "import",
+            content_type: contentType,
+            start_page: currentPage,
+            enrich,
+          },
+        });
 
-      setImportProgress(`✅ ${data.imported} importados (${data.total} encontrados, ${data.pages_scraped}/${data.total_pages} páginas)`);
-      toast({ title: "Importação concluída!", description: `${data.imported} itens do CineVeo adicionados.` });
+        if (error) throw error;
+        if (!data.success) throw new Error(data.error || "Falha na importação");
+
+        totalImported += data.imported || 0;
+        totalFound += data.total || 0;
+
+        if (!data.has_more || !data.next_page) {
+          // No more data
+          break;
+        }
+
+        currentPage = data.next_page;
+      }
+
+      if (cancelRef.current) {
+        setImportProgress(`⚠️ Cancelado. ${totalImported} itens importados até o momento.`);
+      } else {
+        setImportProgress(`✅ Concluído! ${totalImported} itens importados (${totalFound} encontrados no CineVeo)`);
+      }
+      toast({ title: "Importação concluída!", description: `${totalImported} itens do CineVeo adicionados.` });
       fetchContent();
     } catch (err: any) {
-      setImportProgress(`❌ Erro: ${err.message}`);
+      setImportProgress(`❌ Erro na página ${currentPage}: ${err.message}. ${totalImported} importados antes do erro.`);
       toast({ title: "Erro na importação", description: err.message, variant: "destructive" });
+      if (totalImported > 0) fetchContent();
     }
     setImporting(false);
+  };
+
+  const handleCancelImport = () => {
+    cancelRef.current = true;
   };
 
   const handleDelete = async (id: string, itemTitle: string) => {
@@ -223,28 +261,21 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
             </div>
           </div>
 
-          {/* Pagination */}
           {totalCount > ITEMS_PER_PAGE && (
             <div className="flex items-center justify-between">
               <p className="text-xs text-muted-foreground">
                 {page * ITEMS_PER_PAGE + 1}–{Math.min((page + 1) * ITEMS_PER_PAGE, totalCount)} de {totalCount}
               </p>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPage(p => Math.max(0, p - 1))}
-                  disabled={page === 0}
-                  className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 disabled:opacity-30 transition-colors"
-                >
+                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+                  className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 disabled:opacity-30 transition-colors">
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <span className="text-xs text-muted-foreground font-medium">
                   Pág {page + 1}/{Math.ceil(totalCount / ITEMS_PER_PAGE)}
                 </span>
-                <button
-                  onClick={() => setPage(p => p + 1)}
-                  disabled={(page + 1) * ITEMS_PER_PAGE >= totalCount}
-                  className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 disabled:opacity-30 transition-colors"
-                >
+                <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * ITEMS_PER_PAGE >= totalCount}
+                  className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 disabled:opacity-30 transition-colors">
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
@@ -253,16 +284,10 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
         </>
       )}
 
-      {/* Edit Modal */}
       {editItem && (
-        <ContentEditModal
-          item={editItem}
-          onClose={() => setEditItem(null)}
-          onSave={() => { setEditItem(null); fetchContent(); }}
-        />
+        <ContentEditModal item={editItem} onClose={() => setEditItem(null)} onSave={() => { setEditItem(null); fetchContent(); }} />
       )}
 
-      {/* Import Modal */}
       {showImportModal && (
         loadingPages ? (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
@@ -276,10 +301,11 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
             contentType={contentType}
             title={title}
             totalPages={cineveoTotalPages}
-            onClose={() => { setShowImportModal(false); setImportProgress(""); }}
+            onClose={() => { setShowImportModal(false); setImportProgress(""); handleCancelImport(); }}
             onImport={handleImport}
             importing={importing}
             progress={importProgress}
+            onCancel={handleCancelImport}
           />
         )
       )}
