@@ -72,7 +72,7 @@ const AdminLayout = () => {
           </div>
           {sidebarOpen && (
             <span className="font-display font-bold text-lg tracking-tight">
-              Cine<span className="text-gradient">flow</span>
+              Cine<span className="text-gradient">Veo</span>
             </span>
           )}
         </div>
