@@ -179,7 +179,7 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
           <button onClick={openImportModal}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors">
             <Download className="w-4 h-4" />
-            Importar CineVeo
+            Importar CineFlow
           </button>
         </div>
       </div>
@@ -201,7 +201,7 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
           <Film className="w-12 h-12 text-muted-foreground/30 mx-auto mb-3" />
           <p className="text-muted-foreground text-sm">Nenhum conteúdo encontrado</p>
           <button onClick={openImportModal} className="mt-4 px-4 py-2 rounded-xl bg-primary/20 text-primary text-sm font-medium hover:bg-primary/30 transition-colors">
-            Importar do CineVeo
+            Importar do CineFlow
           </button>
         </div>
       ) : (

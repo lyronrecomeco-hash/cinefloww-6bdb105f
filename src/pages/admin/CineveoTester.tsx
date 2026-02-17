@@ -13,9 +13,9 @@ interface ExtractionResult {
 type ProviderOption = "cineveo" | "megaembed" | "all";
 
 const providerOptions: { value: ProviderOption; label: string; desc: string }[] = [
-  { value: "cineveo", label: "CineVeo", desc: "Apenas CDN CineVeo (mp4 direto)" },
+  { value: "cineveo", label: "CineFlow", desc: "Apenas CDN CineFlow (mp4 direto)" },
   { value: "megaembed", label: "MegaEmbed", desc: "Apenas MegaEmbed (m3u8/mp4 bruto)" },
-  { value: "all", label: "Todos", desc: "Tenta CineVeo → MegaEmbed → EmbedPlay" },
+  { value: "all", label: "Todos", desc: "Tenta CineFlow → MegaEmbed → EmbedPlay" },
 ];
 
 const CineveoTester = () => {
@@ -64,7 +64,7 @@ const CineveoTester = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-display font-bold">CineVeo Tester</h1>
+        <h1 className="text-2xl font-display font-bold">CineFlow Tester</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Teste a extração de vídeo bruto (MP4/M3U8) por provedor.
         </p>
