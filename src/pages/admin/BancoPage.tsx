@@ -40,7 +40,8 @@ const BancoPage = () => {
   const { toast } = useToast();
   const [stats, setStats] = useState({ total: 0, withVideo: 0, withoutVideo: 0 });
   const [playerItem, setPlayerItem] = useState<ContentItem | null>(null);
-  const [providerMenu, setProviderMenu] = useState<string | null>(null); // item.id when menu is open
+  const [providerMenu, setProviderMenu] = useState<string | null>(null);
+  const [resolvingItems, setResolvingItems] = useState<Set<string>>(new Set());
 
   const fetchContent = useCallback(async () => {
     setLoading(true);
@@ -181,9 +182,18 @@ const BancoPage = () => {
     }
   };
 
-  const handleProviderSelect = (item: ContentItem, provider: string) => {
+  const handleProviderSelect = async (item: ContentItem, provider: string) => {
     setProviderMenu(null);
-    resolveLink(item, provider);
+    setResolvingItems(prev => new Set(prev).add(item.id));
+    try {
+      await resolveLink(item, provider);
+    } finally {
+      setResolvingItems(prev => {
+        const next = new Set(prev);
+        next.delete(item.id);
+        return next;
+      });
+    }
   };
 
   // Resolve ALL links via server-side batch-resolve — fires rapidly, realtime updates UI
@@ -377,8 +387,12 @@ const BancoPage = () => {
                     )}
                   </div>
                   <div className="flex items-center gap-1 relative">
-                    <button onClick={() => setProviderMenu(providerMenu === item.id ? null : item.id)} className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10">
-                      <RefreshCw className="w-3 h-3" />
+                    <button
+                      onClick={() => resolvingItems.has(item.id) ? null : setProviderMenu(providerMenu === item.id ? null : item.id)}
+                      disabled={resolvingItems.has(item.id)}
+                      className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10 disabled:opacity-50"
+                    >
+                      {resolvingItems.has(item.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
                     </button>
                     {providerMenu === item.id && (
                       <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-xl shadow-xl p-1.5 min-w-[130px] animate-fade-in">
@@ -453,8 +467,12 @@ const BancoPage = () => {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5 justify-end">
                             <div className="relative">
-                              <button onClick={() => setProviderMenu(providerMenu === item.id ? null : item.id)} className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10" title="Resolver link">
-                                <RefreshCw className="w-3.5 h-3.5" />
+                              <button
+                                onClick={() => resolvingItems.has(item.id) ? null : setProviderMenu(providerMenu === item.id ? null : item.id)}
+                                disabled={resolvingItems.has(item.id)}
+                                className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10 disabled:opacity-50" title="Resolver link"
+                              >
+                                {resolvingItems.has(item.id) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
                               </button>
                               {providerMenu === item.id && (
                                 <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-xl shadow-xl p-1.5 min-w-[130px] animate-fade-in">
