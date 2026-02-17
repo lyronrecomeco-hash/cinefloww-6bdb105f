@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Search, Menu, X } from "lucide-react";
+import { Search, Menu, X, MessageSquare } from "lucide-react";
 import { searchMulti, TMDBMovie, posterUrl, getDisplayTitle, getMediaType } from "@/services/tmdb";
+import RequestModal from "@/components/RequestModal";
 
 const navItems = [
   { label: "Início", path: "/" },
@@ -10,6 +11,7 @@ const navItems = [
 ];
 
 const Navbar = () => {
+  const [showRequest, setShowRequest] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -69,6 +71,7 @@ const Navbar = () => {
   };
 
   return (
+    <>
     <nav
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
         scrolled
@@ -105,7 +108,15 @@ const Navbar = () => {
         </div>
 
         {/* Right side */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Request button */}
+          <button
+            onClick={() => setShowRequest(true)}
+            className="w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center rounded-2xl text-muted-foreground hover:text-foreground bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+            title="Fazer Pedido"
+          >
+            <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
           {/* Search */}
           <div ref={searchRef} className="relative">
             <div className={`flex items-center transition-all duration-300 ${searchOpen ? "w-64 sm:w-80" : "w-10"}`}>
@@ -197,6 +208,8 @@ const Navbar = () => {
         </div>
       )}
     </nav>
+    {showRequest && <RequestModal onClose={() => setShowRequest(false)} />}
+    </>
   );
 };
 
