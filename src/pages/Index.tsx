@@ -49,18 +49,21 @@ const Index = () => {
       <Navbar />
       <HeroSlider movies={trending} />
 
-      <div className="-mt-16 relative z-10 pb-20 space-y-2">
+      <div className="-mt-12 sm:-mt-16 relative z-10 pb-12 sm:pb-20 space-y-1 sm:space-y-2">
         <ContentRow title="🔥 Lançamentos" movies={nowPlaying} icon={<Flame className="w-4 h-4" />} />
         <ContentRow title="🎬 Filmes" movies={popularMovies} icon={<Film className="w-4 h-4" />} />
         <ContentRow title="📺 Séries" movies={popularSeries} icon={<Tv className="w-4 h-4" />} />
       </div>
 
       <footer className="border-t border-white/5 py-6 sm:py-8 px-4 sm:px-6 lg:px-12">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex flex-col items-center gap-4 text-center">
           <span className="font-display font-bold text-lg">
             Cine<span className="text-gradient">flow</span>
           </span>
-          <p className="text-muted-foreground text-xs">© 2025 Cineflow. Todos os direitos reservados.</p>
+          <p className="text-muted-foreground text-[10px] sm:text-xs max-w-2xl leading-relaxed">
+            AVISO LEGAL: Nós não armazenamos nenhum dos arquivos em nenhum servidor. Todos os conteúdos são fornecidos por terceiros sem qualquer tipo de filiação.
+          </p>
+          <p className="text-muted-foreground text-[10px] sm:text-xs">© 2025 Cineflow. Todos os direitos reservados.</p>
         </div>
       </footer>
     </div>

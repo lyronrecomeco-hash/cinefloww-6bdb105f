@@ -36,7 +36,6 @@ const Navbar = () => {
     setResults([]);
   }, [location]);
 
-  // Search debounce
   useEffect(() => {
     if (query.length < 2) { setResults([]); return; }
     setSearching(true);
@@ -49,7 +48,6 @@ const Navbar = () => {
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) {
@@ -79,13 +77,13 @@ const Navbar = () => {
           : "bg-gradient-to-b from-background/80 to-transparent"
       }`}
     >
-      <div className="px-4 sm:px-6 lg:px-12 flex items-center justify-between h-16 lg:h-20">
+      <div className="px-4 sm:px-6 lg:px-12 flex items-center justify-between h-14 sm:h-16 lg:h-20">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 group">
-          <div className="w-8 h-8 rounded-lg bg-primary/20 flex items-center justify-center group-hover:bg-primary/30 transition-colors">
-            <span className="text-primary font-display font-bold text-lg">C</span>
+          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-primary/20 flex items-center justify-center group-hover:bg-primary/30 transition-colors">
+            <span className="text-primary font-display font-bold text-base sm:text-lg">C</span>
           </div>
-          <span className="font-display font-bold text-xl tracking-tight">
+          <span className="font-display font-bold text-lg sm:text-xl tracking-tight">
             Cine<span className="text-gradient">flow</span>
           </span>
         </Link>
@@ -109,17 +107,9 @@ const Navbar = () => {
 
         {/* Right side */}
         <div className="flex items-center gap-1.5 sm:gap-2">
-          {/* Request button */}
-          <button
-            onClick={() => setShowRequest(true)}
-            className="w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center rounded-2xl text-muted-foreground hover:text-foreground bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
-            title="Fazer Pedido"
-          >
-            <MessageSquare className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
           {/* Search */}
           <div ref={searchRef} className="relative">
-            <div className={`flex items-center transition-all duration-300 ${searchOpen ? "w-64 sm:w-80" : "w-10"}`}>
+            <div className={`flex items-center transition-all duration-300 ${searchOpen ? "w-56 sm:w-80" : "w-9 sm:w-10"}`}>
               {searchOpen && (
                 <input
                   ref={inputRef}
@@ -128,7 +118,7 @@ const Navbar = () => {
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Buscar filmes, séries..."
                   autoFocus
-                  className="w-full h-11 pl-11 pr-4 rounded-2xl bg-white/10 border border-white/15 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 backdrop-blur-xl"
+                  className="w-full h-9 sm:h-11 pl-9 sm:pl-11 pr-3 sm:pr-4 rounded-2xl bg-white/10 border border-white/15 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 backdrop-blur-xl"
                 />
               )}
               <button
@@ -136,15 +126,15 @@ const Navbar = () => {
                   setSearchOpen(!searchOpen);
                   if (!searchOpen) setTimeout(() => inputRef.current?.focus(), 100);
                 }}
-                className={`${searchOpen ? "absolute left-0" : ""} w-11 h-11 flex items-center justify-center rounded-2xl text-muted-foreground hover:text-foreground transition-colors ${!searchOpen ? "bg-white/5 border border-white/10 hover:bg-white/10" : ""}`}
+                className={`${searchOpen ? "absolute left-0" : ""} w-9 h-9 sm:w-11 sm:h-11 flex items-center justify-center rounded-2xl text-muted-foreground hover:text-foreground transition-colors ${!searchOpen ? "bg-white/5 border border-white/10 hover:bg-white/10" : ""}`}
               >
-                <Search className="w-5 h-5" />
+                <Search className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
             </div>
 
             {/* Results dropdown */}
             {searchOpen && (query.length >= 2) && (
-              <div className="absolute top-full mt-2 right-0 w-80 sm:w-96 glass-strong z-50 max-h-[70vh] overflow-y-auto scrollbar-hide">
+              <div className="absolute top-full mt-2 right-0 w-[calc(100vw-2rem)] sm:w-96 glass-strong z-50 max-h-[70vh] overflow-y-auto scrollbar-hide">
                 {searching ? (
                   <div className="flex justify-center py-6">
                     <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -182,7 +172,7 @@ const Navbar = () => {
           {/* Mobile menu */}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="md:hidden w-10 h-10 flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+            className="md:hidden w-9 h-9 flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
           >
             {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -191,7 +181,7 @@ const Navbar = () => {
 
       {/* Mobile Menu */}
       {menuOpen && (
-        <div className="md:hidden glass mx-4 mb-4 p-2 animate-scale-in">
+        <div className="md:hidden glass mx-3 mb-3 p-2 animate-scale-in">
           {navItems.map((item) => (
             <Link
               key={item.path}
@@ -205,6 +195,14 @@ const Navbar = () => {
               {item.label}
             </Link>
           ))}
+          {/* Pedidos inside menu */}
+          <button
+            onClick={() => { setShowRequest(true); setMenuOpen(false); }}
+            className="w-full flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all"
+          >
+            <MessageSquare className="w-4 h-4" />
+            Fazer Pedido
+          </button>
         </div>
       )}
     </nav>

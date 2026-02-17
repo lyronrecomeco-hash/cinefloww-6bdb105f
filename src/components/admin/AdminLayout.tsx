@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -19,12 +19,30 @@ const menuItems = [
   { label: "Configurações", path: "/admin/config", icon: Settings },
 ];
 
+// Simple notification sound using Web Audio API
+const playNotificationSound = () => {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.4);
+  } catch {}
+};
+
 const AdminLayout = () => {
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [pendingRequests, setPendingRequests] = useState(0);
+  const prevPendingRef = useRef(0);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -42,9 +60,15 @@ const AdminLayout = () => {
       if (!roles?.length) { await supabase.auth.signOut(); navigate("/admin/login"); return; }
       setUserEmail(session.user.email || "");
       setLoading(false);
-      // Fetch pending requests count
-      supabase.from("content_requests").select("*", { count: "exact", head: true }).eq("status", "pending")
-        .then(({ count }) => setPendingRequests(count || 0));
+
+      // Fetch initial pending count
+      const { count } = await supabase
+        .from("content_requests")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "pending");
+      const c = count || 0;
+      setPendingRequests(c);
+      prevPendingRef.current = c;
     };
 
     checkAuth();
@@ -55,6 +79,37 @@ const AdminLayout = () => {
 
     return () => subscription.unsubscribe();
   }, [navigate]);
+
+  // Real-time subscription for new requests
+  useEffect(() => {
+    const channel = supabase
+      .channel("admin-requests")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "content_requests" },
+        () => {
+          setPendingRequests((prev) => {
+            const newCount = prev + 1;
+            // Play sound for new request
+            playNotificationSound();
+            return newCount;
+          });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "content_requests" },
+        (payload) => {
+          // If status changed FROM pending, decrement
+          if (payload.old && (payload.old as any).status === "pending" && (payload.new as any).status !== "pending") {
+            setPendingRequests((prev) => Math.max(0, prev - 1));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -104,7 +159,7 @@ const AdminLayout = () => {
                 <span className="relative">
                   {item.label}
                   {(item as any).badge && pendingRequests > 0 && (
-                    <span className="absolute -top-2 -right-5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center">
+                    <span className="absolute -top-2 -right-5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center animate-pulse">
                       {pendingRequests}
                     </span>
                   )}
@@ -170,6 +225,15 @@ const AdminLayout = () => {
             {mobileOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
           </button>
           <div className="flex-1" />
+          {pendingRequests > 0 && (
+            <button
+              onClick={() => navigate("/admin/pedidos")}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/20 transition-colors"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              {pendingRequests} pedido{pendingRequests > 1 ? "s" : ""}
+            </button>
+          )}
           <span className="text-xs text-muted-foreground hidden sm:block">Painel Administrativo</span>
         </header>
 
