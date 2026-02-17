@@ -10,12 +10,21 @@ interface ExtractionResult {
   error?: string;
 }
 
+type ProviderOption = "cineveo" | "megaembed" | "all";
+
+const providerOptions: { value: ProviderOption; label: string; desc: string }[] = [
+  { value: "cineveo", label: "CineVeo", desc: "Apenas CDN CineVeo (mp4 direto)" },
+  { value: "megaembed", label: "MegaEmbed", desc: "Apenas MegaEmbed (m3u8/mp4 bruto)" },
+  { value: "all", label: "Todos", desc: "Tenta CineVeo → MegaEmbed → EmbedPlay" },
+];
+
 const CineveoTester = () => {
   const [tmdbId, setTmdbId] = useState("");
   const [contentType, setContentType] = useState<"movie" | "series">("movie");
   const [audioType, setAudioType] = useState("legendado");
   const [season, setSeason] = useState("1");
   const [episode, setEpisode] = useState("1");
+  const [selectedProvider, setSelectedProvider] = useState<ProviderOption>("cineveo");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ExtractionResult | null>(null);
   const [testingPlayer, setTestingPlayer] = useState(false);
@@ -31,6 +40,7 @@ const CineveoTester = () => {
         tmdb_id: Number(tmdbId),
         content_type: contentType === "series" ? "tv" : "movie",
         audio_type: audioType,
+        force_provider: selectedProvider === "all" ? undefined : selectedProvider,
       };
       if (contentType === "series") {
         body.season = Number(season);
@@ -56,12 +66,33 @@ const CineveoTester = () => {
       <div>
         <h1 className="text-2xl font-display font-bold">CineVeo Tester</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Teste a extração de vídeo MP4 via CDN CineVeo a partir de um TMDB ID.
+          Teste a extração de vídeo bruto (MP4/M3U8) por provedor.
         </p>
       </div>
 
       {/* Form */}
       <div className="glass-strong rounded-2xl p-5 space-y-4">
+        {/* Provider selector */}
+        <div>
+          <label className="text-xs text-muted-foreground mb-2 block uppercase tracking-wider">Provedor</label>
+          <div className="flex flex-wrap gap-2">
+            {providerOptions.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => setSelectedProvider(p.value)}
+                className={`flex flex-col items-start px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  selectedProvider === p.value
+                    ? "bg-primary/15 text-primary border border-primary/20"
+                    : "bg-white/5 text-muted-foreground border border-white/10 hover:bg-white/10"
+                }`}
+              >
+                <span>{p.label}</span>
+                <span className="text-[10px] opacity-70 font-normal">{p.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Type toggle */}
         <div className="flex gap-2">
           <button
@@ -149,9 +180,9 @@ const CineveoTester = () => {
         <div className="glass-strong rounded-2xl p-5 space-y-4">
           <div className="flex items-center gap-2">
             {result.url ? (
-              <CheckCircle className="w-5 h-5 text-green-400" />
+              <CheckCircle className="w-5 h-5 text-emerald-400" />
             ) : (
-              <XCircle className="w-5 h-5 text-red-400" />
+              <XCircle className="w-5 h-5 text-destructive" />
             )}
             <h3 className="font-display font-bold text-lg">
               {result.url ? "Vídeo Encontrado!" : "Nenhum Vídeo"}
@@ -159,7 +190,7 @@ const CineveoTester = () => {
           </div>
 
           {result.error && (
-            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-sm text-red-300">
+            <div className="p-3 rounded-xl bg-destructive/10 border border-destructive/20 text-sm text-destructive">
               {result.error}
             </div>
           )}
@@ -188,7 +219,7 @@ const CineveoTester = () => {
 
               <button
                 onClick={() => setTestingPlayer(!testingPlayer)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-green-500/15 text-green-400 border border-green-500/20 text-sm font-medium hover:bg-green-500/25 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/15 text-primary border border-primary/20 text-sm font-medium hover:bg-primary/25 transition-colors"
               >
                 <Play className="w-4 h-4" />
                 {testingPlayer ? "Fechar Player" : "Testar no Player"}
