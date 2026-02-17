@@ -17,70 +17,47 @@ const tmdbHeaders = {
   "Content-Type": "application/json",
 };
 
-// ── Scrape CineVeo category page ──────────────────────────────────────
-async function scrapeCineveoPage(
+// ── Fetch CineVeo catalog page via JSON API ──────────────────────────
+interface CineveoItem {
+  tmdb_id: string;
+  title: string;
+  name: string;
+  poster_path: string;
+  media_type: string;
+  slug: string;
+  release_date: string;
+  runtime: string;
+  vote_average: string;
+}
+
+async function fetchCineveoPage(
   type: "movie" | "tv",
   page: number,
-): Promise<{ tmdbId: number; title: string; posterPath: string | null }[]> {
-  const url = `https://cineveo.site/category.php?type=${type}&page=${page}`;
-  console.log(`[scrape] Fetching: ${url}`);
+): Promise<CineveoItem[]> {
+  const url = `https://cineveo.site/category.php?fetch_mode=1&type=${type}&page=${page}&genre=`;
+  console.log(`[cineveo] Fetching page ${page}: ${url}`);
 
   const res = await fetch(url, {
-    headers: { "User-Agent": UA, Accept: "text/html,*/*" },
+    headers: { "User-Agent": UA, Accept: "application/json, text/html, */*" },
   });
   if (!res.ok) {
-    console.log(`[scrape] Page ${page} returned ${res.status}`);
+    console.log(`[cineveo] Page ${page} returned ${res.status}`);
     return [];
   }
 
-  const html = await res.text();
-
-  // Extract all data-tmdb IDs from poster-action-btn elements
-  const items: { tmdbId: number; title: string; posterPath: string | null }[] =
-    [];
-  const cardRegex =
-    /class="media-card-item[^"]*"[^>]*>[\s\S]*?alt="([^"]*)"[\s\S]*?data-tmdb="(\d+)"/g;
-  let match;
-  while ((match = cardRegex.exec(html)) !== null) {
-    items.push({
-      tmdbId: parseInt(match[2]),
-      title: match[1] || "Sem título",
-      posterPath: null, // will be enriched from TMDB
-    });
-  }
-
-  // Fallback: just extract data-tmdb if the combined regex fails
-  if (items.length === 0) {
-    const simpleRegex = /data-tmdb="(\d+)"/g;
-    let m;
-    while ((m = simpleRegex.exec(html)) !== null) {
-      const id = parseInt(m[1]);
-      if (!items.some((i) => i.tmdbId === id)) {
-        items.push({ tmdbId: id, title: "Sem título", posterPath: null });
-      }
+  const text = await res.text();
+  try {
+    const data = JSON.parse(text);
+    if (data.success && Array.isArray(data.results)) {
+      return data.results;
     }
+  } catch {
+    console.log(`[cineveo] Failed to parse JSON for page ${page}`);
   }
-
-  // Also extract poster paths from TMDB image URLs in the same page
-  const posterRegex =
-    /data-tmdb="(\d+)"[\s\S]*?src="https:\/\/image\.tmdb\.org\/t\/p\/w342([^"]+)"/g;
-  // Alternative: find poster before data-tmdb
-  const posterRegex2 =
-    /src="https:\/\/image\.tmdb\.org\/t\/p\/w342([^"]+)"[\s\S]*?data-tmdb="(\d+)"/g;
-
-  let pm;
-  while ((pm = posterRegex2.exec(html)) !== null) {
-    const posterPath = pm[1];
-    const tmdbId = parseInt(pm[2]);
-    const item = items.find((i) => i.tmdbId === tmdbId);
-    if (item) item.posterPath = posterPath;
-  }
-
-  console.log(`[scrape] Page ${page}: found ${items.length} items`);
-  return items;
+  return [];
 }
 
-// ── Get total pages from CineVeo ──────────────────────────────────────
+// ── Get total pages from CineVeo HTML (first page only) ──────────────
 async function getTotalPages(type: "movie" | "tv"): Promise<number> {
   const url = `https://cineveo.site/category.php?type=${type}`;
   const res = await fetch(url, {
@@ -89,11 +66,8 @@ async function getTotalPages(type: "movie" | "tv"): Promise<number> {
   if (!res.ok) return 1;
   const html = await res.text();
 
-  // Find last page number in pagination: ...>534</button>
   const pageMatches = [
-    ...html.matchAll(
-      /class="pagination-btn[^"]*">(\d+)<\/button>/g,
-    ),
+    ...html.matchAll(/class="pagination-btn[^"]*">(\d+)<\/button>/g),
   ];
   let maxPage = 1;
   for (const m of pageMatches) {
@@ -103,7 +77,7 @@ async function getTotalPages(type: "movie" | "tv"): Promise<number> {
   return maxPage;
 }
 
-// ── Fetch TMDB details in batch ──────────────────────────────────────
+// ── Fetch TMDB details for enrichment ────────────────────────────────
 async function fetchTMDBDetails(
   tmdbId: number,
   type: "movie" | "tv",
@@ -154,70 +128,65 @@ Deno.serve(async (req) => {
     // Map content_type to cineveo type
     const cineveoType: "movie" | "tv" =
       contentType === "movie" ? "movie" : "tv";
-    const dbContentType = contentType; // movie, series, dorama, anime
 
-    // Get total pages available
+    // Get total pages
     const totalAvailable = await getTotalPages(cineveoType);
     const endPage = Math.min(startPage + maxPages - 1, totalAvailable);
     console.log(
-      `[import] Scraping CineVeo ${cineveoType} pages ${startPage}-${endPage} (total available: ${totalAvailable})`,
+      `[import] CineVeo ${cineveoType} pages ${startPage}-${endPage} (total: ${totalAvailable})`,
     );
 
-    // Scrape all pages
-    const allItems: {
-      tmdbId: number;
-      title: string;
-      posterPath: string | null;
-    }[] = [];
-    const seenIds = new Set<number>();
+    // Fetch all pages via JSON API
+    const allItems: CineveoItem[] = [];
+    const seenIds = new Set<string>();
 
     for (let p = startPage; p <= endPage; p++) {
-      const items = await scrapeCineveoPage(cineveoType, p);
+      const items = await fetchCineveoPage(cineveoType, p);
       for (const item of items) {
-        if (!seenIds.has(item.tmdbId)) {
-          seenIds.add(item.tmdbId);
+        if (!seenIds.has(item.tmdb_id)) {
+          seenIds.add(item.tmdb_id);
           allItems.push(item);
         }
       }
-      // Small delay to avoid rate limiting
-      if (p < endPage) await new Promise((r) => setTimeout(r, 200));
+      // Small delay to avoid hammering
+      if (p < endPage) await new Promise((r) => setTimeout(r, 100));
     }
 
-    console.log(`[import] Total unique items scraped: ${allItems.length}`);
+    console.log(`[import] Total unique items: ${allItems.length}`);
 
     let imported = 0;
-    let skipped = 0;
     const errors: string[] = [];
 
     // Process in batches
-    const BATCH_SIZE = 25;
+    const BATCH_SIZE = 50;
     for (let i = 0; i < allItems.length; i += BATCH_SIZE) {
       const batch = allItems.slice(i, i + BATCH_SIZE);
 
-      // Optionally enrich with TMDB data
       const rows = [];
       for (const item of batch) {
+        const tmdbId = parseInt(item.tmdb_id);
+
+        // Optionally enrich with full TMDB data
         let detail: any = null;
         if (enrichWithTmdb) {
-          detail = await fetchTMDBDetails(item.tmdbId, cineveoType);
+          detail = await fetchTMDBDetails(tmdbId, cineveoType);
         }
 
         if (detail) {
           rows.push({
-            tmdb_id: item.tmdbId,
-            imdb_id:
-              detail.imdb_id || detail.external_ids?.imdb_id || null,
-            content_type: dbContentType,
-            title: detail.title || detail.name || item.title,
+            tmdb_id: tmdbId,
+            imdb_id: detail.imdb_id || detail.external_ids?.imdb_id || null,
+            content_type: contentType,
+            title: detail.title || detail.name || item.title || item.name,
             original_title:
               detail.original_title || detail.original_name || null,
             overview: detail.overview || "",
-            poster_path: detail.poster_path || item.posterPath,
+            poster_path: detail.poster_path || item.poster_path || null,
             backdrop_path: detail.backdrop_path || null,
             release_date:
-              detail.release_date || detail.first_air_date || null,
+              detail.release_date || detail.first_air_date || item.release_date || null,
             vote_average: detail.vote_average || 0,
-            runtime: detail.runtime || null,
+            runtime: detail.runtime || (parseInt(item.runtime) || null),
             number_of_seasons: detail.number_of_seasons || null,
             number_of_episodes: detail.number_of_episodes || null,
             status: "published",
@@ -226,12 +195,15 @@ Deno.serve(async (req) => {
             created_by: user.id,
           });
         } else {
-          // Basic insert without TMDB enrichment
+          // Use CineVeo data directly
           rows.push({
-            tmdb_id: item.tmdbId,
-            content_type: dbContentType,
-            title: item.title,
-            poster_path: item.posterPath,
+            tmdb_id: tmdbId,
+            content_type: contentType,
+            title: item.title || item.name || "Sem título",
+            poster_path: item.poster_path || null,
+            release_date: item.release_date || null,
+            runtime: parseInt(item.runtime) || null,
+            vote_average: parseFloat(item.vote_average) || 0,
             status: "published",
             featured: false,
             audio_type: ["legendado"],
@@ -252,9 +224,9 @@ Deno.serve(async (req) => {
         imported += rows.length;
       }
 
-      // Rate limit TMDB calls
+      // Rate limit TMDB
       if (enrichWithTmdb && i + BATCH_SIZE < allItems.length) {
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 200));
       }
     }
 
@@ -262,7 +234,6 @@ Deno.serve(async (req) => {
       JSON.stringify({
         success: true,
         imported,
-        skipped,
         total: allItems.length,
         pages_scraped: endPage - startPage + 1,
         total_pages: totalAvailable,
