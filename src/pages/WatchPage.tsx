@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { ArrowLeft, Mic, Subtitles, Video, Globe, ChevronRight, Loader2 } from "lucide-react";
 import CustomPlayer from "@/components/CustomPlayer";
+import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
 
 interface VideoSource {
   url: string;
@@ -51,8 +52,31 @@ const WatchPage = () => {
   const [selectedAudio, setSelectedAudio] = useState(audioParam || "");
   const [audioTypes, setAudioTypes] = useState<string[]>([]);
   const [currentProviderIdx, setCurrentProviderIdx] = useState(0);
+  const [showResumePrompt, setShowResumePrompt] = useState(false);
+  const [savedTime, setSavedTime] = useState(0);
+  const resumeChecked = useRef(false);
+  const progressTimer = useRef<ReturnType<typeof setInterval>>();
+  const videoStartTime = useRef(0);
+  const lastSaveTime = useRef(0);
 
+  const tmdbId = Number(id);
   const isMovie = type === "movie";
+  const ct = isMovie ? "movie" : "tv";
+
+  // Check for resume on mount
+  useEffect(() => {
+    if (resumeChecked.current || !id) return;
+    resumeChecked.current = true;
+    getWatchProgress(tmdbId, ct, season, episode).then((p) => {
+      if (p && p.progress_seconds > 30 && !p.completed && p.duration_seconds > 0) {
+        const pct = p.progress_seconds / p.duration_seconds;
+        if (pct < 0.9) {
+          setSavedTime(p.progress_seconds);
+          setShowResumePrompt(true);
+        }
+      }
+    });
+  }, [tmdbId, ct, season, episode, id]);
   const embedUrls = buildEmbedUrls(imdbId, id || "", type || "movie", season, episode);
 
   // Load audio types from DB
@@ -129,6 +153,11 @@ const WatchPage = () => {
   const goBack = () => navigate(-1);
   const subtitle = type === "tv" && season && episode ? `T${season} • E${episode}` : undefined;
 
+  const handleResumeChoice = (resume: boolean) => {
+    setShowResumePrompt(false);
+    if (resume) videoStartTime.current = savedTime;
+  };
+
   const handleAudioSelect = (audio: string) => {
     setSelectedAudio(audio);
     setPhase("loading");
@@ -187,6 +216,34 @@ const WatchPage = () => {
     );
   }
 
+  // ===== RESUME PROMPT =====
+  if (showResumePrompt) {
+    const formatTime = (s: number) => {
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = Math.floor(s % 60);
+      if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
+      return `${m}:${sec.toString().padStart(2, "0")}`;
+    };
+    return (
+      <div className="fixed inset-0 z-[100] bg-black flex items-center justify-center p-4">
+        <div className="bg-card/90 backdrop-blur-xl border border-white/10 rounded-2xl p-6 max-w-sm w-full text-center">
+          <h3 className="font-display text-lg font-bold mb-2">Continuar de onde parou?</h3>
+          <p className="text-sm text-muted-foreground mb-1">{title}</p>
+          <p className="text-sm text-muted-foreground mb-4">Você parou em {formatTime(savedTime)}</p>
+          <div className="flex gap-3 justify-center">
+            <button onClick={() => handleResumeChoice(false)} className="px-5 py-2.5 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/20 transition-colors">
+              Do início
+            </button>
+            <button onClick={() => handleResumeChoice(true)} className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors">
+              Continuar
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ===== LOADING =====
   if (phase === "loading") {
     return (
@@ -207,10 +264,28 @@ const WatchPage = () => {
           sources={sources}
           title={title}
           subtitle={subtitle}
-          onClose={goBack}
+          startTime={videoStartTime.current || undefined}
+          onClose={() => {
+            goBack();
+          }}
           onError={() => {
             console.log("[WatchPage] Player error, switching to fallback");
             setPhase("fallback");
+          }}
+          onProgress={(currentTime, dur) => {
+            const now = Date.now();
+            if (currentTime > 5 && dur > 0 && now - lastSaveTime.current > 10000) {
+              lastSaveTime.current = now;
+              saveWatchProgress({
+                tmdb_id: tmdbId,
+                content_type: ct,
+                season,
+                episode,
+                progress_seconds: currentTime,
+                duration_seconds: dur,
+                completed: currentTime / dur > 0.9,
+              });
+            }
           }}
         />
       </div>

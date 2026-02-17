@@ -17,11 +17,13 @@ interface CustomPlayerProps {
   sources: VideoSource[];
   title: string;
   subtitle?: string;
+  startTime?: number;
   onClose?: () => void;
   onError?: () => void;
+  onProgress?: (currentTime: number, duration: number) => void;
 }
 
-const CustomPlayer = ({ sources, title, subtitle, onClose, onError }: CustomPlayerProps) => {
+const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, onProgress }: CustomPlayerProps) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -100,8 +102,15 @@ const CustomPlayer = ({ sources, title, subtitle, onClose, onError }: CustomPlay
     const onTimeUpdate = () => {
       setCurrentTime(video.currentTime);
       if (video.buffered.length > 0) setBuffered(video.buffered.end(video.buffered.length - 1));
+      onProgress?.(video.currentTime, video.duration || 0);
     };
-    const onDurationChange = () => setDuration(video.duration || 0);
+    const onDurationChange = () => {
+      setDuration(video.duration || 0);
+      // Seek to startTime once duration is known
+      if (startTime && video.duration > 0 && video.currentTime < 5) {
+        video.currentTime = startTime;
+      }
+    };
     const onWaiting = () => setLoading(true);
     const onCanPlay = () => setLoading(false);
 
@@ -120,7 +129,7 @@ const CustomPlayer = ({ sources, title, subtitle, onClose, onError }: CustomPlay
       video.removeEventListener("waiting", onWaiting);
       video.removeEventListener("canplay", onCanPlay);
     };
-  }, []);
+  }, [startTime, onProgress]);
 
   const resetControlsTimer = useCallback(() => {
     setShowControls(true);

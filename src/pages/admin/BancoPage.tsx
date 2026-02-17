@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Database, Film, Tv, Loader2, Play, RefreshCw, CheckCircle, XCircle, Search, ExternalLink, Link2, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import PlayerModal from "@/components/PlayerModal";
+import CustomPlayer from "@/components/CustomPlayer";
 
 interface ContentItem {
   id: string;
@@ -450,19 +450,25 @@ const BancoPage = () => {
         </>
       )}
 
-      {/* Player Modal */}
+      {/* Player Modal - uses cached video_url directly */}
       {playerItem && (() => {
         const status = videoStatuses.get(playerItem.tmdb_id);
-        return status?.has_video ? (
-          <PlayerModal
-            tmdbId={playerItem.tmdb_id}
-            imdbId={playerItem.imdb_id}
-            type={playerItem.content_type === "movie" ? "movie" : "tv"}
-            title={playerItem.title}
-            audioTypes={["legendado"]}
-            onClose={() => setPlayerItem(null)}
-          />
-        ) : null;
+        if (!status?.has_video || !status.video_url) return null;
+        return (
+          <div className="fixed inset-0 z-[100] bg-black animate-fade-in">
+            <CustomPlayer
+              sources={[{
+                url: status.video_url,
+                quality: "auto",
+                provider: status.provider || "cache",
+                type: (status.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
+              }]}
+              title={playerItem.title}
+              onClose={() => setPlayerItem(null)}
+              onError={() => setPlayerItem(null)}
+            />
+          </div>
+        );
       })()}
     </div>
   );
