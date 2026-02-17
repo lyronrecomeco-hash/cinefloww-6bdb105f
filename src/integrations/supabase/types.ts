@@ -356,6 +356,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      get_unresolved_content: {
+        Args: { batch_limit?: number }
+        Returns: {
+          content_type: string
+          imdb_id: string
+          title: string
+          tmdb_id: number
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

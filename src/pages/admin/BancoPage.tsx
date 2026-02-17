@@ -156,28 +156,35 @@ const BancoPage = () => {
     }
   };
 
-  // Resolve ALL links via server-side batch-resolve (much faster)
+  // Resolve ALL links via server-side batch-resolve — fires rapidly, realtime updates UI
   const resolveAllLinks = async () => {
     setResolving(true);
     cancelRef.current = false;
 
-    const totalToResolve = stats.withoutVideo;
+    // Get accurate count of unresolved
+    const { count: totalContent } = await supabase.from("content").select("*", { count: "exact", head: true });
+    const { count: cachedCount } = await supabase.from("video_cache").select("*", { count: "exact", head: true }).gt("expires_at", new Date().toISOString());
+    const { count: failedCount } = await supabase.from("resolve_failures").select("*", { count: "exact", head: true });
+    const totalToResolve = Math.max(0, (totalContent || 0) - (cachedCount || 0) - (failedCount || 0));
     setResolveProgress({ current: 0, total: totalToResolve });
 
     try {
-      // Call batch-resolve repeatedly until done or cancelled
-      let totalResolved = 0;
-      while (!cancelRef.current) {
+      let consecutiveEmpty = 0;
+      while (!cancelRef.current && consecutiveEmpty < 3) {
         const { data, error } = await supabase.functions.invoke("batch-resolve");
-        if (error) {
-          console.error("[banco] batch-resolve error:", error);
-          break;
+        if (error) { console.error("[banco] batch-resolve error:", error); break; }
+
+        const batchResolved = data?.resolved || 0;
+        const batchFailed = data?.failed || 0;
+
+        // Update progress with actual resolved count
+        setResolveProgress(prev => ({ ...prev, current: prev.current + batchResolved + batchFailed }));
+
+        if (batchResolved === 0 && batchFailed === 0) {
+          consecutiveEmpty++;
+        } else {
+          consecutiveEmpty = 0;
         }
-        if (data?.resolved === 0 && data?.failed === 0) {
-          // All done
-          break;
-        }
-        totalResolved += (data?.resolved || 0);
         if (data?.message === "All items processed!") break;
       }
 
@@ -194,9 +201,9 @@ const BancoPage = () => {
     fetchContent();
   };
 
-  // Build API-style link for display
+  // Build API-style link using hosted URL
   const getApiLink = (item: ContentItem) => {
-    return `/api/${item.content_type}/${item.tmdb_id}`;
+    return `/player/${item.content_type}/${item.tmdb_id}`;
   };
 
   const filteredItems = filterStatus === "all"

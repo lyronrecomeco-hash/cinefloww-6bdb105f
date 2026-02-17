@@ -75,15 +75,47 @@ const WatchPage = () => {
       });
   }, [id, type]);
 
-  // Try extraction — player próprio only (no embeds)
+  // Try banco (video_cache) first, then extract-video as fallback
   const tryExtraction = useCallback(async () => {
+    const cType = isMovie ? "movie" : "series";
+    const aType = selectedAudio || "legendado";
+
+    // 1. Check video_cache directly (banco)
+    try {
+      let query = supabase
+        .from("video_cache")
+        .select("video_url, video_type, provider")
+        .eq("tmdb_id", Number(id))
+        .eq("content_type", cType)
+        .eq("audio_type", aType)
+        .gt("expires_at", new Date().toISOString());
+
+      if (season) query = query.eq("season", season);
+      else query = query.is("season", null);
+      if (episode) query = query.eq("episode", episode);
+      else query = query.is("episode", null);
+
+      const { data: cached } = await query.maybeSingle();
+      if (cached?.video_url) {
+        setSources([{
+          url: cached.video_url,
+          quality: "auto",
+          provider: cached.provider || "banco",
+          type: (cached.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
+        }]);
+        setPhase("playing");
+        return;
+      }
+    } catch { /* silent */ }
+
+    // 2. Fallback: call extract-video to try extraction + cache
     try {
       const { data, error: fnError } = await supabase.functions.invoke("extract-video", {
         body: {
           tmdb_id: Number(id),
           imdb_id: imdbId,
-          content_type: isMovie ? "movie" : "series",
-          audio_type: selectedAudio || "legendado",
+          content_type: cType,
+          audio_type: aType,
           season,
           episode,
         },
