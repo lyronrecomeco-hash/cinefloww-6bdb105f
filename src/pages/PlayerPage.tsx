@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSearchParams, useNavigate, useParams } from "react-router-dom";
 import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
@@ -126,11 +126,11 @@ const PlayerPage = () => {
     return () => controller.abort();
   }, [params.id, params.type, audioParam, imdbId, season, episode]);
 
-  const sources: VideoSource[] = bankSources.length > 0
-    ? bankSources
-    : videoUrl
-      ? [{ url: videoUrl, quality: "auto", provider: "Stream", type: videoType }]
-      : DEMO_SOURCES;
+  const sources: VideoSource[] = useMemo(() => {
+    if (bankSources.length > 0) return bankSources;
+    if (videoUrl) return [{ url: videoUrl, quality: "auto", provider: "Stream", type: videoType }];
+    return DEMO_SOURCES;
+  }, [bankSources, videoUrl, videoType]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);

@@ -527,49 +527,150 @@ function findVideoUrl(html: string): { url: string; type: "mp4" | "m3u8" } | nul
 }
 
 // ── PlayerFlix API extraction (playerflixapi.com) ────────────────────
-// This API is strictly iframe-only. The video player is loaded entirely via
-// client-side JavaScript, so server-side crawling cannot extract direct URLs.
-// Instead, we return the proxy-player URL so the frontend can load it in an 
-// iframe and use the interceptor script to capture the real video URL.
+// Deep server-side crawling: fetch embed page, follow nested iframes up to 3 levels
+// to find direct .m3u8/.mp4 URLs without needing client-side iframe interception.
 async function tryPlayerFlix(
   tmdbId: number,
   imdbId: string | null,
   isMovie: boolean,
   s: number,
   e: number,
-): Promise<{ url: string; type: "mp4" | "m3u8" | "iframe-proxy" } | null> {
+): Promise<{ url: string; type: "mp4" | "m3u8" } | null> {
   const id = imdbId || String(tmdbId);
   const embedUrl = isMovie
     ? `https://playerflixapi.com/filme/${id}`
     : `https://playerflixapi.com/serie/${id}/${s}/${e}`;
-  
-  // Build the proxy URL for the frontend to load in an iframe
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  const proxyUrl = `${supabaseUrl}/functions/v1/proxy-player?url=${encodeURIComponent(embedUrl)}`;
-  
-  // Verify the embed page actually exists (quick HEAD check)
+
+  console.log(`[src-d] Fetching: ${embedUrl}`);
+
   try {
-    const checkRes = await fetch(embedUrl, {
-      method: "HEAD",
+    const result = await deepExtractVideo(embedUrl, "https://playerflixapi.com/", 0);
+    if (result) {
+      console.log(`[src-d] Found direct video: ${result.url.substring(0, 80)}`);
+      return result;
+    }
+    
+    // If deep extraction failed, return iframe-proxy as last resort
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const proxyUrl = `${supabaseUrl}/functions/v1/proxy-player?url=${encodeURIComponent(embedUrl)}`;
+    console.log(`[src-d] No direct URL found, returning iframe-proxy fallback`);
+    return { url: proxyUrl, type: "iframe-proxy" as any };
+  } catch (err) {
+    console.log(`[src-d] Error: ${err}`);
+    return null;
+  }
+}
+
+// Recursively follow iframes up to 3 levels deep to find video URLs
+async function deepExtractVideo(
+  url: string,
+  referer: string,
+  depth: number,
+): Promise<{ url: string; type: "mp4" | "m3u8" } | null> {
+  if (depth > 3) return null;
+  
+  try {
+    const res = await fetch(url, {
       headers: {
         "User-Agent": UA,
-        "Sec-Fetch-Dest": "iframe",
-        "Sec-Fetch-Mode": "navigate",
+        "Referer": referer,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
       },
       redirect: "follow",
     });
     
-    if (!checkRes.ok) {
-      console.log(`[src-d] Embed page returned ${checkRes.status}`);
+    if (!res.ok) {
+      console.log(`[src-d] Depth ${depth}: ${url.substring(0, 60)} → ${res.status}`);
       return null;
     }
     
-    console.log(`[src-d] Embed exists, returning proxy URL for client-side interception`);
-    return { url: proxyUrl, type: "iframe-proxy" as any };
+    const contentType = res.headers.get("content-type") || "";
+    
+    // If it's a video file directly, return it
+    if (contentType.includes("video/") || contentType.includes("application/vnd.apple.mpegurl") || contentType.includes("application/x-mpegurl")) {
+      const vType: "mp4" | "m3u8" = contentType.includes("mp4") ? "mp4" : "m3u8";
+      console.log(`[src-d] Direct video response at depth ${depth}`);
+      return { url, type: vType };
+    }
+    
+    if (!contentType.includes("text/html") && !contentType.includes("text/plain") && !contentType.includes("application/json")) {
+      return null;
+    }
+    
+    const html = await res.text();
+    
+    // 1. Try direct video URL extraction from this page
+    const direct = findVideoUrl(html);
+    if (direct) {
+      console.log(`[src-d] Found video at depth ${depth}`);
+      return direct;
+    }
+    
+    // 2. Look for API/JSON endpoints with video data
+    const apiPatterns = [
+      /(?:api|ajax)[^"']*["']\s*:\s*["'](https?:\/\/[^"']+)/gi,
+      /data-(?:url|src|video|stream)\s*=\s*["'](https?:\/\/[^"']+)/gi,
+    ];
+    for (const pattern of apiPatterns) {
+      pattern.lastIndex = 0;
+      let match;
+      while ((match = pattern.exec(html)) !== null) {
+        const dataUrl = match[1];
+        if (dataUrl.includes(".m3u8") || dataUrl.includes(".mp4")) {
+          console.log(`[src-d] Found video in data attribute at depth ${depth}`);
+          return { url: dataUrl, type: dataUrl.includes(".mp4") ? "mp4" : "m3u8" };
+        }
+      }
+    }
+    
+    // 3. Follow nested iframes
+    const iframeRegex = /<iframe[^>]+src\s*=\s*["']([^"']+)["'][^>]*>/gi;
+    const iframes: string[] = [];
+    let iframeMatch;
+    while ((iframeMatch = iframeRegex.exec(html)) !== null) {
+      let src = iframeMatch[1];
+      // Skip ad/tracking iframes
+      if (src.includes("google") || src.includes("facebook") || src.includes("ads") || src.includes("analytics")) continue;
+      // Resolve relative URLs
+      if (src.startsWith("//")) src = "https:" + src;
+      else if (src.startsWith("/")) {
+        try { src = new URL(src, url).href; } catch { continue; }
+      }
+      if (src.startsWith("http")) iframes.push(src);
+    }
+    
+    console.log(`[src-d] Depth ${depth}: found ${iframes.length} iframes to follow`);
+    
+    // Follow each iframe (limit to 5 to avoid excessive crawling)
+    for (const iframeSrc of iframes.slice(0, 5)) {
+      const origin = new URL(url).origin;
+      const result = await deepExtractVideo(iframeSrc, origin + "/", depth + 1);
+      if (result) return result;
+    }
+    
+    // 4. Look for JS-embedded URLs (loadSource, src assignments)
+    const jsPatterns = [
+      /loadSource\s*\(\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)/i,
+      /loadSource\s*\(\s*["'](https?:\/\/[^"']+\.mp4[^"']*)/i,
+      /\.src\s*=\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)/i,
+      /\.src\s*=\s*["'](https?:\/\/[^"']+\.mp4[^"']*)/i,
+      /source\s*:\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)/i,
+      /source\s*:\s*["'](https?:\/\/[^"']+\.mp4[^"']*)/i,
+    ];
+    for (const p of jsPatterns) {
+      const m = p.exec(html);
+      if (m?.[1]) {
+        console.log(`[src-d] Found JS-embedded URL at depth ${depth}`);
+        return { url: m[1], type: m[1].includes(".mp4") ? "mp4" : "m3u8" };
+      }
+    }
+    
   } catch (err) {
-    console.log(`[src-d] Error checking embed: ${err}`);
-    return null;
+    console.log(`[src-d] Depth ${depth} error: ${err}`);
   }
+  
+  return null;
 }
 
 // ── Main handler ─────────────────────────────────────────────────────
@@ -650,7 +751,15 @@ Deno.serve(async (req) => {
 
     if (shouldTry("playerflix") && !videoUrl) {
       const pf = await tryPlayerFlix(tmdb_id, imdb_id || null, isMovie, s, e);
-      if (pf) { videoUrl = pf.url; videoType = pf.type; provider = "playerflix"; }
+      if (pf) {
+        // Don't cache iframe-proxy results
+        if ((pf.type as string) === "iframe-proxy") {
+          return new Response(JSON.stringify({
+            url: pf.url, type: "iframe-proxy", provider: "playerflix", cached: false,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+        videoUrl = pf.url; videoType = pf.type; provider = "playerflix";
+      }
     }
 
     // 3. Save to cache & return
