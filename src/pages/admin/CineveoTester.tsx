@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Play, Loader2, Search, CheckCircle, XCircle, Film, Tv } from "lucide-react";
 
@@ -10,15 +11,17 @@ interface ExtractionResult {
   error?: string;
 }
 
-type ProviderOption = "cineveo" | "megaembed" | "all";
+type ProviderOption = "cineveo" | "megaembed" | "embedplay" | "all";
 
 const providerOptions: { value: ProviderOption; label: string; desc: string }[] = [
   { value: "cineveo", label: "CDN Prime", desc: "Apenas CDN principal (mp4 direto)" },
   { value: "megaembed", label: "Fonte B", desc: "Apenas fonte secundária (m3u8/mp4)" },
+  { value: "embedplay", label: "Fonte C", desc: "EmbedPlay API (m3u8/mp4)" },
   { value: "all", label: "Todos", desc: "Tenta todas as fontes em sequência" },
 ];
 
 const CineveoTester = () => {
+  const navigate = useNavigate();
   const [tmdbId, setTmdbId] = useState("");
   const [contentType, setContentType] = useState<"movie" | "series">("movie");
   const [audioType, setAudioType] = useState("legendado");
@@ -27,13 +30,12 @@ const CineveoTester = () => {
   const [selectedProvider, setSelectedProvider] = useState<ProviderOption>("cineveo");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ExtractionResult | null>(null);
-  const [testingPlayer, setTestingPlayer] = useState(false);
 
   const handleTest = async () => {
     if (!tmdbId) return;
     setLoading(true);
     setResult(null);
-    setTestingPlayer(false);
+    
 
     try {
       const body: Record<string, unknown> = {
@@ -218,25 +220,24 @@ const CineveoTester = () => {
               </div>
 
               <button
-                onClick={() => setTestingPlayer(!testingPlayer)}
+                onClick={() => {
+                  const params = new URLSearchParams({
+                    url: result.url!,
+                    type: result.type || "mp4",
+                    title: `TMDB ${tmdbId}`,
+                    tmdb: tmdbId,
+                  });
+                  if (contentType === "series") {
+                    params.set("s", season);
+                    params.set("e", episode);
+                  }
+                  navigate(`/player/${contentType === "series" ? "tv" : "movie"}/${tmdbId}?${params.toString()}`);
+                }}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/15 text-primary border border-primary/20 text-sm font-medium hover:bg-primary/25 transition-colors"
               >
                 <Play className="w-4 h-4" />
-                {testingPlayer ? "Fechar Player" : "Testar no Player"}
+                Abrir no Player Nativo
               </button>
-
-              {testingPlayer && (
-                <div className="rounded-xl overflow-hidden border border-white/10 aspect-video">
-                  <video
-                    src={result.url}
-                    controls
-                    autoPlay
-                    className="w-full h-full bg-black"
-                  >
-                    Seu navegador não suporta vídeo HTML5.
-                  </video>
-                </div>
-              )}
             </div>
           )}
         </div>
