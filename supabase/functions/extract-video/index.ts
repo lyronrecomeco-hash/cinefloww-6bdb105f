@@ -527,8 +527,8 @@ function findVideoUrl(html: string): { url: string; type: "mp4" | "m3u8" } | nul
 }
 
 // ── PlayerFlix API extraction (playerflixapi.com) ────────────────────
-// Deep server-side crawling: fetch embed page, follow nested iframes up to 3 levels
-// to find direct .m3u8/.mp4 URLs without needing client-side iframe interception.
+// PlayerFlixAPI serves content ONLY via iframe. Direct requests get a gate page.
+// We mimic iframe embedding with proper headers to bypass the gate.
 async function tryPlayerFlix(
   tmdbId: number,
   imdbId: string | null,
@@ -544,112 +544,66 @@ async function tryPlayerFlix(
   console.log(`[src-d] Fetching: ${embedUrl}`);
 
   try {
-    const result = await deepExtractVideo(embedUrl, "https://playerflixapi.com/", 0);
-    if (result) {
-      console.log(`[src-d] Found direct video: ${result.url.substring(0, 80)}`);
-      return result;
-    }
-    
-    // If deep extraction failed, return iframe-proxy as last resort
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const proxyUrl = `${supabaseUrl}/functions/v1/proxy-player?url=${encodeURIComponent(embedUrl)}`;
-    console.log(`[src-d] No direct URL found, returning iframe-proxy fallback`);
-    return { url: proxyUrl, type: "iframe-proxy" as any };
-  } catch (err) {
-    console.log(`[src-d] Error: ${err}`);
-    return null;
-  }
-}
-
-// Recursively follow iframes up to 3 levels deep to find video URLs
-async function deepExtractVideo(
-  url: string,
-  referer: string,
-  depth: number,
-): Promise<{ url: string; type: "mp4" | "m3u8" } | null> {
-  if (depth > 3) return null;
-  
-  try {
-    const res = await fetch(url, {
+    // Fetch with iframe-mimicking headers to bypass gate page
+    const res = await fetch(embedUrl, {
       headers: {
         "User-Agent": UA,
-        "Referer": referer,
+        "Referer": "https://playerflixapi.com/",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+        "Sec-Fetch-Dest": "iframe",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
       },
       redirect: "follow",
     });
-    
+
     if (!res.ok) {
-      console.log(`[src-d] Depth ${depth}: ${url.substring(0, 60)} → ${res.status}`);
+      console.log(`[src-d] HTTP ${res.status}`);
       return null;
     }
-    
-    const contentType = res.headers.get("content-type") || "";
-    
-    // If it's a video file directly, return it
-    if (contentType.includes("video/") || contentType.includes("application/vnd.apple.mpegurl") || contentType.includes("application/x-mpegurl")) {
-      const vType: "mp4" | "m3u8" = contentType.includes("mp4") ? "mp4" : "m3u8";
-      console.log(`[src-d] Direct video response at depth ${depth}`);
-      return { url, type: vType };
-    }
-    
-    if (!contentType.includes("text/html") && !contentType.includes("text/plain") && !contentType.includes("application/json")) {
-      return null;
-    }
-    
+
     const html = await res.text();
-    
-    // 1. Try direct video URL extraction from this page
+
+    // Detect gate page ("disponível apenas via iframe")
+    const isGate = html.includes("apenas via") || html.includes("iframe</code>") || html.includes("gate-card") || html.includes("Acesso Restrito");
+    if (isGate) {
+      console.log(`[src-d] Gate page detected, will use iframe-proxy`);
+    }
+
+    // 1. Try direct video extraction from the HTML
     const direct = findVideoUrl(html);
     if (direct) {
-      console.log(`[src-d] Found video at depth ${depth}`);
+      console.log(`[src-d] Found direct video URL`);
       return direct;
     }
-    
-    // 2. Look for API/JSON endpoints with video data
-    const apiPatterns = [
-      /(?:api|ajax)[^"']*["']\s*:\s*["'](https?:\/\/[^"']+)/gi,
-      /data-(?:url|src|video|stream)\s*=\s*["'](https?:\/\/[^"']+)/gi,
-    ];
-    for (const pattern of apiPatterns) {
-      pattern.lastIndex = 0;
-      let match;
-      while ((match = pattern.exec(html)) !== null) {
-        const dataUrl = match[1];
-        if (dataUrl.includes(".m3u8") || dataUrl.includes(".mp4")) {
-          console.log(`[src-d] Found video in data attribute at depth ${depth}`);
-          return { url: dataUrl, type: dataUrl.includes(".mp4") ? "mp4" : "m3u8" };
-        }
-      }
-    }
-    
-    // 3. Follow nested iframes
+
+    // 2. Look for nested embed iframes (e.g., superflixapi, vidsrc, etc.)
     const iframeRegex = /<iframe[^>]+src\s*=\s*["']([^"']+)["'][^>]*>/gi;
-    const iframes: string[] = [];
     let iframeMatch;
+    const iframes: string[] = [];
     while ((iframeMatch = iframeRegex.exec(html)) !== null) {
       let src = iframeMatch[1];
-      // Skip ad/tracking iframes
-      if (src.includes("google") || src.includes("facebook") || src.includes("ads") || src.includes("analytics")) continue;
-      // Resolve relative URLs
+      if (src.includes("google") || src.includes("facebook") || src.includes("ads")) continue;
       if (src.startsWith("//")) src = "https:" + src;
       else if (src.startsWith("/")) {
-        try { src = new URL(src, url).href; } catch { continue; }
+        try { src = new URL(src, embedUrl).href; } catch { continue; }
       }
       if (src.startsWith("http")) iframes.push(src);
     }
-    
-    console.log(`[src-d] Depth ${depth}: found ${iframes.length} iframes to follow`);
-    
-    // Follow each iframe (limit to 5 to avoid excessive crawling)
+
+    console.log(`[src-d] Found ${iframes.length} iframes`);
+
+    // Follow each iframe up to 2 levels deep
     for (const iframeSrc of iframes.slice(0, 5)) {
-      const origin = new URL(url).origin;
-      const result = await deepExtractVideo(iframeSrc, origin + "/", depth + 1);
-      if (result) return result;
+      const result = await deepExtractFromIframe(iframeSrc, embedUrl, 0);
+      if (result) {
+        console.log(`[src-d] Found video via nested iframe: ${result.url.substring(0, 80)}`);
+        return result;
+      }
     }
-    
-    // 4. Look for JS-embedded URLs (loadSource, src assignments)
+
+    // 3. Check for JS-embedded URLs
     const jsPatterns = [
       /loadSource\s*\(\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)/i,
       /loadSource\s*\(\s*["'](https?:\/\/[^"']+\.mp4[^"']*)/i,
@@ -661,15 +615,81 @@ async function deepExtractVideo(
     for (const p of jsPatterns) {
       const m = p.exec(html);
       if (m?.[1]) {
-        console.log(`[src-d] Found JS-embedded URL at depth ${depth}`);
+        console.log(`[src-d] Found JS-embedded URL`);
         return { url: m[1], type: m[1].includes(".mp4") ? "mp4" : "m3u8" };
       }
     }
-    
+
+    // 4. Last resort: iframe-proxy (but only if not a gate page with no content)
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const proxyUrl = `${supabaseUrl}/functions/v1/proxy-player?url=${encodeURIComponent(embedUrl)}`;
+    console.log(`[src-d] Falling back to iframe-proxy`);
+    return { url: proxyUrl, type: "iframe-proxy" as any };
   } catch (err) {
-    console.log(`[src-d] Depth ${depth} error: ${err}`);
+    console.log(`[src-d] Error: ${err}`);
+    return null;
   }
-  
+}
+
+// Follow nested iframes up to 2 levels to find video URLs
+async function deepExtractFromIframe(
+  url: string,
+  referer: string,
+  depth: number,
+): Promise<{ url: string; type: "mp4" | "m3u8" } | null> {
+  if (depth > 2) return null;
+
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": UA,
+        "Referer": referer,
+        "Accept": "text/html,application/xhtml+xml,*/*",
+        "Sec-Fetch-Dest": "iframe",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "cross-site",
+      },
+      redirect: "follow",
+    });
+
+    if (!res.ok) return null;
+
+    const ct = res.headers.get("content-type") || "";
+    if (ct.includes("video/") || ct.includes("mpegurl")) {
+      return { url, type: ct.includes("mp4") ? "mp4" : "m3u8" };
+    }
+
+    if (!ct.includes("text/html") && !ct.includes("text/plain") && !ct.includes("application/json")) {
+      return null;
+    }
+
+    const html = await res.text();
+
+    const direct = findVideoUrl(html);
+    if (direct) {
+      console.log(`[src-d] Video found at iframe depth ${depth}`);
+      return direct;
+    }
+
+    // Follow deeper iframes
+    const iframeRegex = /<iframe[^>]+src\s*=\s*["']([^"']+)["'][^>]*>/gi;
+    let match;
+    while ((match = iframeRegex.exec(html)) !== null) {
+      let src = match[1];
+      if (src.includes("google") || src.includes("ads")) continue;
+      if (src.startsWith("//")) src = "https:" + src;
+      else if (src.startsWith("/")) {
+        try { src = new URL(src, url).href; } catch { continue; }
+      }
+      if (src.startsWith("http")) {
+        const result = await deepExtractFromIframe(src, url, depth + 1);
+        if (result) return result;
+      }
+    }
+  } catch {
+    // skip
+  }
+
   return null;
 }
 

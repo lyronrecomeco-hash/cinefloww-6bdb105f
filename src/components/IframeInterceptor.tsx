@@ -34,13 +34,13 @@ const IframeInterceptor = memo(({ proxyUrl, onVideoFound, onError, onClose, titl
   useEffect(() => {
     window.addEventListener("message", handleMessage);
     
-    // Timeout: if no video found in 45s, give up
+    // Timeout: if no video found in 30s, give up
     timeoutRef.current = setTimeout(() => {
       if (!foundRef.current) {
         console.warn("[IframeInterceptor] Timeout - no video found");
         onError();
       }
-    }, 45000);
+    }, 30000);
 
     return () => {
       window.removeEventListener("message", handleMessage);
@@ -70,7 +70,7 @@ const IframeInterceptor = memo(({ proxyUrl, onVideoFound, onError, onClose, titl
       } catch {
         // Cross-origin - expected, rely on postMessage
       }
-    }, 2000);
+    }, 1000);
 
     return () => clearInterval(scanInterval);
   }, [onVideoFound]);

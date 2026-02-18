@@ -241,14 +241,15 @@ Deno.serve(async (req) => {
     // Remove hidden iframes
     html = html.replace(/<iframe[^>]*(?:visibility:\s*hidden|width:\s*[01]|height:\s*[01]|display:\s*none)[^>]*>[\s\S]*?<\/iframe>/gi, "");
 
-    // Check if this is a gate page (has "Acesso Restrito" or gate-card)
-    const isGatePage = html.includes("gate-card") || html.includes("Acesso Restrito");
+    // Check if this is a gate page (has "Acesso Restrito", gate-card, or PlayerFlixAPI "apenas via iframe")
+    const isGatePage = html.includes("gate-card") || html.includes("Acesso Restrito") || html.includes("apenas via") || html.includes("iframe</code>");
 
     if (isGatePage) {
       console.log("[proxy] Detected gate page, extracting embed URL and auto-redirecting");
       
       // Extract the actual embed URL from the gate page
-      const embedMatch = html.match(/src="(https?:\/\/superflixapi\.[^"]+)"/i);
+      const embedMatch = html.match(/src="(https?:\/\/(?:superflixapi|playerflixapi|embedplayapi|vidsrc|megaembed)[^"]+)"/i) ||
+                         html.match(/<iframe[^>]+src="(https?:\/\/[^"]+)"/i);
       if (embedMatch?.[1]) {
         const embedUrl = embedMatch[1];
         console.log(`[proxy] Found embed URL in gate: ${embedUrl}`);
