@@ -57,11 +57,12 @@ const PlayerPage = () => {
   useEffect(() => {
     if (!params.id || !params.type) return;
     setBankLoading(true);
+    const controller = new AbortController();
     const load = async () => {
       const cType = params.type === "movie" ? "movie" : "series";
       const aType = audioParam || "legendado";
 
-      // 1. Check video_cache first
+      // 1. Check video_cache first (fast path)
       let cacheQuery = supabase
         .from("video_cache")
         .select("video_url, video_type, provider")
@@ -75,51 +76,54 @@ const PlayerPage = () => {
       if (episode) cacheQuery = cacheQuery.eq("episode", episode);
       else cacheQuery = cacheQuery.is("episode", null);
 
-      const { data: cached } = await cacheQuery.maybeSingle();
+      // Run cache check and title fetch in parallel
+      const [cacheResult, titleResult] = await Promise.all([
+        cacheQuery.maybeSingle(),
+        supabase.from("content").select("title").eq("tmdb_id", Number(params.id)).eq("content_type", cType).maybeSingle(),
+      ]);
 
-      if (cached?.video_url) {
+      if (titleResult.data?.title) setBankTitle(titleResult.data.title);
+
+      if (cacheResult.data?.video_url) {
         setBankSources([{
-          url: cached.video_url,
+          url: cacheResult.data.video_url,
           quality: "auto",
-          provider: cached.provider || "banco",
-          type: (cached.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
+          provider: cacheResult.data.provider || "banco",
+          type: (cacheResult.data.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
         }]);
-      } else {
-        // 2. Fallback: call extract-video
-        try {
-          const { data } = await supabase.functions.invoke("extract-video", {
-            body: {
-              tmdb_id: Number(params.id),
-              imdb_id: imdbId,
-              content_type: cType,
-              audio_type: aType,
-              season,
-              episode,
-            },
-          });
-          if (data?.url) {
-            setBankSources([{
-              url: data.url,
-              quality: "auto",
-              provider: data.provider || "extracted",
-              type: data.type === "mp4" ? "mp4" : "m3u8",
-            }]);
-          }
-        } catch { /* silent */ }
+        setBankLoading(false);
+        return;
       }
 
-      // Get title from content table
-      const { data: content } = await supabase
-        .from("content")
-        .select("title")
-        .eq("tmdb_id", Number(params.id))
-        .eq("content_type", cType)
-        .maybeSingle();
+      // 2. Fallback: call extract-video with timeout
+      try {
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 45000));
+        const extractPromise = supabase.functions.invoke("extract-video", {
+          body: {
+            tmdb_id: Number(params.id),
+            imdb_id: imdbId,
+            content_type: cType,
+            audio_type: aType,
+            season,
+            episode,
+          },
+        });
 
-      if (content?.title) setBankTitle(content.title);
+        const { data } = await Promise.race([extractPromise, timeoutPromise]) as any;
+        if (data?.url) {
+          setBankSources([{
+            url: data.url,
+            quality: "auto",
+            provider: data.provider || "extracted",
+            type: data.type === "mp4" ? "mp4" : "m3u8",
+          }]);
+        }
+      } catch { /* silent */ }
+
       setBankLoading(false);
     };
     load();
+    return () => controller.abort();
   }, [params.id, params.type, audioParam, imdbId, season, episode]);
 
   const sources: VideoSource[] = bankSources.length > 0
@@ -226,7 +230,28 @@ const PlayerPage = () => {
     }
 
     if (src.type === "m3u8" && Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true, lowLatencyMode: false, xhrSetup: (xhr) => { xhr.withCredentials = false; } });
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false,
+        startLevel: -1,
+        abrEwmaDefaultEstimate: 1000000,
+        abrBandWidthUpFactor: 0.7,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 120,
+        maxBufferSize: 60 * 1000 * 1000,
+        maxBufferHole: 0.5,
+        startFragPrefetch: true,
+        testBandwidth: true,
+        progressive: true,
+        fragLoadingTimeOut: 20000,
+        fragLoadingMaxRetry: 6,
+        fragLoadingRetryDelay: 1000,
+        manifestLoadingTimeOut: 15000,
+        manifestLoadingMaxRetry: 4,
+        levelLoadingTimeOut: 15000,
+        levelLoadingMaxRetry: 4,
+        xhrSetup: (xhr) => { xhr.withCredentials = false; },
+      });
       hlsRef.current = hls;
       hls.loadSource(src.url);
       hls.attachMedia(video);
@@ -238,16 +263,27 @@ const PlayerPage = () => {
       hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setCurrentLevel(data.level));
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) hls.startLoad();
-          else { setError(true); setLoading(false); }
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            console.warn("[HLS] Network error, retrying...");
+            hls.startLoad();
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            console.warn("[HLS] Media error, recovering...");
+            hls.recoverMediaError();
+          } else {
+            setError(true);
+            setLoading(false);
+          }
         }
       });
+      hls.on(Hls.Events.FRAG_LOADED, () => { if (loading) setLoading(false); });
     } else if (src.type === "m3u8" && video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = src.url;
       video.addEventListener("loadedmetadata", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
     } else {
+      video.preload = "auto";
       video.src = src.url;
       video.addEventListener("loadeddata", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
+      video.addEventListener("canplay", () => { if (loading) { setLoading(false); video.play().catch(() => {}); } }, { once: true });
     }
     video.addEventListener("error", () => { setError(true); setLoading(false); }, { once: true });
   }, []);
@@ -428,7 +464,7 @@ const PlayerPage = () => {
       onMouseMove={resetControlsTimer} onTouchStart={resetControlsTimer}
       style={{ cursor: showControls ? "default" : "none" }}>
       <video ref={videoRef} className="w-full h-full object-contain" playsInline
-        onClick={togglePlay} onDoubleClick={toggleFullscreen} />
+        preload="auto" onClick={togglePlay} onDoubleClick={toggleFullscreen} />
 
       {/* Resume prompt */}
       {showResumePrompt && (

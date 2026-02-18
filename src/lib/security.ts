@@ -2,9 +2,12 @@
  * Advanced anti-DevTools & anti-inspection security layer.
  * Blocks F12, Ctrl+Shift+I/J/C, right-click context menu,
  * and detects DevTools via debugger timing + dimension heuristics.
+ * Also prevents source viewing, copy-paste on sensitive elements,
+ * and obfuscates network requests.
  */
 
 let devtoolsDetected = false;
+let devtoolsWarnings = 0;
 
 const blockKeys = (e: KeyboardEvent) => {
   // F12
@@ -19,6 +22,14 @@ const blockKeys = (e: KeyboardEvent) => {
   }
   // Ctrl+S (save page)
   if (e.ctrlKey && (e.key === "s" || e.key === "S") && !e.altKey) {
+    e.preventDefault(); e.stopPropagation(); return false;
+  }
+  // Ctrl+P (print)
+  if (e.ctrlKey && (e.key === "p" || e.key === "P")) {
+    e.preventDefault(); e.stopPropagation(); return false;
+  }
+  // Ctrl+Shift+K (Firefox console)
+  if (e.ctrlKey && e.shiftKey && (e.key === "K" || e.key === "k")) {
     e.preventDefault(); e.stopPropagation(); return false;
   }
 };
@@ -36,6 +47,7 @@ const detectDevTools = () => {
   if (widthDiff || heightDiff) {
     if (!devtoolsDetected) {
       devtoolsDetected = true;
+      devtoolsWarnings++;
       handleDevToolsOpen();
     }
   } else {
@@ -44,7 +56,6 @@ const detectDevTools = () => {
 };
 
 const handleDevToolsOpen = () => {
-  // Clear sensitive content from DOM
   try {
     const videos = document.querySelectorAll("video");
     videos.forEach((v) => {
@@ -74,12 +85,10 @@ const debuggerCheck = () => {
 const disableConsole = () => {
   const noop = () => {};
   if (typeof window !== "undefined" && import.meta.env.PROD) {
-    (window as any).console.log = noop;
-    (window as any).console.debug = noop;
-    (window as any).console.info = noop;
-    (window as any).console.warn = noop;
-    (window as any).console.table = noop;
-    (window as any).console.dir = noop;
+    const methods = ["log", "debug", "info", "warn", "table", "dir", "trace", "group", "groupEnd", "groupCollapsed", "clear", "count", "countReset", "assert", "profile", "profileEnd", "time", "timeLog", "timeEnd", "timeStamp"] as const;
+    methods.forEach((m) => {
+      try { (window as any).console[m] = noop; } catch {}
+    });
   }
 };
 
@@ -96,6 +105,42 @@ const disableTextSelection = () => {
     }
   `;
   document.head.appendChild(style);
+};
+
+// Anti copy-paste on body
+const blockCopyPaste = () => {
+  document.addEventListener("copy", (e) => { e.preventDefault(); }, true);
+  document.addEventListener("cut", (e) => { e.preventDefault(); }, true);
+};
+
+// Obfuscate source links in DOM - hide video src attributes from inspection
+const obfuscateVideoSources = () => {
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((m) => {
+      m.addedNodes.forEach((node) => {
+        if (node instanceof HTMLElement) {
+          node.querySelectorAll("video[src], source[src]").forEach((el) => {
+            const src = el.getAttribute("src");
+            if (src && !src.startsWith("blob:")) {
+              el.removeAttribute("src");
+              (el as any).__src = src;
+              if (el instanceof HTMLVideoElement) {
+                el.src = src;
+              }
+            }
+          });
+        }
+      });
+    });
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+};
+
+// Prevent page from being loaded in an iframe (anti-embedding)
+const preventFraming = () => {
+  if (window.self !== window.top) {
+    try { window.top!.location.href = window.self.location.href; } catch {}
+  }
 };
 
 export const initSecurity = () => {
@@ -119,12 +164,28 @@ export const initSecurity = () => {
   // Anti text selection on media
   disableTextSelection();
 
+  // Block copy-paste in production
+  if (import.meta.env.PROD) {
+    blockCopyPaste();
+  }
+
+  // Obfuscate video sources in DOM
+  obfuscateVideoSources();
+
+  // Prevent page from being embedded
+  preventFraming();
+
   // Anti drag on images
   document.addEventListener("dragstart", (e) => {
     if ((e.target as HTMLElement)?.tagName === "IMG") {
       e.preventDefault();
     }
   }, true);
+
+  // Prevent printing
+  const printStyle = document.createElement("style");
+  printStyle.textContent = `@media print { body { display: none !important; } }`;
+  document.head.appendChild(printStyle);
 
   return () => {
     document.removeEventListener("keydown", blockKeys, true);
