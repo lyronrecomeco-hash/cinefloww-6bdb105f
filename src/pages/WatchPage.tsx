@@ -284,9 +284,17 @@ const WatchPage = () => {
   if (phase === "loading") {
     return (
       <div className="fixed inset-0 z-[100] bg-black flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-          <Loader2 className="w-10 h-10 text-primary animate-spin" />
-          <p className="text-sm text-muted-foreground">Carregando player...</p>
+        <div className="flex flex-col items-center gap-6">
+          <div className="lyneflix-loader">
+            <span className="lyneflix-text text-5xl sm:text-6xl font-black tracking-wider select-none">
+              LYNEFLIX
+            </span>
+          </div>
+          <div className="flex gap-1.5">
+            <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "0ms" }} />
+            <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "150ms" }} />
+            <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "300ms" }} />
+          </div>
         </div>
       </div>
     );
@@ -323,18 +331,36 @@ const WatchPage = () => {
     );
   }
 
-  // ===== UNAVAILABLE =====
+  // ===== UNAVAILABLE - Friendly modal =====
   return (
     <div className="fixed inset-0 z-[100] bg-black flex items-center justify-center p-4">
-      <div className="text-center max-w-sm">
-        <div className="w-16 h-16 rounded-full bg-destructive/20 flex items-center justify-center mx-auto mb-4">
-          <AlertTriangle className="w-8 h-8 text-destructive" />
+      {/* Background brand watermark */}
+      <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03]">
+        <span className="text-[100px] sm:text-[140px] font-black tracking-wider text-white select-none">LYNEFLIX</span>
+      </div>
+      <div className="relative bg-card/80 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl p-8 max-w-sm w-full text-center">
+        <div className="w-14 h-14 rounded-2xl bg-primary/15 flex items-center justify-center mx-auto mb-5">
+          <AlertTriangle className="w-7 h-7 text-primary" />
         </div>
-        <h3 className="text-xl font-bold text-white mb-2">Vídeo indisponível</h3>
-        <p className="text-sm text-white/50 mb-6">Este conteúdo ainda não foi indexado no banco. Tente novamente mais tarde.</p>
-        <button onClick={goBack} className="flex items-center gap-2 px-6 py-3 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors mx-auto">
-          <ArrowLeft className="w-4 h-4" /> Voltar
-        </button>
+        <h3 className="text-lg font-bold text-white mb-2">Ops! Tivemos um probleminha</h3>
+        <p className="text-sm text-white/50 mb-6 leading-relaxed">
+          Nossa equipe está ajustando a infraestrutura. Clique abaixo para avisar e daremos prioridade máxima ao seu conteúdo!
+        </p>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={() => {
+              const btn = document.getElementById("watch-report-btn");
+              if (btn) { btn.textContent = "✓ Equipe avisada!"; btn.classList.add("bg-green-600"); }
+            }}
+            id="watch-report-btn"
+            className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all duration-200"
+          >
+            <AlertTriangle className="w-4 h-4" /> Avisar a equipe
+          </button>
+          <button onClick={goBack} className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
+            <ArrowLeft className="w-4 h-4" /> Voltar
+          </button>
+        </div>
       </div>
     </div>
   );

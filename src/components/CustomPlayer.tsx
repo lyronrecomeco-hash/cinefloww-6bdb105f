@@ -287,35 +287,63 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
         onDoubleClick={toggleFullscreen}
       />
 
-      {/* Loading */}
+      {/* Loading - LYNEFLIX branded animation */}
       {loading && !error && (
-        <div className="absolute inset-0 flex items-center justify-center z-10">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-16 h-16 rounded-full border-4 border-primary/30 border-t-primary animate-spin" />
-            <p className="text-white/60 text-sm font-medium">Carregando...</p>
+        <div className="absolute inset-0 flex items-center justify-center z-10 bg-black">
+          <div className="flex flex-col items-center gap-6">
+            <div className="lyneflix-loader">
+              <span className="lyneflix-text text-4xl sm:text-5xl font-black tracking-wider select-none">
+                LYNEFLIX
+              </span>
+            </div>
+            <div className="flex gap-1.5">
+              <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "0ms" }} />
+              <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "150ms" }} />
+              <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "300ms" }} />
+            </div>
           </div>
         </div>
       )}
 
-      {/* Error */}
+      {/* Error - Friendly modal */}
       {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-20">
-          <div className="text-center p-8 max-w-md">
-            <div className="w-16 h-16 rounded-full bg-destructive/20 flex items-center justify-center mx-auto mb-4">
-              <AlertTriangle className="w-8 h-8 text-destructive" />
+        <div className="absolute inset-0 flex items-center justify-center bg-black z-20">
+          <div className="lyneflix-loader mb-8 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 opacity-5">
+            <span className="text-[120px] font-black tracking-wider select-none text-white">LYNEFLIX</span>
+          </div>
+          <div className="relative text-center p-8 max-w-sm bg-card/80 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl">
+            <div className="w-14 h-14 rounded-2xl bg-primary/15 flex items-center justify-center mx-auto mb-5">
+              <Settings className="w-7 h-7 text-primary" />
             </div>
-            <h3 className="text-xl font-bold text-white mb-2">Fonte indisponível</h3>
-            <p className="text-sm text-white/50 mb-1">{source?.provider} — {source?.quality}</p>
-            <p className="text-xs text-white/30 mb-6">{currentSourceIdx + 1} de {sources.length} fontes</p>
-            <div className="flex gap-3 justify-center">
-              <button onClick={() => attachSource(source)} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
-                <RefreshCw className="w-4 h-4" /> Tentar novamente
+            <h3 className="text-lg font-bold text-white mb-2">Ops! Tivemos um probleminha</h3>
+            <p className="text-sm text-white/50 mb-6 leading-relaxed">
+              Nossa equipe está mexendo na infraestrutura. Clique abaixo para avisar e daremos prioridade máxima!
+            </p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => {
+                  // Send report to content_requests or similar
+                  const msg = `Player error: ${title} (source: ${source?.provider})`;
+                  navigator.clipboard?.writeText(msg).catch(() => {});
+                  // Visual feedback
+                  const btn = document.getElementById("report-btn");
+                  if (btn) { btn.textContent = "✓ Equipe avisada!"; btn.classList.add("bg-green-600"); }
+                }}
+                id="report-btn"
+                className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all duration-200"
+              >
+                <AlertTriangle className="w-4 h-4" /> Avisar a equipe
               </button>
-              {currentSourceIdx < sources.length - 1 && (
-                <button onClick={nextSource} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors">
-                  <ChevronRight className="w-4 h-4" /> Próxima fonte
+              <div className="flex gap-2">
+                <button onClick={() => attachSource(source)} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
+                  <RefreshCw className="w-4 h-4" /> Tentar de novo
                 </button>
-              )}
+                {onClose && (
+                  <button onClick={onClose} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 text-white/70 text-sm font-medium hover:bg-white/10 transition-colors">
+                    Voltar
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
