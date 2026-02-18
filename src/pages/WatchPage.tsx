@@ -80,7 +80,7 @@ const WatchPage = () => {
     const cType = isMovie ? "movie" : "series";
     const aType = selectedAudio || "legendado";
 
-    // 1. Check video_cache directly (banco)
+    // 1. Check video_cache directly (banco) - fast path
     try {
       let query = supabase
         .from("video_cache")
@@ -108,9 +108,10 @@ const WatchPage = () => {
       }
     } catch { /* silent */ }
 
-    // 2. Fallback: call extract-video to try extraction + cache
+    // 2. Fallback: call extract-video with timeout
     try {
-      const { data, error: fnError } = await supabase.functions.invoke("extract-video", {
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 45000));
+      const extractPromise = supabase.functions.invoke("extract-video", {
         body: {
           tmdb_id: Number(id),
           imdb_id: imdbId,
@@ -120,6 +121,8 @@ const WatchPage = () => {
           episode,
         },
       });
+
+      const { data, error: fnError } = await Promise.race([extractPromise, timeoutPromise]) as any;
 
       if (!fnError && data?.url) {
         setSources([{
@@ -131,7 +134,7 @@ const WatchPage = () => {
         setPhase("playing");
         return;
       }
-    } catch { /* silent */ }
+    } catch { /* silent - timeout or error */ }
     setPhase("unavailable");
   }, [id, imdbId, isMovie, selectedAudio, season, episode]);
 

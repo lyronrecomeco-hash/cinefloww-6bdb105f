@@ -59,6 +59,23 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
+        startLevel: -1,
+        abrEwmaDefaultEstimate: 1000000,
+        abrBandWidthUpFactor: 0.7,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 120,
+        maxBufferSize: 60 * 1000 * 1000,
+        maxBufferHole: 0.5,
+        startFragPrefetch: true,
+        testBandwidth: true,
+        progressive: true,
+        fragLoadingTimeOut: 20000,
+        fragLoadingMaxRetry: 6,
+        fragLoadingRetryDelay: 1000,
+        manifestLoadingTimeOut: 15000,
+        manifestLoadingMaxRetry: 4,
+        levelLoadingTimeOut: 15000,
+        levelLoadingMaxRetry: 4,
         xhrSetup: (xhr) => { xhr.withCredentials = false; },
       });
       hlsRef.current = hls;
@@ -71,19 +88,26 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            console.warn("[HLS] Network error, retrying...");
             hls.startLoad();
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            console.warn("[HLS] Media error, recovering...");
+            hls.recoverMediaError();
           } else {
             setError(true);
             setLoading(false);
           }
         }
       });
+      hls.on(Hls.Events.FRAG_LOADED, () => { if (loading) setLoading(false); });
     } else if (src.type === "m3u8" && video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = src.url;
       video.addEventListener("loadedmetadata", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
     } else {
+      video.preload = "auto";
       video.src = src.url;
       video.addEventListener("loadeddata", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
+      video.addEventListener("canplay", () => { if (loading) { setLoading(false); video.play().catch(() => {}); } }, { once: true });
     }
 
     video.addEventListener("error", () => { setError(true); setLoading(false); }, { once: true });
