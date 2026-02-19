@@ -82,10 +82,10 @@ const LyneflixIntro = ({ onComplete, skip }: LyneflixIntroProps) => {
       // Audio not available, continue silently
     }
 
-    // Phase transitions: L → full name → exit
-    const t1 = setTimeout(() => setPhase("reveal"), 900);
-    const t2 = setTimeout(() => setPhase("exit"), 2200);
-    const t3 = setTimeout(() => onComplete(), 2900);
+    // Phase transitions: L → full name → exit (FAST: ~1.4s total)
+    const t1 = setTimeout(() => setPhase("reveal"), 400);
+    const t2 = setTimeout(() => setPhase("exit"), 1000);
+    const t3 = setTimeout(() => onComplete(), 1400);
 
     return () => {
       clearTimeout(t1);
