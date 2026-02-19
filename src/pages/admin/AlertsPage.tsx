@@ -4,7 +4,7 @@ import {
   Bell, Plus, Save, Trash2, Loader2, Eye, EyeOff,
   ExternalLink, X, Clock, ToggleLeft, ToggleRight, Send,
   Megaphone, AlertTriangle, Info, Gift, Shield, Sparkles,
-  Copy, Zap, Heart, Star, Radio, Volume2, Users, TrendingUp
+  Copy, Zap, Heart, Star, Radio, Volume2, Users, TrendingUp, Flag
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -38,7 +38,7 @@ const TEMPLATES = [
     color: "text-blue-400",
     bg: "bg-blue-500/10 border-blue-500/20",
     data: {
-      title: "🎬 Novidade no CineFlow!",
+      title: "🎬 Novidade na LyneFlix!",
       message: "Adicionamos novos filmes e séries ao catálogo! Confira agora as últimas estreias e aproveite para assistir em alta qualidade.",
       button_text: "Ver Novidades",
       button_link: "",
@@ -84,7 +84,7 @@ const TEMPLATES = [
     bg: "bg-pink-500/10 border-pink-500/20",
     data: {
       title: "🎁 Promoção Especial!",
-      message: "Aproveite nossa promoção por tempo limitado! Compartilhe o CineFlow com seus amigos e ganhe acesso a conteúdos exclusivos.",
+      message: "Aproveite nossa promoção por tempo limitado! Compartilhe a LyneFlix com seus amigos e ganhe acesso a conteúdos exclusivos.",
       button_text: "Saiba Mais",
       button_link: "",
       button_style: "primary",
@@ -114,7 +114,7 @@ const TEMPLATES = [
     bg: "bg-violet-500/10 border-violet-500/20",
     data: {
       title: "✨ Nova Atualização!",
-      message: "O CineFlow foi atualizado! Agora você conta com um player melhorado, carregamento mais rápido e novas funcionalidades. Aproveite!",
+      message: "A LyneFlix foi atualizada! Agora você conta com um player melhorado, carregamento mais rápido e novas funcionalidades. Aproveite!",
       button_text: "Explorar",
       button_link: "",
       button_style: "primary",
@@ -144,7 +144,7 @@ const TEMPLATES = [
     bg: "bg-rose-500/10 border-rose-500/20",
     data: {
       title: "❤️ Obrigado!",
-      message: "Agradecemos por fazer parte da comunidade CineFlow! Sua presença é muito importante para nós. Continue aproveitando o melhor do entretenimento!",
+      message: "Agradecemos por fazer parte da comunidade LyneFlix! Sua presença é muito importante para nós. Continue aproveitando o melhor do entretenimento!",
       button_text: "Valeu!",
       button_link: "",
       button_style: "primary",
@@ -174,7 +174,7 @@ const TEMPLATES = [
     bg: "bg-indigo-500/10 border-indigo-500/20",
     data: {
       title: "📡 Transmissão ao Vivo",
-      message: "Estamos com uma transmissão especial ao vivo! Não perca este evento exclusivo disponível por tempo limitado no CineFlow.",
+      message: "Estamos com uma transmissão especial ao vivo! Não perca este evento exclusivo disponível por tempo limitado na LyneFlix.",
       button_text: "Assistir Agora",
       button_link: "",
       button_style: "primary",
@@ -204,7 +204,7 @@ const TEMPLATES = [
     bg: "bg-orange-500/10 border-orange-500/20",
     data: {
       title: "👥 Junte-se à Comunidade!",
-      message: "Entre no nosso grupo exclusivo para receber novidades em primeira mão, sugestões de filmes e interagir com outros usuários do CineFlow!",
+      message: "Entre no nosso grupo exclusivo para receber novidades em primeira mão, sugestões de filmes e interagir com outros usuários da LyneFlix!",
       button_text: "Participar",
       button_link: "",
       button_style: "primary",
@@ -219,11 +219,72 @@ const TEMPLATES = [
     bg: "bg-lime-500/10 border-lime-500/20",
     data: {
       title: "🔥 Em Alta Agora",
-      message: "Confira os filmes e séries mais assistidos da semana! Veja o que está bombando no CineFlow e não fique de fora.",
+      message: "Confira os filmes e séries mais assistidos da semana! Veja o que está bombando na LyneFlix e não fique de fora.",
       button_text: "Ver Tendências",
       button_link: "",
       button_style: "primary",
       interval_minutes: 300,
+      active: false,
+    },
+  },
+  // ── Novos templates de report/feedback ──
+  {
+    icon: Flag,
+    label: "Episódio Cortado",
+    color: "text-red-400",
+    bg: "bg-red-500/10 border-red-500/20",
+    data: {
+      title: "⏱️ Episódio com Minutos Faltando?",
+      message: "Percebeu que algum episódio está com minutos faltando ou cortado no final? Reporte para nossa equipe resolver com urgência! Sua ajuda mantém a qualidade do catálogo.",
+      button_text: "Reportar",
+      button_link: "",
+      button_style: "destructive",
+      interval_minutes: 1440,
+      active: false,
+    },
+  },
+  {
+    icon: AlertTriangle,
+    label: "Filme/Série Lento",
+    color: "text-amber-400",
+    bg: "bg-amber-500/10 border-amber-500/20",
+    data: {
+      title: "🐌 Conteúdo Carregando Lento?",
+      message: "Se o filme ou série está demorando para carregar ou travando durante a reprodução, reporte para nossa equipe! Estamos sempre otimizando as fontes para melhor experiência.",
+      button_text: "Reportar Lentidão",
+      button_link: "",
+      button_style: "destructive",
+      interval_minutes: 1440,
+      active: false,
+    },
+  },
+  {
+    icon: Zap,
+    label: "Player Não Carrega",
+    color: "text-red-400",
+    bg: "bg-red-500/10 border-red-500/20",
+    data: {
+      title: "🚫 Player Não Está Carregando?",
+      message: "Encontrou um filme ou série que não abre no player? Reporte para nossa equipe resolver com prioridade! Nossos conteúdos estão sendo adicionados gradualmente e algumas fontes podem ainda não estar disponíveis.",
+      button_text: "Reportar Player",
+      button_link: "",
+      button_style: "destructive",
+      interval_minutes: 1440,
+      active: false,
+    },
+  },
+  {
+    icon: Info,
+    label: "Site Novo - Paciência",
+    color: "text-blue-400",
+    bg: "bg-blue-500/10 border-blue-500/20",
+    data: {
+      title: "🆕 Estamos em Construção!",
+      message: "A LyneFlix é novinha! Os conteúdos estão sendo adicionados aos poucos. Se algum filme ou série não abrir, pode reportar — mas saiba que nossa equipe está trabalhando dia e noite para liberar tudo. Tenha paciência e obrigado por estar com a gente desde o início! 💙",
+      button_text: "Entendido, Valeu!",
+      button_link: "",
+      button_style: "primary",
+      interval_minutes: 2880,
       active: false,
     },
   },
