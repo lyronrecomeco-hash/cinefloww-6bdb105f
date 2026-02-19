@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Play, Clock } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { toSlug } from "@/lib/slugify";
 
 interface WatchItem {
   tmdb_id: number;
@@ -104,7 +105,8 @@ const ContinueWatchingRow = () => {
           const params = new URLSearchParams({ title: item.title, audio: "legendado" });
           if (item.season) params.set("s", String(item.season));
           if (item.episode) params.set("e", String(item.episode));
-          const watchUrl = `/assistir/${typeRoute}/${item.tmdb_id}?${params.toString()}`;
+          const slug = toSlug(item.title, item.tmdb_id);
+          const watchUrl = `/player/${typeRoute === "movie" ? "movie" : "series"}/${slug}?${params.toString()}`;
 
           return (
             <Link

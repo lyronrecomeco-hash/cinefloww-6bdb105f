@@ -15,6 +15,7 @@ import ApiRedirect from "./pages/ApiRedirect";
 import NotFound from "./pages/NotFound";
 import DmcaPage from "./pages/DmcaPage";
 import TermsPage from "./pages/TermsPage";
+import DadosPage from "./pages/DadosPage";
 
 // Admin (lazy loaded)
 const AdminLogin = lazy(() => import("./pages/AdminLogin"));
@@ -28,6 +29,7 @@ const BancoPage = lazy(() => import("./pages/admin/BancoPage"));
 const RequestsPage = lazy(() => import("./pages/admin/RequestsPage"));
 const AlertsPage = lazy(() => import("./pages/admin/AlertsPage"));
 const LogsPage = lazy(() => import("./pages/admin/LogsPage"));
+const SecurityMonitor = lazy(() => import("./pages/admin/SecurityMonitor"));
 
 const queryClient = new QueryClient();
 
@@ -58,6 +60,7 @@ const App = () => (
             <Route path="/player/:type/:id" element={<PlayerPage />} />
             <Route path="/dmca" element={<DmcaPage />} />
             <Route path="/termos" element={<TermsPage />} />
+            <Route path="/dados" element={<DadosPage />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
@@ -75,6 +78,7 @@ const App = () => (
               <Route path="banco" element={<BancoPage />} />
               <Route path="cineveo" element={<CineveoTester />} />
               <Route path="logs" element={<LogsPage />} />
+              <Route path="seguranca" element={<SecurityMonitor />} />
               <Route path="avisos" element={<AlertsPage />} />
               <Route path="config" element={<SettingsPage />} />
             </Route>

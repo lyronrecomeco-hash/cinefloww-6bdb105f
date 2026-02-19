@@ -1,6 +1,7 @@
 import { Play, Info } from "lucide-react";
 import { Link } from "react-router-dom";
 import { TMDBMovie, backdropUrl, getDisplayTitle, getYear, getMediaType } from "@/services/tmdb";
+import { toSlug } from "@/lib/slugify";
 
 interface HeroSectionProps {
   movie: TMDBMovie;
@@ -8,7 +9,8 @@ interface HeroSectionProps {
 
 const HeroSection = ({ movie }: HeroSectionProps) => {
   const type = getMediaType(movie);
-  const link = type === "movie" ? `/filme/${movie.id}` : `/serie/${movie.id}`;
+  const title = getDisplayTitle(movie);
+  const link = type === "movie" ? `/filme/${toSlug(title, movie.id)}` : `/serie/${toSlug(title, movie.id)}`;
 
   return (
     <section className="relative h-[85vh] min-h-[600px] w-full overflow-hidden">

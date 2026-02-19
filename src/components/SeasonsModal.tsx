@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { X, Clock, Star, ChevronDown, Play, Check } from "lucide-react";
 import { TMDBSeason, TMDBEpisode, getSeasonDetails, posterUrl } from "@/services/tmdb";
 import { getEpisodeProgress } from "@/lib/watchProgress";
+import { toSlug } from "@/lib/slugify";
 import AudioSelectModal from "@/components/AudioSelectModal";
 
 interface SeasonsModalProps {
@@ -52,7 +53,8 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
     });
     if (imdbId) params.set("imdb", imdbId);
     onClose();
-    navigate(`/player/series/${seriesId}?${params.toString()}`);
+    const slug = toSlug(seriesTitle, seriesId);
+    navigate(`/player/series/${slug}?${params.toString()}`);
   };
 
   return (

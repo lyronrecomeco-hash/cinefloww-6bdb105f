@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Search, Menu, X, MessageSquare } from "lucide-react";
 import { searchMulti, TMDBMovie, posterUrl, getDisplayTitle, getMediaType } from "@/services/tmdb";
+import { toSlug } from "@/lib/slugify";
 import RequestModal from "@/components/RequestModal";
 
 const navItems = [
@@ -63,7 +64,8 @@ const Navbar = () => {
 
   const handleResultClick = (item: TMDBMovie) => {
     const type = getMediaType(item);
-    navigate(type === "movie" ? `/filme/${item.id}` : `/serie/${item.id}`);
+    const title = getDisplayTitle(item);
+    navigate(type === "movie" ? `/filme/${toSlug(title, item.id)}` : `/serie/${toSlug(title, item.id)}`);
     setSearchOpen(false);
     setQuery("");
     setResults([]);

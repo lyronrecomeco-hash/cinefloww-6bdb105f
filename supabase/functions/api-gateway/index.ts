@@ -7,6 +7,7 @@ const corsHeaders = {
 };
 
 const REJECTION_MSG = "Mano, tá passando fome? pede marmita.";
+const ALLOWED_ORIGIN = "lyneflix.online";
 
 // HMAC-SHA256 using Web Crypto
 async function hmacSha256(key: string, message: string): Promise<string> {
@@ -25,26 +26,109 @@ async function hashIP(ip: string): Promise<string> {
   return Array.from(new Uint8Array(hash)).slice(0, 8).map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-// Rate limiting: in-memory store (resets on cold start, good enough)
+// === ADVANCED RATE LIMITING ===
+// Per-IP rate limiting with sliding window
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>();
-const RATE_LIMIT = 60; // requests per window
-const RATE_WINDOW = 60_000; // 1 minute
+const RATE_LIMIT = 60;
+const RATE_WINDOW = 60_000;
 
-function checkRateLimit(key: string): boolean {
+// Per-IP burst protection (10 req in 2s = suspicious)
+const burstMap = new Map<string, { count: number; resetAt: number }>();
+const BURST_LIMIT = 15;
+const BURST_WINDOW = 2_000;
+
+// IP ban list (in-memory, resets on cold start)
+const bannedIPs = new Map<string, number>(); // ipHash -> ban expiry timestamp
+const BAN_DURATION = 5 * 60 * 1000; // 5 min ban
+
+// Global request counter for DDoS detection
+let globalReqCount = 0;
+let globalReqResetAt = Date.now() + 10_000;
+const GLOBAL_LIMIT = 500; // 500 req per 10s = DDoS
+
+function checkRateLimit(key: string): { allowed: boolean; reason?: string } {
   const now = Date.now();
+
+  // Check if banned
+  const banExpiry = bannedIPs.get(key);
+  if (banExpiry && now < banExpiry) {
+    return { allowed: false, reason: "ip-banned" };
+  } else if (banExpiry) {
+    bannedIPs.delete(key);
+  }
+
+  // Global DDoS check
+  if (now > globalReqResetAt) {
+    globalReqCount = 0;
+    globalReqResetAt = now + 10_000;
+  }
+  globalReqCount++;
+  if (globalReqCount > GLOBAL_LIMIT) {
+    return { allowed: false, reason: "ddos-protection" };
+  }
+
+  // Burst check
+  const burst = burstMap.get(key);
+  if (!burst || now > burst.resetAt) {
+    burstMap.set(key, { count: 1, resetAt: now + BURST_WINDOW });
+  } else {
+    burst.count++;
+    if (burst.count > BURST_LIMIT) {
+      // Ban IP for burst behavior
+      bannedIPs.set(key, now + BAN_DURATION);
+      return { allowed: false, reason: "burst-banned" };
+    }
+  }
+
+  // Normal rate limit
   const entry = rateLimitMap.get(key);
   if (!entry || now > entry.resetAt) {
     rateLimitMap.set(key, { count: 1, resetAt: now + RATE_WINDOW });
-    return true;
+    return { allowed: true };
   }
   entry.count++;
-  return entry.count <= RATE_LIMIT;
+  if (entry.count > RATE_LIMIT) {
+    return { allowed: false, reason: "rate-limited" };
+  }
+  return { allowed: true };
+}
+
+// === BOT DETECTION ===
+const BOT_UA_PATTERNS = [
+  /bot/i, /crawl/i, /spider/i, /scraper/i, /curl/i, /wget/i,
+  /python-requests/i, /httpie/i, /postman/i, /insomnia/i,
+  /go-http-client/i, /java\//i, /okhttp/i,
+];
+
+function isBot(ua: string): boolean {
+  if (!ua || ua.length < 10) return true;
+  return BOT_UA_PATTERNS.some(p => p.test(ua));
+}
+
+// === ORIGIN VALIDATION ===
+function isValidOrigin(req: Request): boolean {
+  const origin = req.headers.get("origin") || req.headers.get("referer") || "";
+  if (!origin) return true; // Allow no-origin (server-to-server)
+  return origin.includes(ALLOWED_ORIGIN) || origin.includes("localhost") || origin.includes("lovable.app") || origin.includes("lovable.dev");
+}
+
+// Periodic cleanup of maps to prevent memory leaks
+let lastCleanup = Date.now();
+function maybeCleanup() {
+  const now = Date.now();
+  if (now - lastCleanup < 60_000) return;
+  lastCleanup = now;
+  for (const [k, v] of rateLimitMap) { if (now > v.resetAt) rateLimitMap.delete(k); }
+  for (const [k, v] of burstMap) { if (now > v.resetAt) burstMap.delete(k); }
+  for (const [k, v] of bannedIPs) { if (now > v) bannedIPs.delete(k); }
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
+
+  maybeCleanup();
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -57,6 +141,18 @@ Deno.serve(async (req) => {
   const ua = req.headers.get("user-agent") || "";
 
   try {
+    // 0. Bot detection
+    if (isBot(ua)) {
+      await logAccess(supabase, "/api-gateway", ipHash, ua, true, "bot-detected");
+      return reject();
+    }
+
+    // 0b. Origin validation
+    if (!isValidOrigin(req)) {
+      await logAccess(supabase, "/api-gateway", ipHash, ua, true, "invalid-origin");
+      return reject();
+    }
+
     // 1. Validate HMAC signature
     const sig = req.headers.get("x-cf-sig");
     const ts = req.headers.get("x-cf-ts");
@@ -84,11 +180,13 @@ Deno.serve(async (req) => {
       return reject();
     }
 
-    // 2. Rate limiting
-    if (!checkRateLimit(ipHash)) {
-      await logAccess(supabase, "/api-gateway", ipHash, ua, true, "rate-limited");
+    // 2. Advanced rate limiting
+    const rateResult = checkRateLimit(ipHash);
+    if (!rateResult.allowed) {
+      await logAccess(supabase, "/api-gateway", ipHash, ua, true, rateResult.reason || "rate-limited");
+      const status = rateResult.reason === "ip-banned" || rateResult.reason === "burst-banned" ? 403 : 429;
       return new Response(JSON.stringify({ error: "Calma aí parceiro, muitas requisições." }), {
-        status: 429,
+        status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -101,7 +199,6 @@ Deno.serve(async (req) => {
 
     switch (action) {
       case "extract-video": {
-        // Forward to extract-video internally
         const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/extract-video`;
         const res = await fetch(url, {
           method: "POST",
@@ -118,7 +215,6 @@ Deno.serve(async (req) => {
       }
 
       case "track-visitor": {
-        // Insert visitor tracking
         await supabase.from("site_visitors").insert({
           visitor_id: data.visitor_id,
           referrer: data.referrer || null,

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Play, Info, ChevronLeft, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { TMDBMovie, backdropUrl, getDisplayTitle, getYear, getMediaType } from "@/services/tmdb";
+import { toSlug } from "@/lib/slugify";
 
 interface HeroSliderProps {
   movies: TMDBMovie[];
@@ -31,7 +32,8 @@ const HeroSlider = ({ movies }: HeroSliderProps) => {
 
   const movie = items[current];
   const type = getMediaType(movie);
-  const link = type === "movie" ? `/filme/${movie.id}` : `/serie/${movie.id}`;
+  const sliderTitle = getDisplayTitle(movie);
+  const link = type === "movie" ? `/filme/${toSlug(sliderTitle, movie.id)}` : `/serie/${toSlug(sliderTitle, movie.id)}`;
 
   return (
     <section className="relative h-[50vh] sm:h-[65vh] lg:h-[75vh] min-h-[320px] sm:min-h-[450px] max-h-[750px] w-full overflow-hidden">
