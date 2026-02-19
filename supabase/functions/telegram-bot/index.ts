@@ -14,7 +14,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 interface UserSession {
   step: string;
   data: Record<string, any>;
-  lastMsgIds: number[]; // track messages to delete
+  lastMsgIds: number[];
 }
 
 const corsHeaders = {
@@ -105,12 +105,7 @@ async function setSession(chatId: number, session: UserSession | null) {
   );
 }
 
-async function trackMsg(chatId: number, session: UserSession, msgId: number | null) {
-  if (msgId) session.lastMsgIds.push(msgId);
-}
-
 async function clearAndSend(chatId: number, session: UserSession, text: string, replyMarkup?: any): Promise<number | null> {
-  // Delete previous messages
   if (session.lastMsgIds.length > 0) {
     await deleteMessages(chatId, session.lastMsgIds);
     session.lastMsgIds = [];
@@ -157,6 +152,26 @@ function formatSize(bytes: number | null): string {
   return `${(bytes / 1e6).toFixed(0)} MB`;
 }
 
+// --- AI-powered name extraction from caption/text ---
+function extractNameFromText(text: string): { name: string; synopsis: string } {
+  // Split by double newlines or first line vs rest
+  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+  
+  if (lines.length === 0) return { name: "", synopsis: "" };
+  
+  // First meaningful line is usually the title
+  let name = lines[0];
+  // Remove common prefixes like emoji, "Nome:", "Título:" etc
+  name = name.replace(/^(🎬|📺|🎥|📽|nome:|título:|title:|film:|movie:|serie:|series:)\s*/i, "").trim();
+  // Remove year in parentheses from name to keep it clean for TMDB search
+  name = name.replace(/\s*\(\d{4}\)\s*$/, "").trim();
+  
+  // Rest is synopsis
+  const synopsis = lines.slice(1).join("\n").trim();
+  
+  return { name, synopsis };
+}
+
 // --- Main handlers ---
 async function handleCommand(chatId: number, userId: number, text: string) {
   const cmd = text.split(" ")[0].toLowerCase();
@@ -167,11 +182,15 @@ async function handleCommand(chatId: number, userId: number, text: string) {
       await sendMessage(chatId,
         "🎬 <b>Bot de Ingestão LyneFlix</b>\n\n" +
         "Encaminhe um vídeo de outro chat para começar o cadastro.\n" +
-        "O bot buscará automaticamente no TMDB!\n\n" +
+        "Envie junto nome e sinopse na legenda!\n\n" +
         "📌 <b>Comandos:</b>\n" +
         "/pendentes — Lista conteúdos pendentes\n" +
         "/buscar [nome] — Busca por nome\n" +
         "/status — Resumo do sistema\n" +
+        "/apis — Status dos provedores\n" +
+        "/addapi [nome] [url] — Adicionar provedor\n" +
+        "/raspar — Iniciar raspagem em lote\n" +
+        "/raspar_parar — Parar raspagem\n" +
         "/cancelar — Cancela operação atual"
       );
       break;
@@ -233,12 +252,23 @@ async function handleCommand(chatId: number, userId: number, text: string) {
         supabase.from("telegram_ingestions").select("id", { count: "exact", head: true }).eq("status", "confirmed"),
         supabase.from("telegram_ingestions").select("id", { count: "exact", head: true }).eq("status", "processed"),
       ]);
+      
+      // Also show catalog stats
+      const [{ count: totalContent }, { count: cachedVideos }] = await Promise.all([
+        supabase.from("content").select("id", { count: "exact", head: true }),
+        supabase.from("video_cache").select("id", { count: "exact", head: true }).gt("expires_at", new Date().toISOString()),
+      ]);
+      
       await sendMessage(chatId,
         "📊 <b>Status do Sistema:</b>\n\n" +
+        `<b>Ingestão:</b>\n` +
         `⏳ Pendentes: <b>${pending || 0}</b>\n` +
         `✅ Confirmados: <b>${confirmed || 0}</b>\n` +
-        `📦 Processados: <b>${processed || 0}</b>\n` +
-        `📁 Total: <b>${(pending || 0) + (confirmed || 0) + (processed || 0)}</b>`
+        `📦 Processados: <b>${processed || 0}</b>\n\n` +
+        `<b>Catálogo:</b>\n` +
+        `📚 Total conteúdo: <b>${totalContent || 0}</b>\n` +
+        `🔗 Links cacheados: <b>${cachedVideos || 0}</b>\n` +
+        `📈 Cobertura: <b>${totalContent ? ((cachedVideos || 0) / (totalContent as number) * 100).toFixed(1) : 0}%</b>`
       );
       break;
     }
@@ -257,6 +287,156 @@ async function handleCommand(chatId: number, userId: number, text: string) {
       break;
     }
 
+    // --- SCRAPING COMMANDS ---
+    case "/apis": {
+      const { data: providers } = await supabase
+        .from("scraping_providers")
+        .select("*")
+        .order("priority", { ascending: true });
+      
+      if (!providers?.length) {
+        await sendMessage(chatId, "❌ Nenhum provedor cadastrado.");
+        return;
+      }
+
+      let msg = "🌐 <b>Provedores de Raspagem:</b>\n\n";
+      providers.forEach((p, i) => {
+        const statusIcon = p.health_status === "healthy" ? "🟢" : p.health_status === "degraded" ? "🟡" : p.health_status === "down" ? "🔴" : "⚪";
+        const rate = p.success_count + p.fail_count > 0 
+          ? ((p.success_count / (p.success_count + p.fail_count)) * 100).toFixed(0) 
+          : "N/A";
+        msg += `${i + 1}. ${statusIcon} <b>${p.name}</b> [P${p.priority}]\n`;
+        msg += `   ${p.base_url}\n`;
+        msg += `   ✅ ${p.success_count} | ❌ ${p.fail_count} | Taxa: ${rate}%\n`;
+        msg += `   ${p.active ? "🟢 Ativo" : "🔴 Inativo"}\n\n`;
+      });
+
+      const buttons = providers.map(p => ([
+        { text: `${p.active ? "⏸" : "▶️"} ${p.name}`, callback_data: `toggle_provider_${p.id}` }
+      ]));
+      buttons.push([{ text: "🔄 Resetar contadores", callback_data: "reset_provider_stats" }]);
+
+      await sendMessage(chatId, msg, { inline_keyboard: buttons });
+      break;
+    }
+
+    case "/addapi": {
+      // Format: /addapi Nome|url_base|movie_template|tv_template
+      if (!args) {
+        await sendMessage(chatId,
+          "📝 <b>Formato:</b>\n" +
+          "<code>/addapi Nome|https://url.com|/embed/movie/{tmdb_id}|/embed/tv/{tmdb_id}/{season}/{episode}</code>\n\n" +
+          "Templates disponíveis:\n" +
+          "<code>{tmdb_id}</code> — ID do TMDB\n" +
+          "<code>{imdb_id}</code> — ID do IMDb\n" +
+          "<code>{season}</code> — Temporada\n" +
+          "<code>{episode}</code> — Episódio\n" +
+          "<code>{slug}</code> — Slug do título"
+        );
+        return;
+      }
+      const parts = args.split("|").map(p => p.trim());
+      if (parts.length < 2) {
+        await sendMessage(chatId, "❌ Formato inválido. Use: Nome|URL base");
+        return;
+      }
+
+      const [name, baseUrl, movieTemplate, tvTemplate] = parts;
+      
+      // Get max priority
+      const { data: maxP } = await supabase
+        .from("scraping_providers")
+        .select("priority")
+        .order("priority", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      
+      const newPriority = (maxP?.priority || 0) + 1;
+
+      await supabase.from("scraping_providers").insert({
+        name,
+        base_url: baseUrl,
+        movie_url_template: movieTemplate || "/embed/movie/{tmdb_id}",
+        tv_url_template: tvTemplate || "/embed/tv/{tmdb_id}/{season}/{episode}",
+        priority: newPriority,
+        active: true,
+        health_status: "unknown",
+      });
+
+      await sendMessage(chatId,
+        `✅ <b>Provedor "${name}" adicionado!</b>\n\n` +
+        `🔗 ${baseUrl}\n` +
+        `📊 Prioridade: ${newPriority}\n\n` +
+        `Use /apis para ver todos.`
+      );
+      break;
+    }
+
+    case "/raspar": {
+      // Check if already running
+      const sessionId = `scrape_${Date.now()}`;
+      
+      // Save session marker
+      await supabase.from("site_settings").upsert(
+        { key: `scrape_session_${sessionId}`, value: { cancelled: false, started: new Date().toISOString() } as any },
+        { onConflict: "key" }
+      );
+      
+      // Store active session for /raspar_parar
+      await supabase.from("site_settings").upsert(
+        { key: "active_scrape_session", value: { session_id: sessionId } as any },
+        { onConflict: "key" }
+      );
+
+      // Get stats
+      const [{ count: total }, { count: cached }] = await Promise.all([
+        supabase.from("content").select("id", { count: "exact", head: true }),
+        supabase.from("video_cache").select("id", { count: "exact", head: true }).gt("expires_at", new Date().toISOString()),
+      ]);
+      
+      const missing = (total || 0) - (cached || 0);
+
+      await sendMessage(chatId,
+        `🚀 <b>Iniciando raspagem!</b>\n\n` +
+        `📚 Catálogo: ${total}\n` +
+        `🔗 Cacheados: ${cached}\n` +
+        `❓ Faltando: ${missing}\n\n` +
+        `Enviando logs em tempo real...\nUse /raspar_parar para cancelar.`
+      );
+
+      // Trigger smart-scraper
+      fetch(`${SUPABASE_URL}/functions/v1/smart-scraper`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${SUPABASE_KEY}`,
+        },
+        body: JSON.stringify({ chat_id: chatId, session_id: sessionId }),
+      }).catch(() => {});
+
+      break;
+    }
+
+    case "/raspar_parar": {
+      const { data: activeSession } = await supabase
+        .from("site_settings")
+        .select("value")
+        .eq("key", "active_scrape_session")
+        .maybeSingle();
+      
+      if (activeSession?.value) {
+        const sessionId = (activeSession.value as any).session_id;
+        await supabase.from("site_settings").upsert(
+          { key: `scrape_session_${sessionId}`, value: { cancelled: true } as any },
+          { onConflict: "key" }
+        );
+        await sendMessage(chatId, "⏹ <b>Sinal de parada enviado.</b>\nA raspagem será interrompida no próximo lote.");
+      } else {
+        await sendMessage(chatId, "❌ Nenhuma raspagem ativa.");
+      }
+      break;
+    }
+
     default:
       await sendMessage(chatId, "❓ Comando não reconhecido. Use /start para ver os comandos.");
   }
@@ -266,7 +446,8 @@ async function handleMessage(chatId: number, userId: number, message: any) {
   const video = message.video || message.document;
   const isForwarded = message.forward_date || message.forward_from || message.forward_from_chat;
 
-  if (video && isForwarded) {
+  // Handle forwarded video (with or without caption containing name/synopsis)
+  if (video) {
     const uniqueId = video.file_unique_id;
     const { data: existing } = await supabase
       .from("telegram_ingestions")
@@ -289,72 +470,59 @@ async function handleMessage(chatId: number, userId: number, message: any) {
       mime_type: video.mime_type || null,
     };
 
-    // Try to extract title from file_name or caption
     const caption = message.caption || "";
     const fileName = video.file_name || "";
-    // Clean up filename: remove extension, dots, underscores
     const cleanName = fileName.replace(/\.\w{2,4}$/, "").replace(/[._]/g, " ").trim();
-    const searchQuery = caption || cleanName;
 
-    const session: UserSession = { step: "searching_tmdb", data: fileData, lastMsgIds: [] };
+    const session: UserSession = { step: "confirm_name", data: fileData, lastMsgIds: [] };
 
-    // Delete user's forwarded message id is not possible, but track bot messages
-    const searchMsgId = await sendMessage(chatId,
-      "📥 <b>Vídeo recebido!</b>\n\n" +
-      `📁 ${fileName || "Sem nome"} | 💾 ${formatSize(video.file_size)} | ⏱ ${formatDuration(video.duration)}\n\n` +
-      `🔍 Buscando "<b>${searchQuery}</b>" no TMDB...`
-    );
-    if (searchMsgId) session.lastMsgIds.push(searchMsgId);
-
-    if (searchQuery) {
-      // Search TMDB
-      const results = await searchTMDB(searchQuery);
+    // If user sent caption with text, extract name + synopsis from it
+    if (caption) {
+      const extracted = extractNameFromText(caption);
+      session.data.extracted_name = extracted.name;
+      session.data.extracted_synopsis = extracted.synopsis;
       
-      if (results.length > 0) {
-        // Take top 3 results
-        const top = results.slice(0, 3);
-        session.data.tmdb_results = top;
-        session.step = "pick_tmdb";
-        await setSession(chatId, session);
+      const msg = `📥 <b>Vídeo recebido!</b>\n\n` +
+        `📁 ${fileName || "Sem nome"} | 💾 ${formatSize(video.file_size)} | ⏱ ${formatDuration(video.duration)}\n\n` +
+        `🔍 Nome detectado: <b>${extracted.name}</b>\n\n` +
+        `✅ Confirma esse nome?`;
 
-        let msg = "🎬 <b>Resultados TMDB:</b>\n\n";
-        const buttons: any[][] = [];
-        
-        top.forEach((r: any, i: number) => {
-          const title = r.title || r.name || "?";
-          const year = (r.release_date || r.first_air_date || "").substring(0, 4);
-          const type = r.media_type === "tv" || r.name ? "📺" : "🎬";
-          const rating = r.vote_average ? `⭐ ${r.vote_average.toFixed(1)}` : "";
-          msg += `${i + 1}. ${type} <b>${title}</b> (${year}) ${rating}\n`;
-          if (r.overview) msg += `   ${r.overview.substring(0, 80)}...\n`;
-          msg += "\n";
-          buttons.push([{ text: `${i + 1}. ${title} (${year})`, callback_data: `tmdb_pick_${i}` }]);
-        });
+      const msgId = await sendMessage(chatId, msg, {
+        inline_keyboard: [
+          [{ text: "✅ Confirmar", callback_data: "name_confirm" }],
+          [{ text: "❌ Não, quero digitar", callback_data: "name_reject" }],
+        ],
+      });
+      if (msgId) session.lastMsgIds.push(msgId);
+    } else if (cleanName) {
+      // No caption but has file name
+      session.data.extracted_name = cleanName;
+      const msg = `📥 <b>Vídeo recebido!</b>\n\n` +
+        `📁 ${fileName} | 💾 ${formatSize(video.file_size)} | ⏱ ${formatDuration(video.duration)}\n\n` +
+        `🔍 Nome detectado: <b>${cleanName}</b>\n\n` +
+        `✅ Confirma esse nome?`;
 
-        buttons.push([{ text: "✏️ Buscar manualmente", callback_data: "tmdb_manual" }]);
-        buttons.push([{ text: "❌ Cancelar", callback_data: "confirm_cancel" }]);
-
-        // Show poster of first result
-        const posterPath = top[0].poster_path;
-        if (posterPath) {
-          await clearAndSendPhoto(chatId, session, `${TMDB_IMG}/w300${posterPath}`, msg, { inline_keyboard: buttons });
-        } else {
-          await clearAndSend(chatId, session, msg, { inline_keyboard: buttons });
-        }
-        await setSession(chatId, session);
-        return;
-      }
+      const msgId = await sendMessage(chatId, msg, {
+        inline_keyboard: [
+          [{ text: "✅ Confirmar", callback_data: "name_confirm" }],
+          [{ text: "❌ Não, quero digitar", callback_data: "name_reject" }],
+        ],
+      });
+      if (msgId) session.lastMsgIds.push(msgId);
+    } else {
+      // No info at all
+      session.step = "ask_title";
+      const msgId = await sendMessage(chatId,
+        `📥 <b>Vídeo recebido!</b>\n\n` +
+        `📁 Sem nome | 💾 ${formatSize(video.file_size)} | ⏱ ${formatDuration(video.duration)}\n\n` +
+        `📝 <b>Informe o nome do conteúdo:</b>`
+      );
+      if (msgId) session.lastMsgIds.push(msgId);
     }
 
-    // No results, ask manually
-    session.step = "ask_title";
-    await clearAndSend(chatId, session, "❌ Nenhum resultado no TMDB.\n\n📝 <b>Informe o nome do conteúdo:</b>");
+    // Track user's message for cleanup
+    if (message.message_id) session.lastMsgIds.push(message.message_id);
     await setSession(chatId, session);
-    return;
-  }
-
-  if (video && !isForwarded) {
-    await sendMessage(chatId, "❌ <b>Upload direto não aceito.</b>\nEncaminhe o vídeo de outro chat/canal.");
     return;
   }
 
@@ -376,10 +544,9 @@ async function handleMessage(chatId: number, userId: number, message: any) {
 
   switch (session.step) {
     case "ask_title":
-      session.data.title = text;
-      session.step = "ask_synopsis";
-      await clearAndSend(chatId, session, "📝 <b>Informe a sinopse:</b>");
-      await setSession(chatId, session);
+      session.data.extracted_name = text;
+      // Go straight to TMDB search
+      await searchAndShowTMDB(chatId, session, text);
       break;
 
     case "ask_synopsis":
@@ -416,41 +583,51 @@ async function handleMessage(chatId: number, userId: number, message: any) {
       break;
 
     case "manual_search":
-      // User typed a manual search query
-      const results = await searchTMDB(text);
-      if (results.length > 0) {
-        const top = results.slice(0, 3);
-        session.data.tmdb_results = top;
-        session.step = "pick_tmdb";
-        
-        let msg = "🎬 <b>Resultados TMDB:</b>\n\n";
-        const buttons: any[][] = [];
-        top.forEach((r: any, i: number) => {
-          const title = r.title || r.name || "?";
-          const year = (r.release_date || r.first_air_date || "").substring(0, 4);
-          const type = r.media_type === "tv" || r.name ? "📺" : "🎬";
-          msg += `${i + 1}. ${type} <b>${title}</b> (${year})\n`;
-          buttons.push([{ text: `${i + 1}. ${title} (${year})`, callback_data: `tmdb_pick_${i}` }]);
-        });
-        buttons.push([{ text: "✏️ Buscar novamente", callback_data: "tmdb_manual" }]);
-        buttons.push([{ text: "❌ Cancelar", callback_data: "confirm_cancel" }]);
-
-        const posterPath = top[0].poster_path;
-        if (posterPath) {
-          await clearAndSendPhoto(chatId, session, `${TMDB_IMG}/w300${posterPath}`, msg, { inline_keyboard: buttons });
-        } else {
-          await clearAndSend(chatId, session, msg, { inline_keyboard: buttons });
-        }
-      } else {
-        await clearAndSend(chatId, session, "❌ Nenhum resultado. Tente outro nome ou use /cancelar.");
-      }
-      await setSession(chatId, session);
+      await searchAndShowTMDB(chatId, session, text);
       break;
 
     default:
       await clearAndSend(chatId, session, "❓ Algo deu errado. Use /cancelar e tente novamente.");
       await setSession(chatId, session);
   }
+}
+
+// --- Shared TMDB search + display ---
+async function searchAndShowTMDB(chatId: number, session: UserSession, query: string) {
+  await clearAndSend(chatId, session, `🔍 Buscando "<b>${query}</b>" no TMDB...`);
+
+  const results = await searchTMDB(query);
+  if (results.length > 0) {
+    const top = results.slice(0, 3);
+    session.data.tmdb_results = top;
+    session.step = "pick_tmdb";
+
+    let msg = "🎬 <b>Resultados TMDB:</b>\n\n";
+    const buttons: any[][] = [];
+    top.forEach((r: any, i: number) => {
+      const title = r.title || r.name || "?";
+      const year = (r.release_date || r.first_air_date || "").substring(0, 4);
+      const type = r.media_type === "tv" || r.name ? "📺" : "🎬";
+      const rating = r.vote_average ? `⭐ ${r.vote_average.toFixed(1)}` : "";
+      msg += `${i + 1}. ${type} <b>${title}</b> (${year}) ${rating}\n`;
+      if (r.overview) msg += `   ${r.overview.substring(0, 80)}...\n`;
+      msg += "\n";
+      buttons.push([{ text: `${i + 1}. ${title} (${year})`, callback_data: `tmdb_pick_${i}` }]);
+    });
+    buttons.push([{ text: "✏️ Buscar manualmente", callback_data: "tmdb_manual" }]);
+    buttons.push([{ text: "❌ Cancelar", callback_data: "confirm_cancel" }]);
+
+    const posterPath = top[0].poster_path;
+    if (posterPath) {
+      await clearAndSendPhoto(chatId, session, `${TMDB_IMG}/w300${posterPath}`, msg, { inline_keyboard: buttons });
+    } else {
+      await clearAndSend(chatId, session, msg, { inline_keyboard: buttons });
+    }
+  } else {
+    session.step = "manual_search";
+    await clearAndSend(chatId, session, "❌ Nenhum resultado no TMDB.\n\n📝 <b>Tente outro nome:</b>");
+  }
+  await setSession(chatId, session);
 }
 
 async function showConfirmation(chatId: number, session: UserSession) {
@@ -513,6 +690,25 @@ async function handleCallback(chatId: number, userId: number, callbackData: stri
     return;
   }
 
+  // --- Name confirmation flow ---
+  if (callbackData === "name_confirm") {
+    const name = session.data.extracted_name;
+    if (session.data.extracted_synopsis) {
+      session.data.synopsis = session.data.extracted_synopsis;
+    }
+    // Search TMDB with confirmed name
+    await searchAndShowTMDB(chatId, session, name);
+    return;
+  }
+
+  if (callbackData === "name_reject") {
+    session.step = "ask_title";
+    await clearAndSend(chatId, session, "📝 <b>Informe o nome correto:</b>");
+    await setSession(chatId, session);
+    return;
+  }
+
+  // --- TMDB pick ---
   if (callbackData.startsWith("tmdb_pick_")) {
     const idx = parseInt(callbackData.replace("tmdb_pick_", ""));
     const results = session.data.tmdb_results || [];
@@ -523,12 +719,11 @@ async function handleCallback(chatId: number, userId: number, callbackData: stri
       return;
     }
 
-    // Fetch full details
     const mediaType = picked.media_type === "tv" || picked.name ? "tv" : "movie";
     const details = await getTMDBDetails(picked.id, mediaType);
 
     session.data.title = details?.title || details?.name || picked.title || picked.name;
-    session.data.synopsis = details?.overview || picked.overview || "";
+    session.data.synopsis = session.data.extracted_synopsis || details?.overview || picked.overview || "";
     session.data.content_type = mediaType === "tv" ? "series" : "movie";
     session.data.tmdb_id = picked.id;
     session.data.tmdb_poster = details?.poster_path || picked.poster_path;
@@ -541,8 +736,7 @@ async function handleCallback(chatId: number, userId: number, callbackData: stri
     if (mediaType === "tv") {
       session.step = "ask_season";
       await clearAndSend(chatId, session,
-        `✅ <b>${session.data.title}</b> (${session.data.tmdb_year}) selecionado!\n\n` +
-        `📝 <b>Temporada:</b>`
+        `✅ <b>${session.data.title}</b> (${session.data.tmdb_year}) selecionado!\n\n📝 <b>Temporada:</b>`
       );
       await setSession(chatId, session);
     } else {
@@ -591,7 +785,6 @@ async function handleCallback(chatId: number, userId: number, callbackData: stri
       tmdb_rating: d.tmdb_rating ? parseFloat(d.tmdb_rating) : null,
     });
 
-    // Clean up messages
     await deleteMessages(chatId, session.lastMsgIds);
     await setSession(chatId, null);
 
@@ -614,6 +807,30 @@ async function handleCallback(chatId: number, userId: number, callbackData: stri
     await deleteMessages(chatId, session.lastMsgIds);
     await setSession(chatId, null);
     await sendMessage(chatId, "❌ Cadastro cancelado.");
+  }
+
+  // --- Provider management callbacks ---
+  if (callbackData.startsWith("toggle_provider_")) {
+    const providerId = callbackData.replace("toggle_provider_", "");
+    const { data: prov } = await supabase
+      .from("scraping_providers")
+      .select("active, name")
+      .eq("id", providerId)
+      .maybeSingle();
+    
+    if (prov) {
+      await supabase.from("scraping_providers")
+        .update({ active: !prov.active })
+        .eq("id", providerId);
+      await sendMessage(chatId, `${prov.active ? "⏸" : "▶️"} <b>${prov.name}</b> ${prov.active ? "desativado" : "ativado"}!`);
+    }
+  }
+
+  if (callbackData === "reset_provider_stats") {
+    await supabase.from("scraping_providers")
+      .update({ success_count: 0, fail_count: 0, health_status: "unknown" })
+      .neq("id", "00000000-0000-0000-0000-000000000000"); // update all
+    await sendMessage(chatId, "🔄 Contadores resetados!");
   }
 }
 

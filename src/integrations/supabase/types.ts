@@ -303,6 +303,54 @@ export type Database = {
         }
         Relationships: []
       }
+      scraping_providers: {
+        Row: {
+          active: boolean
+          base_url: string
+          created_at: string
+          fail_count: number
+          health_status: string
+          id: string
+          last_checked_at: string | null
+          movie_url_template: string
+          name: string
+          priority: number
+          success_count: number
+          tv_url_template: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          base_url: string
+          created_at?: string
+          fail_count?: number
+          health_status?: string
+          id?: string
+          last_checked_at?: string | null
+          movie_url_template?: string
+          name: string
+          priority?: number
+          success_count?: number
+          tv_url_template?: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          base_url?: string
+          created_at?: string
+          fail_count?: number
+          health_status?: string
+          id?: string
+          last_checked_at?: string | null
+          movie_url_template?: string
+          name?: string
+          priority?: number
+          success_count?: number
+          tv_url_template?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       site_alerts: {
         Row: {
           active: boolean
