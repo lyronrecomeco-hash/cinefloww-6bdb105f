@@ -38,9 +38,9 @@ function decryptUrl(encoded: string): string {
   return atob(encoded).split("").map((c) => String.fromCharCode(c.charCodeAt(0) ^ key)).join("");
 }
 
-// Hash IP + UA for fingerprint binding
-async function hashFingerprint(ip: string, ua: string): Promise<string> {
-  const data = new TextEncoder().encode(ip + "|" + ua + "|vt-salt-2025");
+// Hash UA only for fingerprint binding (IP varies between sign/stream due to proxy)
+async function hashFingerprint(_ip: string, ua: string): Promise<string> {
+  const data = new TextEncoder().encode(ua + "|vt-salt-2025");
   const hash = await crypto.subtle.digest("SHA-256", data);
   return Array.from(new Uint8Array(hash)).slice(0, 12).map(b => b.toString(16).padStart(2, "0")).join("");
 }

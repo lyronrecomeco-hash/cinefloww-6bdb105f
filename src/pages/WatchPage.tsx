@@ -264,25 +264,7 @@ const WatchPage = () => {
             }]);
             setPhase("playing");
 
-            // Save to video_cache so next time it's instant
-            try {
-              const cType = isMovie ? "movie" : "series";
-              const aType = selectedAudio || "legendado";
-              await supabase.from("video_cache").upsert({
-                tmdb_id: tmdbId,
-                content_type: cType,
-                audio_type: aType,
-                season: season || null,
-                episode: episode || null,
-                video_url: url,
-                video_type: vType,
-                provider: "playerflix",
-                expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-              }, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
-              console.log("[WatchPage] Saved intercepted video to cache");
-            } catch (e) {
-              console.warn("[WatchPage] Failed to cache intercepted video:", e);
-            }
+            // Cache is handled server-side by extract-video edge function
           }}
           onError={() => setPhase("unavailable")}
           onClose={goBack}
