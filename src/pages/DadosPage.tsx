@@ -8,7 +8,6 @@ interface CachedVideo {
   tmdb_id: number;
   content_type: string;
   audio_type: string;
-  video_url: string;
   video_type: string;
   provider: string;
   season: number | null;
@@ -64,7 +63,7 @@ const DadosPage = () => {
     // Fetch page
     const from = (page - 1) * ITEMS_PER_PAGE;
     const to = from + ITEMS_PER_PAGE - 1;
-    let query = supabase.from("video_cache").select("*").order("created_at", { ascending: false }).range(from, to);
+    let query = supabase.from("video_cache").select("id, tmdb_id, content_type, audio_type, video_type, provider, season, episode, expires_at, created_at").order("created_at", { ascending: false }).range(from, to);
     if (typeFilter !== "all") query = query.eq("content_type", typeFilter);
     const { data: cacheData } = await query;
 
@@ -260,17 +259,7 @@ const DadosPage = () => {
                         {v.season != null && <span className="text-muted-foreground">T{v.season}E{v.episode}</span>}
                         <span className="px-2 py-0.5 rounded bg-muted text-[10px]">{v.provider}</span>
                         <span className="px-2 py-0.5 rounded bg-muted text-[10px]">{v.video_type}</span>
-                        <code className="flex-1 truncate text-muted-foreground font-mono text-[10px]">{v.video_url}</code>
-                        <button
-                          onClick={() => copyUrl(v.id, v.video_url)}
-                          className="flex-shrink-0 p-1.5 rounded-lg hover:bg-muted transition-colors"
-                          title="Copiar URL"
-                        >
-                          {copiedId === v.id ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                        <a href={v.video_url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0 p-1.5 rounded-lg hover:bg-muted transition-colors" title="Abrir">
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
+                        <code className="flex-1 truncate text-muted-foreground font-mono text-[10px]">***</code>
                       </div>
                     );
                   })}

@@ -710,7 +710,45 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      video_cache_safe: {
+        Row: {
+          audio_type: string | null
+          content_type: string | null
+          created_at: string | null
+          episode: number | null
+          expires_at: string | null
+          id: string | null
+          provider: string | null
+          season: number | null
+          tmdb_id: number | null
+          video_type: string | null
+        }
+        Insert: {
+          audio_type?: string | null
+          content_type?: string | null
+          created_at?: string | null
+          episode?: number | null
+          expires_at?: string | null
+          id?: string | null
+          provider?: string | null
+          season?: number | null
+          tmdb_id?: number | null
+          video_type?: string | null
+        }
+        Update: {
+          audio_type?: string | null
+          content_type?: string | null
+          created_at?: string | null
+          episode?: number | null
+          expires_at?: string | null
+          id?: string | null
+          provider?: string | null
+          season?: number | null
+          tmdb_id?: number | null
+          video_type?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       get_unresolved_content: {
