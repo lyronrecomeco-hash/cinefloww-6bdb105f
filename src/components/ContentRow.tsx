@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, forwardRef } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import MovieCard from "./MovieCard";
 import { TMDBMovie } from "@/services/tmdb";
@@ -9,7 +9,7 @@ interface ContentRowProps {
   icon?: React.ReactNode;
 }
 
-const ContentRow = ({ title, movies, icon }: ContentRowProps) => {
+const ContentRow = forwardRef<HTMLElement, ContentRowProps>(({ title, movies, icon }, ref) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const scroll = (direction: "left" | "right") => {
@@ -62,6 +62,8 @@ const ContentRow = ({ title, movies, icon }: ContentRowProps) => {
       </div>
     </section>
   );
-};
+});
+
+ContentRow.displayName = "ContentRow";
 
 export default ContentRow;

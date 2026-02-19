@@ -63,6 +63,11 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     fetcher(id).then((data) => {
       setDetail(data);
       setLoading(false);
+      // Track view
+      supabase.from("content_views").insert({
+        tmdb_id: id,
+        content_type: type === "movie" ? "movie" : "tv",
+      }).then(() => {});
     }).catch(() => setLoading(false));
 
     // Check for resolved reports for this visitor

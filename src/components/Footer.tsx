@@ -1,9 +1,10 @@
+import { forwardRef } from "react";
 import { Link } from "react-router-dom";
 import LyneflixLogo from "@/components/LyneflixLogo";
 
-const Footer = () => {
+const Footer = forwardRef<HTMLElement>((_, ref) => {
   return (
-    <footer className="border-t border-white/5 py-8 sm:py-10 px-4 sm:px-6 lg:px-12">
+    <footer ref={ref} className="border-t border-white/5 py-8 sm:py-10 px-4 sm:px-6 lg:px-12">
       <div className="max-w-7xl mx-auto flex flex-col items-center gap-5 text-center">
         <LyneflixLogo size="sm" animate={false} />
         
@@ -27,6 +28,8 @@ const Footer = () => {
       </div>
     </footer>
   );
-};
+});
+
+Footer.displayName = "Footer";
 
 export default Footer;
