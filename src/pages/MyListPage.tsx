@@ -2,110 +2,121 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { Bookmark, Trash2, ClipboardPaste, X, Loader2, Check, UserCheck } from "lucide-react";
-import { getMyList, removeFromMyList, MyListItem } from "@/lib/myList";
+import { Bookmark, Trash2, ClipboardPaste, X, Loader2, Check } from "lucide-react";
 import { toSlug } from "@/lib/slugify";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
 const IMG_BASE = "https://image.tmdb.org/t/p/w342";
 
+interface ListItem {
+  id: string;
+  tmdb_id: number;
+  content_type: string;
+  title: string;
+  poster_path: string | null;
+  added_at: string;
+}
+
 const MyListPage = () => {
-  const [items, setItems] = useState<MyListItem[]>([]);
+  const [items, setItems] = useState<ListItem[]>([]);
+  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Import flow state
+  // Import flow
   const [showImportModal, setShowImportModal] = useState(false);
   const [importCode, setImportCode] = useState("");
-  const [searching, setSearching] = useState(false);
-  const [sourceProfile, setSourceProfile] = useState<{ id: string; name: string; itemCount: number } | null>(null);
-  const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [importSuccess, setImportSuccess] = useState(false);
 
-  useEffect(() => {
-    setItems(getMyList());
-  }, []);
-
-  const handleRemove = (item: MyListItem, e: React.MouseEvent) => {
-    e.stopPropagation();
-    removeFromMyList(item.tmdb_id, item.content_type);
-    setItems(getMyList());
+  const getProfileId = (): string | null => {
+    try {
+      const raw = localStorage.getItem("lyneflix_active_profile");
+      if (!raw) return null;
+      return JSON.parse(raw).id;
+    } catch {
+      return null;
+    }
   };
 
-  const handleClick = (item: MyListItem) => {
+  const loadList = async () => {
+    const profileId = getProfileId();
+    if (!profileId) {
+      setLoading(false);
+      return;
+    }
+
+    const { data } = await supabase
+      .from("my_list")
+      .select("id, tmdb_id, content_type, title, poster_path, added_at")
+      .eq("profile_id", profileId)
+      .order("added_at", { ascending: false });
+
+    setItems((data as ListItem[]) || []);
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadList();
+  }, []);
+
+  const handleRemove = async (item: ListItem, e: React.MouseEvent) => {
+    e.stopPropagation();
+    await supabase.from("my_list").delete().eq("id", item.id);
+    setItems((prev) => prev.filter((i) => i.id !== item.id));
+  };
+
+  const handleClick = (item: ListItem) => {
     const route = item.content_type === "movie" ? "filme" : "serie";
     navigate(`/${route}/${toSlug(item.title, item.tmdb_id)}`);
   };
 
-  const handleSearchCode = async () => {
+  const handleImport = async () => {
     const trimmed = importCode.trim().toUpperCase();
     if (!trimmed) return;
 
-    setSearching(true);
-    setSourceProfile(null);
+    const profileId = getProfileId();
+    if (!profileId) {
+      toast({ title: "Erro", description: "Selecione um perfil primeiro", variant: "destructive" });
+      return;
+    }
+
+    setImporting(true);
+    setImportSuccess(false);
 
     try {
-      const { data: profile } = await supabase
+      // Find profile by share code
+      const { data: sourceProfile } = await supabase
         .from("user_profiles")
         .select("id, name")
         .eq("share_code", trimmed)
         .single();
 
-      if (!profile) {
+      if (!sourceProfile) {
         toast({ title: "Código não encontrado", description: "Verifique o código e tente novamente", variant: "destructive" });
-        setSearching(false);
+        setImporting(false);
         return;
       }
 
-      // Count their items
-      const { count } = await supabase
-        .from("my_list")
-        .select("id", { count: "exact", head: true })
-        .eq("profile_id", profile.id);
-
-      setSourceProfile({ id: profile.id, name: profile.name, itemCount: count || 0 });
-
-      if ((count || 0) === 0) {
-        toast({ title: "Lista vazia", description: "Este perfil não tem itens na lista" });
-      } else {
-        setShowConfirmModal(true);
-        setShowImportModal(false);
-      }
-    } catch {
-      toast({ title: "Erro", description: "Não foi possível buscar", variant: "destructive" });
-    }
-    setSearching(false);
-  };
-
-  const handleConfirmImport = async () => {
-    if (!sourceProfile) return;
-
-    const activeProfile = localStorage.getItem("lyneflix_active_profile");
-    if (!activeProfile) {
-      toast({ title: "Erro", description: "Selecione um perfil primeiro", variant: "destructive" });
-      return;
-    }
-    const myProfileId = JSON.parse(activeProfile).id;
-
-    setImporting(true);
-    try {
+      // Get their list
       const { data: sourceList } = await supabase
         .from("my_list")
         .select("tmdb_id, content_type, title, poster_path")
         .eq("profile_id", sourceProfile.id);
 
       if (!sourceList?.length) {
-        toast({ title: "Lista vazia", description: "Nenhum item encontrado" });
+        toast({ title: "Lista vazia", description: "Este perfil não tem itens na lista" });
         setImporting(false);
         return;
       }
 
+      // Import directly - no confirmation needed
       let count = 0;
       for (const item of sourceList) {
         const { error } = await supabase.from("my_list").upsert(
           {
-            profile_id: myProfileId,
+            profile_id: profileId,
             tmdb_id: item.tmdb_id,
             content_type: item.content_type,
             title: item.title,
@@ -116,25 +127,24 @@ const MyListPage = () => {
         if (!error) count++;
       }
 
+      setImportSuccess(true);
       toast({
         title: "Lista importada!",
-        description: `${count} itens de ${sourceProfile.name} adicionados à sua lista`,
+        description: `${count} itens de ${sourceProfile.name} adicionados`,
       });
 
-      setShowConfirmModal(false);
-      setSourceProfile(null);
-      setImportCode("");
+      // Reload list
+      await loadList();
+
+      setTimeout(() => {
+        setShowImportModal(false);
+        setImportCode("");
+        setImportSuccess(false);
+      }, 1500);
     } catch {
       toast({ title: "Erro", description: "Não foi possível importar", variant: "destructive" });
     }
     setImporting(false);
-  };
-
-  const resetImport = () => {
-    setShowImportModal(false);
-    setShowConfirmModal(false);
-    setSourceProfile(null);
-    setImportCode("");
   };
 
   return (
@@ -151,7 +161,6 @@ const MyListPage = () => {
               {items.length > 0 ? `${items.length} título${items.length > 1 ? "s" : ""} salvo${items.length > 1 ? "s" : ""}` : "Nenhum título salvo"}
             </p>
           </div>
-          {/* Import button */}
           <button
             onClick={() => setShowImportModal(true)}
             className="flex items-center gap-2 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-primary/10 border border-primary/20 text-primary text-xs sm:text-sm font-medium hover:bg-primary/20 transition-colors"
@@ -162,7 +171,11 @@ const MyListPage = () => {
           </button>
         </div>
 
-        {items.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+        ) : items.length === 0 ? (
           <div className="text-center py-20 text-muted-foreground">
             <Bookmark className="w-12 h-12 mx-auto mb-4 opacity-30" />
             <p className="text-lg font-medium">Sua lista está vazia</p>
@@ -179,7 +192,7 @@ const MyListPage = () => {
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-2.5 sm:gap-4 lg:gap-5">
             {items.map((item) => (
               <button
-                key={`${item.tmdb_id}-${item.content_type}`}
+                key={item.id}
                 onClick={() => handleClick(item)}
                 className="group relative overflow-hidden rounded-xl sm:rounded-2xl bg-card/50 border border-white/5 hover:border-primary/30 transition-all duration-300 hover:scale-[1.03] text-left"
               >
@@ -217,19 +230,19 @@ const MyListPage = () => {
         )}
       </div>
 
-      {/* Import Code Modal */}
+      {/* Import Modal - single step, no confirmation */}
       {showImportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={resetImport}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={() => { setShowImportModal(false); setImportCode(""); setImportSuccess(false); }}>
           <div className="w-full max-w-sm rounded-2xl bg-card border border-border shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-border">
               <h2 className="text-base font-bold">Importar Lista</h2>
-              <button onClick={resetImport} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 transition-colors">
+              <button onClick={() => { setShowImportModal(false); setImportCode(""); setImportSuccess(false); }} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
             <div className="px-5 py-5 space-y-4">
               <p className="text-sm text-muted-foreground">
-                Cole o código de compartilhamento de um colega para importar a lista dele.
+                Cole o código de compartilhamento de um colega para adicionar os itens da lista dele à sua.
               </p>
               <div>
                 <label className="block text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">
@@ -242,61 +255,23 @@ const MyListPage = () => {
                   className="w-full h-12 px-4 rounded-xl bg-white/5 border border-white/10 text-sm font-mono text-center uppercase tracking-widest focus:outline-none focus:border-primary/50 transition-colors"
                   maxLength={12}
                   autoFocus
-                  onKeyDown={(e) => e.key === "Enter" && handleSearchCode()}
+                  onKeyDown={(e) => e.key === "Enter" && handleImport()}
                 />
               </div>
             </div>
             <div className="px-5 py-4 border-t border-border flex gap-2">
-              <button onClick={resetImport}
+              <button onClick={() => { setShowImportModal(false); setImportCode(""); setImportSuccess(false); }}
                 className="flex-1 h-10 rounded-xl bg-white/5 border border-white/10 text-sm font-medium hover:bg-white/10 transition-colors">
                 Cancelar
               </button>
-              <button onClick={handleSearchCode} disabled={searching || !importCode.trim()}
-                className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-                {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <ClipboardPaste className="w-4 h-4" />}
-                {searching ? "Buscando..." : "Importar"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Confirm Import Modal */}
-      {showConfirmModal && sourceProfile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4" onClick={resetImport}>
-          <div className="w-full max-w-sm rounded-2xl bg-card border border-border shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <h2 className="text-base font-bold">Confirmar importação</h2>
-              <button onClick={resetImport} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/10 transition-colors">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="px-5 py-6 text-center space-y-4">
-              <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto">
-                <UserCheck className="w-8 h-8 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Você está importando a lista de</p>
-                <p className="text-lg font-bold mt-1">{sourceProfile.name}</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  {sourceProfile.itemCount} título{sourceProfile.itemCount > 1 ? "s" : ""} serão adicionados à sua lista
-                </p>
-              </div>
-              <p className="text-[11px] text-muted-foreground/60">
-                Código: <span className="font-mono">{importCode.trim().toUpperCase()}</span>
-              </p>
-            </div>
-            <div className="px-5 py-4 border-t border-border flex gap-2">
-              <button onClick={resetImport}
-                className="flex-1 h-10 rounded-xl bg-white/5 border border-white/10 text-sm font-medium hover:bg-white/10 transition-colors">
-                Cancelar
-              </button>
-              <button onClick={handleConfirmImport} disabled={importing}
+              <button onClick={handleImport} disabled={importing || !importCode.trim() || importSuccess}
                 className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
                 {importing ? (
                   <><Loader2 className="w-4 h-4 animate-spin" />Importando...</>
+                ) : importSuccess ? (
+                  <><Check className="w-4 h-4" />Importado!</>
                 ) : (
-                  <><Check className="w-4 h-4" />Confirmar</>
+                  <><ClipboardPaste className="w-4 h-4" />Importar</>
                 )}
               </button>
             </div>
