@@ -34,16 +34,16 @@ const ContentRow = ({ title, movies, icon }: ContentRowProps) => {
           )}
           <h2 className="font-display text-base sm:text-xl lg:text-2xl font-bold">{title}</h2>
         </div>
-        <div className="hidden sm:flex items-center gap-1">
+        <div className="flex items-center gap-1">
           <button
             onClick={() => scroll("left")}
-            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-white/10 border border-white/20 hover:bg-white/20 transition-colors text-foreground"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
           <button
             onClick={() => scroll("right")}
-            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-white/5 border border-white/10 hover:bg-white/10 transition-colors"
+            className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center bg-white/10 border border-white/20 hover:bg-white/20 transition-colors text-foreground"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
