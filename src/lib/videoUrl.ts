@@ -1,34 +1,27 @@
 /**
  * Video URL security layer with signed tokens.
  * 
- * Flow:
- * 1. Raw CDN URL comes from extract-video/video_cache
- * 2. Client calls video-token edge function to get a signed, time-limited stream URL
- * 3. Player uses the signed stream URL (goes through video-token?action=stream)
- * 4. Edge function validates HMAC signature + expiry → redirects/proxies to real CDN
- * 
- * This ensures:
- * - Real CDN URLs never appear in browser network tab
- * - Shared URLs expire after 2 hours
- * - HMAC prevents URL tampering
+ * Tokens are ultra-short lived (60s) and bound to IP+UA.
+ * Auto-refresh ensures continuous playback.
  */
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-/**
- * Request a signed stream URL from the video-token edge function.
- * Returns the signed URL that the player should use.
- */
+let _tokenCache: { rawUrl: string; streamUrl: string; expires: number } | null = null;
+const REFRESH_MARGIN_MS = 15_000;
+
 export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
   if (!rawUrl) return rawUrl;
-  
-  // Don't re-sign URLs that are already signed
-  if (rawUrl.includes("action=stream") || rawUrl.includes("video-token")) {
-    return rawUrl;
+  if (rawUrl.includes("action=stream") || rawUrl.includes("video-token")) return rawUrl;
+
+  // Check cache
+  if (_tokenCache && _tokenCache.rawUrl === rawUrl && Date.now() < _tokenCache.expires - REFRESH_MARGIN_MS) {
+    return _tokenCache.streamUrl;
   }
 
   try {
+    // Use fetch (intercepted by networkCloak) with query param for action
     const resp = await fetch(`${SUPABASE_URL}/functions/v1/video-token?action=sign`, {
       method: "POST",
       headers: {
@@ -45,7 +38,15 @@ export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
     }
 
     const data = await resp.json();
-    return data.stream_url || rawUrl;
+    if (!data.stream_url) return rawUrl;
+
+    _tokenCache = {
+      rawUrl,
+      streamUrl: data.stream_url,
+      expires: data.expires || Date.now() + 55_000,
+    };
+
+    return data.stream_url;
   } catch (err) {
     console.warn("[videoUrl] Token signing failed, using raw URL");
     return rawUrl;
@@ -53,17 +54,30 @@ export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
 }
 
 /**
- * Secure a video URL: sign it with a token for time-limited access.
- * This is the main function components should use.
+ * Start auto-refreshing the token for continuous playback.
+ * Returns a cleanup function to stop refreshing.
  */
+export function startTokenRefresh(rawUrl: string, onNewUrl: (url: string) => void): () => void {
+  let active = true;
+  
+  const refresh = async () => {
+    if (!active) return;
+    try {
+      _tokenCache = null;
+      const newUrl = await getSignedVideoUrl(rawUrl);
+      if (active) onNewUrl(newUrl);
+    } catch {}
+    if (active) setTimeout(refresh, 45_000);
+  };
+
+  const timer = setTimeout(refresh, 45_000);
+  return () => { active = false; clearTimeout(timer); };
+}
+
 export async function secureVideoUrl(rawUrl: string): Promise<string> {
   return getSignedVideoUrl(rawUrl);
 }
 
-/**
- * Synchronous fallback - returns raw URL immediately.
- * Use when you can't await (e.g., in useMemo).
- */
 export function secureVideoUrlSync(rawUrl: string): string {
-  return rawUrl; // Will be replaced by async version in player
+  return rawUrl;
 }
