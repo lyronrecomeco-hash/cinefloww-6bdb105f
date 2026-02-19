@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Mic, Subtitles, Video, Globe, ChevronRight, Loader2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Mic, Subtitles, Video, Globe, ChevronRight, AlertTriangle } from "lucide-react";
 import CustomPlayer from "@/components/CustomPlayer";
+import LyneflixIntro from "@/components/LyneflixIntro";
 import IframeInterceptor from "@/components/IframeInterceptor";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
 
@@ -303,20 +304,10 @@ const WatchPage = () => {
 
   if (phase === "loading") {
     return (
-      <div className="fixed inset-0 z-[100] bg-black flex items-center justify-center">
-        <div className="flex flex-col items-center gap-6">
-          <div className="lyneflix-loader">
-            <span className="lyneflix-text text-5xl sm:text-6xl font-black tracking-wider select-none">
-              LYNEFLIX
-            </span>
-          </div>
-          <div className="flex gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "0ms" }} />
-            <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "150ms" }} />
-            <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "300ms" }} />
-          </div>
-        </div>
-      </div>
+      <LyneflixIntro
+        onComplete={() => {}}
+        skip={false}
+      />
     );
   }
 

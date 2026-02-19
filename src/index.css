@@ -123,37 +123,76 @@
   }
 }
 
-/* LYNEFLIX branded loading animation */
-@keyframes lyneflix-glow {
+/* LYNEFLIX — Premium cinematic branding */
+@keyframes lyneflix-pulse {
   0%, 100% {
-    text-shadow: 0 0 20px hsl(var(--primary) / 0.4), 0 0 60px hsl(var(--primary) / 0.1);
     opacity: 1;
+    filter: brightness(1);
   }
   50% {
-    text-shadow: 0 0 40px hsl(var(--primary) / 0.8), 0 0 80px hsl(var(--primary) / 0.3), 0 0 120px hsl(var(--primary) / 0.1);
-    opacity: 0.85;
+    opacity: 0.7;
+    filter: brightness(1.15);
   }
 }
 
-@keyframes lyneflix-reveal {
-  0% {
-    clip-path: inset(0 100% 0 0);
-  }
-  50% {
-    clip-path: inset(0 0 0 0);
-  }
-  100% {
-    clip-path: inset(0 0 0 0);
-  }
+@keyframes lyneflix-shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
 }
 
 .lyneflix-text {
-  background: linear-gradient(135deg, hsl(var(--primary)), hsl(0 0% 100%), hsl(var(--primary)));
+  background: linear-gradient(
+    90deg,
+    hsl(0 0% 65%) 0%,
+    hsl(0 0% 90%) 25%,
+    hsl(40 50% 75%) 50%,
+    hsl(0 0% 90%) 75%,
+    hsl(0 0% 65%) 100%
+  );
   background-size: 200% 100%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-  animation: lyneflix-glow 2.5s ease-in-out infinite, lyneflix-reveal 1.2s ease-out forwards;
-  font-family: 'Space Grotesk', 'Inter', sans-serif;
-  letter-spacing: 0.15em;
+  animation: lyneflix-shimmer 3s ease-in-out infinite, lyneflix-pulse 4s ease-in-out infinite;
+  font-family: 'Space Grotesk', sans-serif;
+  letter-spacing: 0.2em;
+  font-weight: 800;
+}
+
+/* Cinematic Intro Animations */
+@keyframes intro-fade-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes intro-fade-out {
+  from { opacity: 1; transform: scale(1); }
+  to { opacity: 0; transform: scale(1.05); }
+}
+
+.lyneflix-intro {
+  transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.lyneflix-intro--enter .lyneflix-intro__logo {
+  opacity: 0;
+  transform: scale(0.88);
+}
+.lyneflix-intro--hold .lyneflix-intro__logo {
+  animation: intro-fade-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.lyneflix-intro--exit {
+  animation: intro-fade-out 0.7s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Loading spinner — subtle film-reel style */
+@keyframes lyneflix-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.lyneflix-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid hsl(0 0% 100% / 0.08);
+  border-top-color: hsl(0 0% 100% / 0.5);
+  border-radius: 50%;
+  animation: lyneflix-spin 0.8s linear infinite;
 }

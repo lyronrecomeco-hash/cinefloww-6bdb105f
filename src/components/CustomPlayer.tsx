@@ -58,24 +58,29 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
     if (src.type === "m3u8" && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: false,
-        startLevel: -1,
-        abrEwmaDefaultEstimate: 1000000,
-        abrBandWidthUpFactor: 0.7,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 120,
-        maxBufferSize: 60 * 1000 * 1000,
-        maxBufferHole: 0.5,
+        lowLatencyMode: true,
+        startLevel: 0, // Start with lowest quality for instant playback
+        abrEwmaDefaultEstimate: 3000000,
+        abrBandWidthUpFactor: 0.8,
+        abrBandWidthFactor: 0.9,
+        maxBufferLength: 15, // Smaller initial buffer = faster start
+        maxMaxBufferLength: 60,
+        maxBufferSize: 30 * 1000 * 1000,
+        maxBufferHole: 0.3,
         startFragPrefetch: true,
-        testBandwidth: true,
+        testBandwidth: false, // Skip bandwidth test for faster start
         progressive: true,
-        fragLoadingTimeOut: 20000,
-        fragLoadingMaxRetry: 6,
-        fragLoadingRetryDelay: 1000,
-        manifestLoadingTimeOut: 15000,
-        manifestLoadingMaxRetry: 4,
-        levelLoadingTimeOut: 15000,
-        levelLoadingMaxRetry: 4,
+        backBufferLength: 30,
+        fragLoadingTimeOut: 12000,
+        fragLoadingMaxRetry: 4,
+        fragLoadingRetryDelay: 500,
+        manifestLoadingTimeOut: 8000,
+        manifestLoadingMaxRetry: 3,
+        levelLoadingTimeOut: 8000,
+        levelLoadingMaxRetry: 3,
+        // Aggressive fast start
+        highBufferWatchdogPeriod: 1,
+        nudgeMaxRetry: 5,
         xhrSetup: (xhr) => { xhr.withCredentials = false; },
       });
       hlsRef.current = hls;
@@ -287,20 +292,14 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
         onDoubleClick={toggleFullscreen}
       />
 
-      {/* Loading - LYNEFLIX branded animation */}
+      {/* Loading — premium minimal spinner */}
       {loading && !error && (
-        <div className="absolute inset-0 flex items-center justify-center z-10 bg-black">
-          <div className="flex flex-col items-center gap-6">
-            <div className="lyneflix-loader">
-              <span className="lyneflix-text text-4xl sm:text-5xl font-black tracking-wider select-none">
-                LYNEFLIX
-              </span>
-            </div>
-            <div className="flex gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "0ms" }} />
-              <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "150ms" }} />
-              <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "300ms" }} />
-            </div>
+        <div className="absolute inset-0 flex items-center justify-center z-10 bg-black/80">
+          <div className="flex flex-col items-center gap-5">
+            <div className="lyneflix-spinner" />
+            <span className="lyneflix-text text-xl sm:text-2xl font-bold tracking-wider select-none">
+              LYNEFLIX
+            </span>
           </div>
         </div>
       )}
