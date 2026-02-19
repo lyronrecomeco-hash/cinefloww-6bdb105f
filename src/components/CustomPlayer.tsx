@@ -279,8 +279,20 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full bg-black group cursor-none"
+      className="relative w-full h-full bg-black group"
       onMouseMove={resetControlsTimer}
+      onClick={(e) => {
+        // Click anywhere on the container to toggle play/pause
+        // but not if clicking on controls
+        const target = e.target as HTMLElement;
+        if (target.closest('button') || target.closest('input') || target.closest('[data-controls]')) return;
+        togglePlay();
+      }}
+      onDoubleClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('button') || target.closest('input') || target.closest('[data-controls]')) return;
+        toggleFullscreen();
+      }}
       style={{ cursor: showControls ? "default" : "none" }}
     >
       <video
@@ -288,8 +300,6 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
         className="w-full h-full object-contain"
         playsInline
         crossOrigin="anonymous"
-        onClick={togglePlay}
-        onDoubleClick={toggleFullscreen}
       />
 
       {/* Loading — premium minimal spinner */}
@@ -350,15 +360,14 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
 
       {/* Center play on pause */}
       {!playing && !loading && !error && (
-        <button onClick={togglePlay} className="absolute inset-0 flex items-center justify-center z-5">
-          <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center hover:bg-white/30 hover:scale-110 transition-all duration-300">
+        <div className="absolute inset-0 flex items-center justify-center z-5 pointer-events-none">
+          <div className="w-20 h-20 rounded-full bg-white/20 backdrop-blur-sm flex items-center justify-center">
             <Play className="w-9 h-9 text-white fill-white ml-1" />
           </div>
-        </button>
+        </div>
       )}
 
-      {/* Controls overlay */}
-      <div className={`absolute inset-0 z-10 transition-opacity duration-500 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
+      <div data-controls className={`absolute inset-0 z-10 transition-opacity duration-500 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
         {/* Top gradient + title + close */}
         <div className="absolute top-0 left-0 right-0 h-28 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
           <div className="flex items-start justify-between p-4 sm:p-6">

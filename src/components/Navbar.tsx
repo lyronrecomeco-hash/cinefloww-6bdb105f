@@ -6,7 +6,7 @@ import RequestModal from "@/components/RequestModal";
 
 const navItems = [
   { label: "Início", path: "/" },
-  { label: "Filmes", path: "/filmes" },
+  { label: "Lançamentos", path: "/filmes" },
   { label: "Séries", path: "/series" },
 ];
 
@@ -81,10 +81,10 @@ const Navbar = () => {
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2 group">
           <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-primary/20 flex items-center justify-center group-hover:bg-primary/30 transition-colors">
-            <span className="text-primary font-display font-bold text-base sm:text-lg">C</span>
+            <span className="text-primary font-display font-bold text-base sm:text-lg">L</span>
           </div>
           <span className="font-display font-bold text-lg sm:text-xl tracking-tight">
-            Cine<span className="text-gradient">flow</span>
+            Lyne<span className="text-gradient">Flix</span>
           </span>
         </Link>
 

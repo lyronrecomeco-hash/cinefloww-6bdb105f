@@ -4,6 +4,7 @@ import Navbar from "@/components/Navbar";
 import HeroSlider from "@/components/HeroSlider";
 import ContentRow from "@/components/ContentRow";
 import ContinueWatchingRow from "@/components/ContinueWatchingRow";
+import Footer from "@/components/Footer";
 import {
   TMDBMovie,
   getTrending,
@@ -57,17 +58,7 @@ const Index = () => {
         <ContentRow title="📺 Séries" movies={popularSeries} icon={<Tv className="w-4 h-4" />} />
       </div>
 
-      <footer className="border-t border-white/5 py-6 sm:py-8 px-4 sm:px-6 lg:px-12">
-        <div className="flex flex-col items-center gap-4 text-center">
-          <span className="font-display font-bold text-lg">
-            Cine<span className="text-gradient">flow</span>
-          </span>
-          <p className="text-muted-foreground text-[10px] sm:text-xs max-w-2xl leading-relaxed">
-            AVISO LEGAL: Nós não armazenamos nenhum dos arquivos em nenhum servidor. Todos os conteúdos são fornecidos por terceiros sem qualquer tipo de filiação.
-          </p>
-          <p className="text-muted-foreground text-[10px] sm:text-xs">© 2025 Cineflow. Todos os direitos reservados.</p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 };

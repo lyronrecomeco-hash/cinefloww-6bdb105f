@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
 import MovieCard from "@/components/MovieCard";
 import { TMDBMovie, getPopularSeries } from "@/services/tmdb";
 import { Tv, ChevronLeft, ChevronRight } from "lucide-react";
@@ -115,14 +116,7 @@ const SeriesPage = () => {
         )}
       </div>
 
-      <footer className="border-t border-white/5 py-6 sm:py-8 px-4 sm:px-6 lg:px-12 mt-8">
-        <div className="flex flex-col items-center gap-3 text-center">
-          <span className="font-display font-bold text-lg">Cine<span className="text-gradient">flow</span></span>
-          <p className="text-muted-foreground text-[10px] sm:text-xs max-w-2xl leading-relaxed">
-            AVISO LEGAL: Nós não armazenamos nenhum dos arquivos em nenhum servidor. Todos os conteúdos são fornecidos por terceiros sem qualquer tipo de filiação.
-          </p>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 };

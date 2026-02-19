@@ -12,6 +12,8 @@ import SeriesPage from "./pages/SeriesPage";
 import PlayerPage from "./pages/PlayerPage";
 import ApiRedirect from "./pages/ApiRedirect";
 import NotFound from "./pages/NotFound";
+import DmcaPage from "./pages/DmcaPage";
+import TermsPage from "./pages/TermsPage";
 
 // Admin (lazy loaded)
 const AdminLogin = lazy(() => import("./pages/AdminLogin"));
@@ -52,6 +54,8 @@ const App = () => (
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />
             <Route path="/player" element={<PlayerPage />} />
             <Route path="/player/:type/:id" element={<PlayerPage />} />
+            <Route path="/dmca" element={<DmcaPage />} />
+            <Route path="/termos" element={<TermsPage />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />

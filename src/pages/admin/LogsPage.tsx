@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { ScrollText, CheckCircle, XCircle, Film, Tv, Loader2, Trash2, Filter } from "lucide-react";
+import { ScrollText, CheckCircle, XCircle, Film, Tv, Loader2, Trash2 } from "lucide-react";
 
 interface ResolveLog {
   id: string;
@@ -29,8 +29,22 @@ const LogsPage = () => {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "success" | "failed">("all");
   const [filterType, setFilterType] = useState<"all" | "movie" | "series">("all");
+  const [totalSuccess, setTotalSuccess] = useState(0);
+  const [totalFailed, setTotalFailed] = useState(0);
+  const [totalCount, setTotalCount] = useState(0);
   const logsEndRef = useRef<HTMLDivElement>(null);
-  const isFirstLoad = useRef(true);
+
+  // Fetch real-time counts from DB
+  const fetchCounts = useCallback(async () => {
+    const [{ count: sCount }, { count: fCount }, { count: tCount }] = await Promise.all([
+      supabase.from("resolve_logs").select("*", { count: "exact", head: true }).eq("success", true),
+      supabase.from("resolve_logs").select("*", { count: "exact", head: true }).eq("success", false),
+      supabase.from("resolve_logs").select("*", { count: "exact", head: true }),
+    ]);
+    setTotalSuccess(sCount || 0);
+    setTotalFailed(fCount || 0);
+    setTotalCount(tCount || 0);
+  }, []);
 
   const fetchLogs = useCallback(async () => {
     let query = supabase
@@ -50,9 +64,10 @@ const LogsPage = () => {
 
   useEffect(() => {
     fetchLogs();
-  }, [fetchLogs]);
+    fetchCounts();
+  }, [fetchLogs, fetchCounts]);
 
-  // Real-time subscription
+  // Real-time subscription - update both logs AND counts
   useEffect(() => {
     const channel = supabase
       .channel("resolve-logs-realtime")
@@ -61,7 +76,13 @@ const LogsPage = () => {
         { event: "INSERT", schema: "public", table: "resolve_logs" },
         (payload) => {
           const newLog = payload.new as ResolveLog;
-          // Apply filters
+          
+          // Update counts in real-time
+          setTotalCount(prev => prev + 1);
+          if (newLog.success) setTotalSuccess(prev => prev + 1);
+          else setTotalFailed(prev => prev + 1);
+
+          // Apply filters for log list
           if (filter === "success" && !newLog.success) return;
           if (filter === "failed" && newLog.success) return;
           if (filterType !== "all" && newLog.content_type !== filterType) return;
@@ -71,14 +92,15 @@ const LogsPage = () => {
       )
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [filter, filterType]);
 
   const clearLogs = async () => {
     await supabase.from("resolve_logs").delete().neq("id", "00000000-0000-0000-0000-000000000000");
     setLogs([]);
+    setTotalSuccess(0);
+    setTotalFailed(0);
+    setTotalCount(0);
   };
 
   const formatTime = (dateStr: string) => {
@@ -89,8 +111,7 @@ const LogsPage = () => {
     });
   };
 
-  const successCount = logs.filter(l => l.success).length;
-  const failedCount = logs.filter(l => !l.success).length;
+  const successRate = totalCount > 0 ? ((totalSuccess / totalCount) * 100).toFixed(1) : "0";
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -114,19 +135,23 @@ const LogsPage = () => {
         </button>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+      {/* Stats - Real-time counters from DB */}
+      <div className="grid grid-cols-4 gap-2 sm:gap-3">
         <div className="glass p-3 sm:p-4 rounded-xl text-center">
-          <p className="text-lg sm:text-2xl font-bold text-primary">{logs.length}</p>
+          <p className="text-lg sm:text-2xl font-bold text-primary tabular-nums">{totalCount.toLocaleString()}</p>
           <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Total</p>
         </div>
         <div className="glass p-3 sm:p-4 rounded-xl text-center">
-          <p className="text-lg sm:text-2xl font-bold text-emerald-400">{successCount}</p>
+          <p className="text-lg sm:text-2xl font-bold text-emerald-400 tabular-nums">{totalSuccess.toLocaleString()}</p>
           <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Sucesso</p>
         </div>
         <div className="glass p-3 sm:p-4 rounded-xl text-center">
-          <p className="text-lg sm:text-2xl font-bold text-red-400">{failedCount}</p>
+          <p className="text-lg sm:text-2xl font-bold text-red-400 tabular-nums">{totalFailed.toLocaleString()}</p>
           <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Falhas</p>
+        </div>
+        <div className="glass p-3 sm:p-4 rounded-xl text-center">
+          <p className="text-lg sm:text-2xl font-bold text-amber-400 tabular-nums">{successRate}%</p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Taxa</p>
         </div>
       </div>
 
@@ -189,12 +214,9 @@ const LogsPage = () => {
             <div
               key={log.id}
               className={`glass rounded-xl p-3 sm:p-4 flex items-start gap-3 border-l-2 transition-all ${
-                log.success
-                  ? "border-l-emerald-500/60"
-                  : "border-l-red-500/60"
+                log.success ? "border-l-emerald-500/60" : "border-l-red-500/60"
               }`}
             >
-              {/* Status icon */}
               <div className="flex-shrink-0 mt-0.5">
                 {log.success ? (
                   <CheckCircle className="w-4 h-4 text-emerald-400" />
@@ -203,7 +225,6 @@ const LogsPage = () => {
                 )}
               </div>
 
-              {/* Content */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs sm:text-sm font-medium text-foreground truncate max-w-[200px] sm:max-w-none">
@@ -244,7 +265,6 @@ const LogsPage = () => {
                 </div>
               </div>
 
-              {/* Timestamp */}
               <span className="text-[9px] sm:text-[10px] text-muted-foreground/50 flex-shrink-0 whitespace-nowrap">
                 {formatTime(log.created_at)}
               </span>

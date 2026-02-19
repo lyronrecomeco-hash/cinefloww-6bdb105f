@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { X, ExternalLink } from "lucide-react";
+import LyneflixLogo from "@/components/LyneflixLogo";
 
 interface SiteAlert {
   id: string;
@@ -31,22 +32,17 @@ const SiteAlertModal = () => {
 
   useEffect(() => {
     fetchAlerts();
-
-    // Realtime subscription
     const channel = supabase
       .channel("site-alerts-public")
       .on("postgres_changes", { event: "*", schema: "public", table: "site_alerts" }, () => {
         fetchAlerts();
       })
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
   }, [fetchAlerts]);
 
-  // Check which alert to show based on intervals
   useEffect(() => {
     if (!alerts.length) return;
-
     const checkAlerts = () => {
       for (const alert of alerts) {
         if (!alert.active) continue;
@@ -62,7 +58,6 @@ const SiteAlertModal = () => {
         return;
       }
     };
-
     checkAlerts();
     const interval = setInterval(checkAlerts, 30000);
     return () => clearInterval(interval);
@@ -90,31 +85,28 @@ const SiteAlertModal = () => {
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={handleDismiss} />
 
-      {/* Modal */}
       <div className="relative w-full max-w-md glass rounded-2xl border border-white/10 shadow-2xl animate-in fade-in zoom-in-95 duration-300">
-        {/* Close */}
         <button
           onClick={handleDismiss}
-          className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
+          className="absolute top-3 right-3 w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors z-10"
         >
           <X className="w-4 h-4" />
         </button>
 
         <div className="p-6 space-y-4">
-          {/* Title */}
           <h2 className="text-lg font-display font-bold text-foreground pr-8">
             {currentAlert.title}
           </h2>
 
-          {/* Message */}
+          {/* LYNEFLIX Logo */}
+          <LyneflixLogo size="lg" animate className="py-3" />
+
           <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
             {currentAlert.message}
           </p>
 
-          {/* Button */}
           <div className="flex gap-3 pt-2">
             <button
               onClick={handleButtonClick}

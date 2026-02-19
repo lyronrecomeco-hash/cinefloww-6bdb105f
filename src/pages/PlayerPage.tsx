@@ -34,7 +34,7 @@ const PlayerPage = () => {
   const navigate = useNavigate();
   const params = useParams<{ type?: string; id?: string }>();
 
-  const title = searchParams.get("title") || "CineFlow Player";
+  const title = searchParams.get("title") || "LyneFlix Player";
   const subtitle = searchParams.get("subtitle") || undefined;
   const videoUrl = searchParams.get("url");
   const videoType = (searchParams.get("type") as "mp4" | "m3u8") || "m3u8";
@@ -456,12 +456,52 @@ const PlayerPage = () => {
     }
   };
 
+  // Force landscape on mobile
+  useEffect(() => {
+    if (isMobile) {
+      try {
+        (screen.orientation as any)?.lock?.("landscape").catch(() => {});
+      } catch {}
+    }
+    return () => {
+      try {
+        (screen.orientation as any)?.unlock?.();
+      } catch {}
+    };
+  }, [isMobile]);
+
+  // Cleanup: stop video when leaving the page (fixes audio leak bug)
+  useEffect(() => {
+    return () => {
+      const v = videoRef.current;
+      if (v) {
+        v.pause();
+        v.src = "";
+        v.load();
+      }
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, []);
+
   return (
     <div ref={containerRef} className="fixed inset-0 z-[100] bg-black group"
       onMouseMove={resetControlsTimer} onTouchStart={resetControlsTimer}
+      onClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('button') || target.closest('input') || target.closest('[data-controls]')) return;
+        togglePlay();
+      }}
+      onDoubleClick={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('button') || target.closest('input') || target.closest('[data-controls]')) return;
+        toggleFullscreen();
+      }}
       style={{ cursor: showControls ? "default" : "none" }}>
       <video ref={videoRef} className="w-full h-full object-contain" playsInline
-        preload="auto" onClick={togglePlay} onDoubleClick={toggleFullscreen} />
+        preload="auto" />
 
       {/* Resume prompt */}
       {showResumePrompt && (
@@ -541,15 +581,15 @@ const PlayerPage = () => {
 
       {/* Big play button */}
       {!playing && !loading && !error && !showResumePrompt && (
-        <button onClick={togglePlay} className="absolute inset-0 flex items-center justify-center z-5">
-          <div className="w-16 h-16 sm:w-20 sm:h-20 lg:w-24 lg:h-24 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center hover:bg-white/25 hover:scale-110 transition-all duration-300 shadow-2xl">
+        <div className="absolute inset-0 flex items-center justify-center z-5 pointer-events-none">
+          <div className="w-16 h-16 sm:w-20 sm:h-20 lg:w-24 lg:h-24 rounded-full bg-white/15 backdrop-blur-md flex items-center justify-center shadow-2xl">
             <Play className="w-7 h-7 sm:w-9 sm:h-9 lg:w-11 lg:h-11 text-white fill-white ml-1" />
           </div>
-        </button>
+        </div>
       )}
 
       {/* Controls */}
-      <div className={`absolute inset-0 z-10 transition-opacity duration-500 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
+      <div data-controls className={`absolute inset-0 z-10 transition-opacity duration-500 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
         {/* Top */}
         <div className="absolute top-0 left-0 right-0 h-24 sm:h-28 bg-gradient-to-b from-black/80 via-black/40 to-transparent">
           <div className="flex items-start justify-between p-3 sm:p-4 lg:p-6">

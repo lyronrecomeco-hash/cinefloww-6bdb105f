@@ -63,6 +63,19 @@ const WatchPage = () => {
   const tmdbId = Number(id);
   const isMovie = type === "movie";
   const ct = isMovie ? "movie" : "tv";
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  // Force landscape on mobile when playing
+  useEffect(() => {
+    if (isMobile && phase === "playing") {
+      try {
+        (screen.orientation as any)?.lock?.("landscape").catch(() => {});
+      } catch {}
+    }
+    return () => {
+      try { (screen.orientation as any)?.unlock?.(); } catch {}
+    };
+  }, [isMobile, phase]);
 
   // Check resume
   useEffect(() => {

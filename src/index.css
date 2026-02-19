@@ -123,15 +123,15 @@
   }
 }
 
-/* LYNEFLIX — Premium cinematic branding */
+/* LYNEFLIX — Blue cinematic branding */
 @keyframes lyneflix-pulse {
   0%, 100% {
     opacity: 1;
     filter: brightness(1);
   }
   50% {
-    opacity: 0.7;
-    filter: brightness(1.15);
+    opacity: 0.85;
+    filter: brightness(1.1);
   }
 }
 
@@ -143,11 +143,11 @@
 .lyneflix-text {
   background: linear-gradient(
     90deg,
-    hsl(0 0% 65%) 0%,
-    hsl(0 0% 90%) 25%,
-    hsl(40 50% 75%) 50%,
-    hsl(0 0% 90%) 75%,
-    hsl(0 0% 65%) 100%
+    hsl(217 91% 55%) 0%,
+    hsl(217 91% 75%) 25%,
+    hsl(230 80% 70%) 50%,
+    hsl(217 91% 75%) 75%,
+    hsl(217 91% 55%) 100%
   );
   background-size: 200% 100%;
   -webkit-background-clip: text;
@@ -157,6 +157,20 @@
   font-family: 'Space Grotesk', sans-serif;
   letter-spacing: 0.2em;
   font-weight: 800;
+}
+
+/* Logo animation for modals */
+@keyframes lyneflix-logo-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 15px hsl(217 91% 60% / 0.3));
+  }
+  50% {
+    filter: drop-shadow(0 0 30px hsl(217 91% 60% / 0.5));
+  }
+}
+
+.lyneflix-logo-animated {
+  animation: lyneflix-logo-glow 3s ease-in-out infinite;
 }
 
 /* Cinematic Intro Animations */
@@ -191,8 +205,23 @@
 .lyneflix-spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid hsl(0 0% 100% / 0.08);
-  border-top-color: hsl(0 0% 100% / 0.5);
+  border: 3px solid hsl(217 91% 60% / 0.15);
+  border-top-color: hsl(217 91% 60% / 0.7);
   border-radius: 50%;
   animation: lyneflix-spin 0.8s linear infinite;
+}
+
+/* Increase base font size */
+html {
+  font-size: 16px;
+}
+@media (min-width: 640px) {
+  html {
+    font-size: 17px;
+  }
+}
+@media (min-width: 1024px) {
+  html {
+    font-size: 18px;
+  }
 }

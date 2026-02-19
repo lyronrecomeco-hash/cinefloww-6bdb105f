@@ -1,101 +1,96 @@
 import { useState, useEffect, useRef } from "react";
-import lyneflixLogo from "@/assets/lyneflix-logo.png";
 
 interface LyneflixIntroProps {
   onComplete: () => void;
-  /** Skip intro if video is already buffered */
   skip?: boolean;
 }
 
 /**
- * Premium cinematic intro with logo reveal + synthesized sound.
- * Plays a short "THX-style" deep tone using Web Audio API.
+ * Netflix-style cinematic intro: "L" zooms in, then reveals full "LYNEFLIX" text.
+ * Blue color scheme with deep cinematic boom via Web Audio API.
  */
 const LyneflixIntro = ({ onComplete, skip }: LyneflixIntroProps) => {
-  const [phase, setPhase] = useState<"enter" | "hold" | "exit">("enter");
+  const [phase, setPhase] = useState<"letter" | "reveal" | "exit">("letter");
   const audioCtx = useRef<AudioContext | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
 
   useEffect(() => {
     if (skip) { onComplete(); return; }
 
-    // Play cinematic intro sound using Web Audio API
+    // Play cinematic boom sound via Web Audio API
     try {
       const ctx = new AudioContext();
       audioCtx.current = ctx;
-
-      // Deep cinematic boom/whoosh
       const now = ctx.currentTime;
 
-      // Sub bass hit
+      // Deep sub bass boom
       const osc1 = ctx.createOscillator();
       const gain1 = ctx.createGain();
       osc1.type = "sine";
-      osc1.frequency.setValueAtTime(80, now);
-      osc1.frequency.exponentialRampToValueAtTime(35, now + 1.2);
+      osc1.frequency.setValueAtTime(65, now);
+      osc1.frequency.exponentialRampToValueAtTime(30, now + 1.5);
       gain1.gain.setValueAtTime(0, now);
-      gain1.gain.linearRampToValueAtTime(0.4, now + 0.1);
-      gain1.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
+      gain1.gain.linearRampToValueAtTime(0.5, now + 0.08);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 2.2);
       osc1.connect(gain1).connect(ctx.destination);
       osc1.start(now);
-      osc1.stop(now + 2.0);
+      osc1.stop(now + 2.2);
 
-      // Shimmer / high harmonic
+      // Cinematic shimmer (blue tone)
       const osc2 = ctx.createOscillator();
       const gain2 = ctx.createGain();
       osc2.type = "sine";
-      osc2.frequency.setValueAtTime(1200, now + 0.05);
-      osc2.frequency.exponentialRampToValueAtTime(800, now + 1.5);
+      osc2.frequency.setValueAtTime(880, now + 0.1);
+      osc2.frequency.exponentialRampToValueAtTime(440, now + 1.8);
       gain2.gain.setValueAtTime(0, now);
-      gain2.gain.linearRampToValueAtTime(0.08, now + 0.3);
-      gain2.gain.exponentialRampToValueAtTime(0.001, now + 1.8);
+      gain2.gain.linearRampToValueAtTime(0.06, now + 0.4);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
       osc2.connect(gain2).connect(ctx.destination);
-      osc2.start(now + 0.05);
-      osc2.stop(now + 1.8);
+      osc2.start(now + 0.1);
+      osc2.stop(now + 2.0);
 
-      // Mid tone swell
+      // Mid-range swell
       const osc3 = ctx.createOscillator();
       const gain3 = ctx.createGain();
       osc3.type = "triangle";
-      osc3.frequency.setValueAtTime(220, now);
-      osc3.frequency.exponentialRampToValueAtTime(160, now + 1.5);
+      osc3.frequency.setValueAtTime(180, now);
+      osc3.frequency.exponentialRampToValueAtTime(120, now + 1.8);
       gain3.gain.setValueAtTime(0, now);
-      gain3.gain.linearRampToValueAtTime(0.15, now + 0.2);
-      gain3.gain.exponentialRampToValueAtTime(0.001, now + 1.8);
+      gain3.gain.linearRampToValueAtTime(0.18, now + 0.15);
+      gain3.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
       osc3.connect(gain3).connect(ctx.destination);
       osc3.start(now);
-      osc3.stop(now + 1.8);
+      osc3.stop(now + 2.0);
 
       // Noise burst for cinematic impact
-      const bufferSize = ctx.sampleRate * 0.5;
+      const bufferSize = ctx.sampleRate * 0.4;
       const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
       const output = noiseBuffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) output[i] = (Math.random() * 2 - 1) * 0.3;
+      for (let i = 0; i < bufferSize; i++) output[i] = (Math.random() * 2 - 1) * 0.25;
       const noise = ctx.createBufferSource();
       noise.buffer = noiseBuffer;
       const noiseGain = ctx.createGain();
       const noiseFilter = ctx.createBiquadFilter();
       noiseFilter.type = "lowpass";
-      noiseFilter.frequency.setValueAtTime(500, now);
+      noiseFilter.frequency.setValueAtTime(400, now);
       noiseGain.gain.setValueAtTime(0, now);
-      noiseGain.gain.linearRampToValueAtTime(0.12, now + 0.05);
-      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
+      noiseGain.gain.linearRampToValueAtTime(0.15, now + 0.04);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
       noise.connect(noiseFilter).connect(noiseGain).connect(ctx.destination);
       noise.start(now);
-      noise.stop(now + 0.6);
+      noise.stop(now + 0.5);
     } catch {
       // Audio not available, continue silently
     }
 
-    // Phase transitions
-    timerRef.current = setTimeout(() => setPhase("hold"), 100);
-    const holdTimer = setTimeout(() => setPhase("exit"), 1800);
-    const exitTimer = setTimeout(() => onComplete(), 2500);
+    // Phase transitions: L → full name → exit
+    const t1 = setTimeout(() => setPhase("reveal"), 900);
+    const t2 = setTimeout(() => setPhase("exit"), 2200);
+    const t3 = setTimeout(() => onComplete(), 2900);
 
     return () => {
-      clearTimeout(timerRef.current);
-      clearTimeout(holdTimer);
-      clearTimeout(exitTimer);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
       audioCtx.current?.close().catch(() => {});
     };
   }, [skip, onComplete]);
@@ -103,17 +98,47 @@ const LyneflixIntro = ({ onComplete, skip }: LyneflixIntroProps) => {
   if (skip) return null;
 
   return (
-    <div className={`fixed inset-0 z-[200] bg-black flex items-center justify-center lyneflix-intro lyneflix-intro--${phase}`}>
-      {/* Ambient light behind logo */}
-      <div className="absolute w-[600px] h-[300px] rounded-full blur-[120px] pointer-events-none" style={{ background: "hsl(40 50% 50% / 0.04)" }} />
+    <div className={`fixed inset-0 z-[200] bg-black flex items-center justify-center transition-opacity duration-700 ${phase === "exit" ? "opacity-0" : "opacity-100"}`}>
+      {/* Ambient blue glow */}
+      <div className="absolute w-[500px] h-[500px] rounded-full blur-[150px] pointer-events-none bg-primary/10" />
       
-      <div className="lyneflix-intro__logo">
-        <img
-          src={lyneflixLogo}
-          alt="LYNEFLIX"
-          className="w-[280px] sm:w-[400px] md:w-[500px] h-auto select-none pointer-events-none"
-          draggable={false}
-        />
+      <div className="relative flex items-center justify-center">
+        {/* The "L" letter - always visible, scales down when full name reveals */}
+        <span
+          className={`font-display font-black select-none transition-all duration-700 ease-out lyneflix-intro-letter ${
+            phase === "letter" 
+              ? "text-[120px] sm:text-[180px] md:text-[220px] opacity-100 scale-100" 
+              : "text-[48px] sm:text-[64px] md:text-[80px] opacity-100 scale-100"
+          }`}
+          style={{
+            background: "linear-gradient(135deg, hsl(217 91% 65%), hsl(217 91% 50%), hsl(230 80% 60%))",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+            textShadow: "none",
+            filter: phase === "letter" ? "drop-shadow(0 0 40px hsl(217 91% 60% / 0.4))" : "drop-shadow(0 0 20px hsl(217 91% 60% / 0.3))",
+          }}
+        >
+          L
+        </span>
+        
+        {/* Rest of the name - fades in */}
+        <span
+          className={`font-display font-black select-none transition-all duration-600 ease-out ${
+            phase === "letter" 
+              ? "opacity-0 max-w-0 overflow-hidden translate-x-[-20px]" 
+              : "opacity-100 max-w-[600px] translate-x-0"
+          } text-[48px] sm:text-[64px] md:text-[80px]`}
+          style={{
+            background: "linear-gradient(135deg, hsl(217 91% 65%), hsl(217 91% 50%), hsl(230 80% 60%))",
+            WebkitBackgroundClip: "text",
+            WebkitTextFillColor: "transparent",
+            backgroundClip: "text",
+            filter: "drop-shadow(0 0 20px hsl(217 91% 60% / 0.3))",
+          }}
+        >
+          YNEFLIX
+        </span>
       </div>
     </div>
   );
