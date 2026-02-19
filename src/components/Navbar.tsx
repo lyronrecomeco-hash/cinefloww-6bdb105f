@@ -6,8 +6,9 @@ import RequestModal from "@/components/RequestModal";
 
 const navItems = [
   { label: "Início", path: "/" },
-  { label: "Lançamentos", path: "/filmes" },
+  { label: "Filmes", path: "/filmes" },
   { label: "Séries", path: "/series" },
+  { label: "Lançamentos", path: "/lancamentos" },
 ];
 
 const Navbar = () => {

@@ -693,6 +693,108 @@ async function deepExtractFromIframe(
   return null;
 }
 
+// ── Cineveo Embed API extraction ─────────────────────────────────────
+async function tryCineveoEmbed(
+  tmdbId: number,
+  isMovie: boolean,
+  s: number,
+  e: number,
+): Promise<{ url: string; type: "mp4" | "m3u8" } | null> {
+  const embedBase = "http://primevicio.lat";
+  const embedUrl = isMovie
+    ? `${embedBase}/embed/movie/${tmdbId}`
+    : `${embedBase}/embed/tv/${tmdbId}/${s}/${e}`;
+  console.log(`[src-e] Trying Cineveo Embed API: ${embedUrl}`);
+
+  try {
+    const res = await fetch(embedUrl, {
+      headers: {
+        "User-Agent": UA,
+        "Referer": embedBase + "/",
+        "Accept": "text/html,*/*",
+      },
+      redirect: "follow",
+    });
+    if (!res.ok) {
+      console.log(`[src-e] HTTP ${res.status}`);
+      return null;
+    }
+
+    const html = await res.text();
+
+    // Try to find video URL in the embed page
+    const video = findVideoUrl(html);
+    if (video) {
+      console.log(`[src-e] Found video directly in embed`);
+      return video;
+    }
+
+    // Try to find iframe src and follow it
+    const iframeMatch = html.match(/<iframe[^>]+src=["']([^"']+)/i);
+    if (iframeMatch?.[1]) {
+      const iframeSrc = iframeMatch[1].startsWith("http")
+        ? iframeMatch[1]
+        : `${embedBase}${iframeMatch[1]}`;
+      console.log(`[src-e] Following iframe: ${iframeSrc.substring(0, 80)}`);
+
+      try {
+        const iframeRes = await fetch(iframeSrc, {
+          headers: { "User-Agent": UA, "Referer": embedUrl },
+          redirect: "follow",
+        });
+        if (iframeRes.ok) {
+          const iframeHtml = await iframeRes.text();
+          const iframeVideo = findVideoUrl(iframeHtml);
+          if (iframeVideo) {
+            console.log(`[src-e] Found video in iframe`);
+            return iframeVideo;
+          }
+
+          // Deep: look for another iframe inside
+          const deepMatch = iframeHtml.match(/<iframe[^>]+src=["']([^"']+)/i);
+          if (deepMatch?.[1]) {
+            const deepSrc = deepMatch[1].startsWith("http") ? deepMatch[1] : new URL(deepMatch[1], iframeSrc).href;
+            try {
+              const deepRes = await fetch(deepSrc, {
+                headers: { "User-Agent": UA, "Referer": iframeSrc },
+                redirect: "follow",
+              });
+              if (deepRes.ok) {
+                const deepHtml = await deepRes.text();
+                const deepVideo = findVideoUrl(deepHtml);
+                if (deepVideo) {
+                  console.log(`[src-e] Found video in deep iframe`);
+                  return deepVideo;
+                }
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+    }
+
+    // Also try the JSON feed API for metadata
+    try {
+      const feedRes = await fetch(`${embedBase}/api/feed_externo.php?id=${tmdbId}`, {
+        headers: { "User-Agent": UA },
+      });
+      if (feedRes.ok) {
+        const feedData = await feedRes.json();
+        if (feedData?.video_url) {
+          const vType: "mp4" | "m3u8" = (feedData.video_url as string).includes(".mp4") ? "mp4" : "m3u8";
+          console.log(`[src-e] Found video via feed API`);
+          return { url: feedData.video_url, type: vType };
+        }
+      }
+    } catch {}
+
+    console.log(`[src-e] No video found in embed`);
+  } catch (err) {
+    console.log(`[src-e] Error: ${err}`);
+  }
+  return null;
+}
+
 // ── Main handler ─────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -746,7 +848,7 @@ Deno.serve(async (req) => {
     }
 
     // 2. Try providers (internal codenames mapped)
-    const _pMap: Record<string, string> = { "cineveo": "src-a", "megaembed": "src-b", "embedplay": "src-c", "playerflix": "src-d" };
+    const _pMap: Record<string, string> = { "cineveo": "src-a", "cineveo-embed": "src-e", "megaembed": "src-b", "embedplay": "src-c", "playerflix": "src-d" };
     let videoUrl: string | null = null;
     let videoType: "mp4" | "m3u8" = "mp4";
     let provider = "cineveo";
@@ -758,6 +860,13 @@ Deno.serve(async (req) => {
         const cv = await tryPrimarySource(tmdb_id, cType, season, episode);
         if (cv) { videoUrl = cv.url; videoType = cv.type; provider = "cineveo"; }
       } catch (err) { console.log(`[extract] Provider A error: ${err}`); }
+    }
+
+    if (shouldTry("cineveo-embed") && !videoUrl) {
+      try {
+        const ce = await tryCineveoEmbed(tmdb_id, isMovie, s, e);
+        if (ce) { videoUrl = ce.url; videoType = ce.type; provider = "cineveo-embed"; }
+      } catch (err) { console.log(`[extract] Provider E error: ${err}`); }
     }
 
     if (shouldTry("megaembed") && !videoUrl) {

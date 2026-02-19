@@ -1,5 +1,3 @@
-import { useEffect, useRef } from "react";
-
 interface LyneflixLogoProps {
   size?: "sm" | "md" | "lg";
   animate?: boolean;
@@ -7,8 +5,8 @@ interface LyneflixLogoProps {
 }
 
 /**
- * Reusable LYNEFLIX logo component with optional animation.
- * Used in site alerts modals and other places.
+ * Reusable LyneFlix logo component with blue gradient.
+ * Used in site alert modals and other places.
  */
 const LyneflixLogo = ({ size = "md", animate = true, className = "" }: LyneflixLogoProps) => {
   const sizeClass = {
@@ -22,7 +20,7 @@ const LyneflixLogo = ({ size = "md", animate = true, className = "" }: LyneflixL
       <span
         className={`font-display font-black select-none ${sizeClass} ${animate ? "lyneflix-logo-animated" : ""}`}
         style={{
-          background: "linear-gradient(135deg, hsl(217 91% 65%), hsl(217 91% 50%), hsl(230 80% 60%))",
+          background: "linear-gradient(135deg, hsl(217 91% 70%), hsl(217 91% 50%), hsl(230 80% 45%))",
           WebkitBackgroundClip: "text",
           WebkitTextFillColor: "transparent",
           backgroundClip: "text",

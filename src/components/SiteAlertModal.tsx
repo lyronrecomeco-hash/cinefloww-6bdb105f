@@ -100,8 +100,9 @@ const SiteAlertModal = () => {
             {currentAlert.title}
           </h2>
 
-          {/* LYNEFLIX Logo */}
-          <LyneflixLogo size="lg" animate className="py-3" />
+          {/* LyneFlix Logo */}
+          <LyneflixLogo size="lg" animate className="py-4" />
+
 
           <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
             {currentAlert.message}
