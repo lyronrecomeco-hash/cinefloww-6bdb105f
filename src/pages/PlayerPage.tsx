@@ -34,7 +34,7 @@ const formatTime = (s: number) => {
 const PlayerPage = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const params = useParams<{ type?: string; id?: string }>();
+  const params = useParams<{ type?: string; id?: string; channelId?: string }>();
 
   const title = searchParams.get("title") || "LyneFlix Player";
   const subtitle = searchParams.get("subtitle") || undefined;
@@ -47,7 +47,7 @@ const PlayerPage = () => {
   const season = searchParams.get("s") ? Number(searchParams.get("s")) : undefined;
   const episode = searchParams.get("e") ? Number(searchParams.get("e")) : undefined;
   const nextEpUrl = searchParams.get("next") || null;
-  const tvChannelId = searchParams.get("tv") || null;
+  const tvChannelId = params.channelId || searchParams.get("tv") || null;
 
   const [bankSources, setBankSources] = useState<VideoSource[]>([]);
   const [bankLoading, setBankLoading] = useState(false);
@@ -100,38 +100,43 @@ const PlayerPage = () => {
     return () => controller.abort();
   }, [params.id, params.type, audioParam, imdbId, season, episode]);
 
-  // TV channel extraction
+  const isLiveTV = !!tvChannelId;
+
+  // TV channel extraction — no secureVideoUrl for live streams (direct m3u8)
   useEffect(() => {
     if (!tvChannelId) return;
     setBankLoading(true);
-    setBankTitle(title);
+    let cancelled = false;
     const load = async () => {
       try {
         const { data } = await supabase.functions.invoke("extract-tv", {
           body: { channel_id: tvChannelId },
         });
+        if (cancelled) return;
+        // Set title from channel name returned by extract-tv
+        if (data?.channel_name) setBankTitle(data.channel_name);
         if (data?.url && data.type !== "iframe") {
           setBankSources([{
-            url: await secureVideoUrl(data.url),
-            quality: "auto",
+            url: data.url,
+            quality: "live",
             provider: data.provider || "tv",
             type: data.type === "mp4" ? "mp4" : "m3u8",
           }]);
         } else if (data?.url) {
-          // Iframe fallback — use proxy-player
           const proxyUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(data.url)}`;
           setBankSources([{
             url: proxyUrl,
-            quality: "auto",
+            quality: "live",
             provider: "tv-proxy",
             type: "m3u8",
           }]);
         }
       } catch { /* ignore */ }
-      setBankLoading(false);
+      if (!cancelled) setBankLoading(false);
     };
     load();
-  }, [tvChannelId, title]);
+    return () => { cancelled = true; };
+  }, [tvChannelId]);
 
   const sources: VideoSource[] = useMemo(() => {
     if (bankSources.length > 0) return bankSources;
@@ -177,9 +182,9 @@ const PlayerPage = () => {
     }
   }, [isMobile]);
 
-  // Save progress periodically
+  // Save progress periodically (skip for live TV)
   useEffect(() => {
-    if (!tmdbId) return;
+    if (!tmdbId || isLiveTV) return;
     progressSaveTimer.current = setInterval(() => {
       const v = videoRef.current;
       if (v && v.currentTime > 5 && v.duration > 0) {
@@ -195,7 +200,7 @@ const PlayerPage = () => {
       }
     }, 10000);
     return () => clearInterval(progressSaveTimer.current);
-  }, [tmdbId, contentType, season, episode]);
+  }, [tmdbId, contentType, season, episode, isLiveTV]);
 
   // Check resume on load
   useEffect(() => {
@@ -237,7 +242,27 @@ const PlayerPage = () => {
     }
 
     if (src.type === "m3u8" && Hls.isSupported()) {
-      const hls = new Hls({
+      const hlsConfig: Partial<Hls["config"]> = isLiveTV ? {
+        enableWorker: true,
+        lowLatencyMode: true,
+        startLevel: -1,
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 6,
+        liveDurationInfinity: true,
+        maxBufferLength: 10,
+        maxMaxBufferLength: 30,
+        maxBufferSize: 30 * 1000 * 1000,
+        maxBufferHole: 0.5,
+        startFragPrefetch: true,
+        fragLoadingTimeOut: 15000,
+        fragLoadingMaxRetry: 10,
+        fragLoadingRetryDelay: 500,
+        manifestLoadingTimeOut: 10000,
+        manifestLoadingMaxRetry: 6,
+        levelLoadingTimeOut: 10000,
+        levelLoadingMaxRetry: 6,
+        xhrSetup: (xhr) => { xhr.withCredentials = false; },
+      } : {
         enableWorker: true,
         lowLatencyMode: false,
         startLevel: -1,
@@ -258,7 +283,8 @@ const PlayerPage = () => {
         levelLoadingTimeOut: 15000,
         levelLoadingMaxRetry: 4,
         xhrSetup: (xhr) => { xhr.withCredentials = false; },
-      });
+      };
+      const hls = new Hls(hlsConfig as any);
       hlsRef.current = hls;
       hls.loadSource(src.url);
       hls.attachMedia(video);
@@ -655,7 +681,14 @@ const PlayerPage = () => {
                 </div>
               )}
               <span className="text-white/60 text-[10px] sm:text-xs lg:text-sm ml-1 sm:ml-2 font-mono tabular-nums select-none">
-                {formatTime(currentTime)} <span className="text-white/30">/</span> {formatTime(duration)}
+                {isLiveTV ? (
+                  <span className="flex items-center gap-1.5">
+                    <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span></span>
+                    <span className="text-red-400 font-semibold">AO VIVO</span>
+                  </span>
+                ) : (
+                  <>{formatTime(currentTime)} <span className="text-white/30">/</span> {formatTime(duration)}</>
+                )}
               </span>
             </div>
 

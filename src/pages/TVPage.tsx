@@ -49,7 +49,7 @@ const TVPage = () => {
   });
 
   const handleWatch = (channel: TVChannel) => {
-    navigate(`/player?title=${encodeURIComponent(channel.name)}&tv=${channel.id}`);
+    navigate(`/tv/${channel.id}`);
   };
 
   return (

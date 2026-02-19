@@ -35,6 +35,7 @@ const LogsPage = lazy(() => import("./pages/admin/LogsPage"));
 const SecurityMonitor = lazy(() => import("./pages/admin/SecurityMonitor"));
 const TelegramPage = lazy(() => import("./pages/admin/TelegramPage"));
 const ReportsPage = lazy(() => import("./pages/admin/ReportsPage"));
+const TVManager = lazy(() => import("./pages/admin/TVManager"));
 
 
 const queryClient = new QueryClient({
@@ -74,6 +75,7 @@ const App = () => (
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />
             <Route path="/player" element={<PlayerPage />} />
             <Route path="/player/:type/:id" element={<PlayerPage />} />
+            <Route path="/tv/:channelId" element={<PlayerPage />} />
             <Route path="/dmca" element={<DmcaPage />} />
             <Route path="/termos" element={<TermsPage />} />
             <Route path="/dados" element={<DadosPage />} />
@@ -93,6 +95,7 @@ const App = () => (
               <Route path="pedidos" element={<RequestsPage />} />
               <Route path="banco" element={<BancoPage />} />
               <Route path="reports" element={<ReportsPage />} />
+              <Route path="tv" element={<TVManager />} />
               <Route path="cineveo" element={<CineveoTester />} />
               <Route path="logs" element={<LogsPage />} />
               <Route path="seguranca" element={<SecurityMonitor />} />

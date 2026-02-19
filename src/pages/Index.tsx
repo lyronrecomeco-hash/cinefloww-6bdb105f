@@ -65,7 +65,7 @@ const TVRow = ({ channels }: { channels: TVChannel[] }) => {
         {channels.map((ch) => (
           <button
             key={ch.id}
-            onClick={() => navigate(`/player?title=${encodeURIComponent(ch.name)}&tv=${ch.id}`)}
+            onClick={() => navigate(`/tv/${ch.id}`)}
             className="flex-shrink-0 w-[140px] sm:w-[170px] group relative glass glass-hover rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:scale-[1.03]"
           >
             <div className="absolute top-2 right-2 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/90 backdrop-blur-sm">
