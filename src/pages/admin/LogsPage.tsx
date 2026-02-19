@@ -72,6 +72,25 @@ const LogsPage = () => {
   useEffect(() => {
     fetchLogs();
     fetchCounts();
+    
+    // Auto-start JSON import if not running already
+    const autoImportKey = "lyneflix_json_import_last";
+    const lastImport = localStorage.getItem(autoImportKey);
+    const elapsed = lastImport ? Date.now() - parseInt(lastImport, 10) : Infinity;
+    // Only auto-trigger if > 6 hours since last import
+    if (elapsed > 6 * 3600000) {
+      localStorage.setItem(autoImportKey, Date.now().toString());
+      (async () => {
+        try {
+          const res = await fetch("/data/filmes_3.json");
+          const items = await res.json();
+          await supabase.functions.invoke("import-json-catalog", {
+            body: { items, offset: 0, batch_size: 200 },
+          });
+          toast.info("📦 Importação automática do JSON iniciada!");
+        } catch {}
+      })();
+    }
   }, [fetchLogs, fetchCounts]);
 
   useEffect(() => {

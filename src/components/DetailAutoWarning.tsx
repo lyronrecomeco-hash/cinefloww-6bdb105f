@@ -4,6 +4,14 @@ import LyneflixLogo from "@/components/LyneflixLogo";
 
 const WARNINGS = [
   {
+    id: "pwa_install",
+    title: "📱 Instale o App LyneFlix!",
+    message: "Tenha a LyneFlix na tela do seu celular como um app nativo!\n\n📲 No iPhone: Toque em Compartilhar (ícone ↑) e depois \"Adicionar à Tela de Início\"\n\n📲 No Android: Toque no menu (⋮) e \"Instalar aplicativo\"",
+    button_text: "Quero instalar!",
+    intervalHours: 24,
+    isPwa: true,
+  },
+  {
     id: "site_new",
     title: "🆕 Site em construção",
     message: "A LyneFlix está adicionando conteúdos diariamente.\n\nSe este título não carregar, pode reportar — nossa equipe resolve rápido!",
@@ -39,7 +47,13 @@ const DetailAutoWarning = () => {
   const [visible, setVisible] = useState<typeof WARNINGS[0] | null>(null);
 
   useEffect(() => {
+    // Skip PWA template if already installed as PWA
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+    
     for (const w of WARNINGS) {
+      // Skip PWA install prompt if already in standalone mode
+      if (w.isPwa && isStandalone) continue;
+      
       const key = STORAGE_KEY + w.id;
       const last = localStorage.getItem(key);
       if (last) {
