@@ -151,6 +151,51 @@ export type Database = {
           },
         ]
       }
+      content_reports: {
+        Row: {
+          admin_notes: string | null
+          content_type: string
+          created_at: string
+          id: string
+          message: string
+          page_url: string | null
+          resolved_at: string | null
+          status: string
+          title: string
+          tmdb_id: number
+          updated_at: string
+          visitor_id: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          content_type: string
+          created_at?: string
+          id?: string
+          message: string
+          page_url?: string | null
+          resolved_at?: string | null
+          status?: string
+          title: string
+          tmdb_id: number
+          updated_at?: string
+          visitor_id: string
+        }
+        Update: {
+          admin_notes?: string | null
+          content_type?: string
+          created_at?: string
+          id?: string
+          message?: string
+          page_url?: string | null
+          resolved_at?: string | null
+          status?: string
+          title?: string
+          tmdb_id?: number
+          updated_at?: string
+          visitor_id?: string
+        }
+        Relationships: []
+      }
       content_requests: {
         Row: {
           admin_notes: string | null

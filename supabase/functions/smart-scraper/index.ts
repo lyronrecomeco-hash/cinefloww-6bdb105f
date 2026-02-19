@@ -7,7 +7,8 @@ const corsHeaders = {
 
 const BATCH_SIZE = 50;
 const CONCURRENCY = 10;
-const MAX_RUNTIME_MS = 120_000; // 2min safe limit before 150s edge timeout
+const MAX_RUNTIME_MS = 120_000;
+const ITEM_TIMEOUT_MS = 15_000;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -21,6 +22,8 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const TELEGRAM_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN");
     const TELEGRAM_API = TELEGRAM_TOKEN ? `https://api.telegram.org/bot${TELEGRAM_TOKEN}` : null;
 
@@ -35,13 +38,12 @@ Deno.serve(async (req) => {
       } catch {}
     };
 
-    // Load active providers sorted by priority
+    // Load active providers
     let providerQuery = supabase
       .from("scraping_providers")
       .select("*")
       .eq("active", true)
       .order("priority", { ascending: true });
-    
     if (provider_id) providerQuery = providerQuery.eq("id", provider_id);
     const { data: providers } = await providerQuery;
 
@@ -51,12 +53,16 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Get unresolved content
+    // 1. Clear expired cache + old failures before scraping
+    await supabase.from("video_cache").delete().lt("expires_at", new Date().toISOString());
+    const retryThreshold = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+    await supabase.from("resolve_failures").delete().lt("attempted_at", retryThreshold);
+
+    // 2. Get unresolved content
     const { data: unresolvedRpc, error: rpcErr } = await supabase.rpc("get_unresolved_content", { batch_limit: batch_size });
-    
+
     let unresolved: any[] = [];
     if (rpcErr) {
-      // Fallback: manual query
       const { data: content } = await supabase
         .from("content")
         .select("tmdb_id, imdb_id, content_type, title")
@@ -69,8 +75,8 @@ Deno.serve(async (req) => {
 
     if (!unresolved.length) {
       await sendTg("✅ <b>Raspagem concluída!</b>\nTodo o catálogo está indexado.");
-      return new Response(JSON.stringify({ 
-        done: true, processed: 0, success: 0, failed: 0, offset 
+      return new Response(JSON.stringify({
+        done: true, processed: 0, success: 0, failed: 0, offset
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -78,7 +84,6 @@ Deno.serve(async (req) => {
     let processed = 0, success = 0, failed = 0;
     const results: string[] = [];
 
-    // Check if scraping was cancelled
     const isCancelled = async (): Promise<boolean> => {
       if (!session_id) return false;
       const { data } = await supabase
@@ -89,7 +94,72 @@ Deno.serve(async (req) => {
       return (data?.value as any)?.cancelled === true;
     };
 
-    // Process items in batches of CONCURRENCY
+    // Process each item with timeout and incremental save
+    const processItem = async (item: any) => {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), ITEM_TIMEOUT_MS);
+
+        const res = await fetch(`${supabaseUrl}/functions/v1/extract-video`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${serviceKey}`,
+          },
+          body: JSON.stringify({
+            tmdb_id: item.tmdb_id,
+            imdb_id: item.imdb_id,
+            content_type: item.content_type,
+            title: item.title,
+            _skip_providers: ["playerflix"],
+          }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeout);
+        const data = await res.json();
+
+        processed++;
+
+        if (data?.url && data?.type !== "iframe-proxy") {
+          success++;
+          const provName = data.provider || "?";
+          results.push(`✅ ${item.title} → ${provName}`);
+
+          // Update provider health incrementally
+          if (data.provider) {
+            await supabase
+              .from("scraping_providers")
+              .update({
+                health_status: "healthy",
+                last_checked_at: new Date().toISOString(),
+              })
+              .ilike("name", `%${data.provider}%`);
+            // Increment success_count via RPC would be ideal, but just set healthy
+          }
+        } else {
+          failed++;
+          results.push(`❌ ${item.title}`);
+          // Record failure immediately (incremental save)
+          await supabase.from("resolve_failures").upsert({
+            tmdb_id: item.tmdb_id,
+            content_type: item.content_type,
+            attempted_at: new Date().toISOString(),
+          }, { onConflict: "tmdb_id,content_type" });
+        }
+      } catch {
+        failed++;
+        processed++;
+        results.push(`❌ ${item.title} (timeout)`);
+        await supabase.from("resolve_failures").upsert({
+          tmdb_id: item.tmdb_id,
+          content_type: item.content_type,
+          attempted_at: new Date().toISOString(),
+        }, { onConflict: "tmdb_id,content_type" });
+      }
+    };
+
+    // Process in batches of CONCURRENCY with time check
     for (let i = 0; i < unresolved.length; i += CONCURRENCY) {
       if (Date.now() - startTime > MAX_RUNTIME_MS) break;
       if (await isCancelled()) {
@@ -98,54 +168,7 @@ Deno.serve(async (req) => {
       }
 
       const batch = unresolved.slice(i, i + CONCURRENCY);
-      const promises = batch.map(async (item: any) => {
-        try {
-          const { data: result } = await supabase.functions.invoke("extract-video", {
-            body: {
-              tmdb_id: item.tmdb_id,
-              imdb_id: item.imdb_id,
-              content_type: item.content_type,
-              title: item.title,
-              _skip_providers: ["playerflix"], // skip browser-only
-            },
-          });
-
-          processed++;
-          if (result?.url && result?.type !== "iframe-proxy") {
-            success++;
-            const provName = result.provider || "?";
-            results.push(`✅ ${item.title} → ${provName}`);
-
-            // Update provider health
-            if (result.provider) {
-              await supabase
-                .from("scraping_providers")
-                .update({ 
-                  success_count: providers.find((p: any) => p.name.toLowerCase().includes(result.provider))?.success_count + 1 || 1,
-                  health_status: "healthy",
-                  last_checked_at: new Date().toISOString(),
-                })
-                .ilike("name", `%${result.provider}%`);
-            }
-          } else {
-            failed++;
-            results.push(`❌ ${item.title}`);
-
-            // Record failure
-            await supabase.from("resolve_failures").upsert({
-              tmdb_id: item.tmdb_id,
-              content_type: item.content_type,
-              attempted_at: new Date().toISOString(),
-            }, { onConflict: "tmdb_id,content_type" });
-          }
-        } catch (err) {
-          failed++;
-          processed++;
-          results.push(`❌ ${item.title} (erro)`);
-        }
-      });
-
-      await Promise.all(promises);
+      await Promise.all(batch.map(processItem));
 
       // Send progress to Telegram every batch
       if (chat_id && results.length > 0) {
@@ -161,15 +184,14 @@ Deno.serve(async (req) => {
     const nextOffset = offset + batch_size;
     const hasMore = unresolved.length === batch_size && (Date.now() - startTime <= MAX_RUNTIME_MS);
 
-    // Self-chain if there's more to process
+    // Self-chain if more to process
     if (hasMore && !(await isCancelled())) {
-      // Trigger next batch
-      const selfUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/smart-scraper`;
+      const selfUrl = `${supabaseUrl}/functions/v1/smart-scraper`;
       fetch(selfUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+          Authorization: `Bearer ${serviceKey}`,
         },
         body: JSON.stringify({ chat_id, offset: nextOffset, batch_size, provider_id, session_id }),
       }).catch(() => {});

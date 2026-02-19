@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
+import { toast } from "sonner";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Play, Star, Clock, Calendar, Users, Tv, List, MessageSquare } from "lucide-react";
+import { Play, Star, Clock, Calendar, Users, Tv, List, MessageSquare, Flag } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import ContentRow from "@/components/ContentRow";
 import SeasonsModal from "@/components/SeasonsModal";
@@ -9,6 +10,7 @@ import CastModal from "@/components/CastModal";
 import AudioSelectModal from "@/components/AudioSelectModal";
 import TrailerModal from "@/components/TrailerModal";
 import RequestModal from "@/components/RequestModal";
+import ReportModal from "@/components/ReportModal";
 import { fromSlug } from "@/lib/slugify";
 import { toSlug } from "@/lib/slugify";
 import {
@@ -36,6 +38,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [showAudioModal, setShowAudioModal] = useState(false);
   const [showTrailer, setShowTrailer] = useState(false);
   const [showRequest, setShowRequest] = useState(false);
+  const [showReport, setShowReport] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -49,6 +52,29 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
       setDetail(data);
       setLoading(false);
     }).catch(() => setLoading(false));
+
+    // Check for resolved reports for this visitor
+    const vid = localStorage.getItem("_cf_vid");
+    if (vid) {
+      supabase
+        .from("content_reports" as any)
+        .select("id, title")
+        .eq("tmdb_id", id)
+        .eq("visitor_id", vid)
+        .eq("status", "resolved")
+        .then(({ data: resolvedReports }: any) => {
+          if (resolvedReports?.length) {
+            toast.success(
+              `🎉 O problema reportado em "${resolvedReports[0].title}" foi resolvido! A equipe LyneFlix agradece.`,
+              { duration: 8000 }
+            );
+            // Mark as notified by deleting
+            resolvedReports.forEach((r: any) => {
+              supabase.from("content_reports" as any).update({ status: "notified" } as any).eq("id", r.id).then(() => {});
+            });
+          }
+        });
+    }
   }, [slug, type]);
 
   if (loading) {
@@ -232,6 +258,14 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                   Temporadas
                 </button>
               )}
+              <button
+                onClick={() => setShowReport(true)}
+                className="flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl glass glass-hover font-semibold text-xs sm:text-sm text-destructive/80 hover:text-destructive"
+                title="Reportar problema"
+              >
+                <Flag className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                Reportar
+              </button>
             </div>
 
             {/* Cast - Netflix style */}
@@ -289,6 +323,14 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         />
       )}
       {showRequest && <RequestModal onClose={() => setShowRequest(false)} />}
+      {showReport && (
+        <ReportModal
+          tmdbId={detail.id}
+          contentType={type}
+          title={getDisplayTitle(detail)}
+          onClose={() => setShowReport(false)}
+        />
+      )}
     </div>
   );
 };
