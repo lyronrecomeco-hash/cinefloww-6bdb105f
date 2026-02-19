@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useSearchParams, useNavigate, useParams } from "react-router-dom";
 import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
+import { fromSlug } from "@/lib/slugify";
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Settings, AlertTriangle,
@@ -40,7 +41,7 @@ const PlayerPage = () => {
   const videoType = (searchParams.get("type") as "mp4" | "m3u8") || "m3u8";
   const audioParam = searchParams.get("audio") || "legendado";
   const imdbId = searchParams.get("imdb") || null;
-  const tmdbId = params.id ? Number(params.id) : (searchParams.get("tmdb") ? Number(searchParams.get("tmdb")) : undefined);
+  const tmdbId = params.id ? fromSlug(params.id) : (searchParams.get("tmdb") ? Number(searchParams.get("tmdb")) : undefined);
   const contentType = params.type || searchParams.get("ct") || "movie";
   const season = searchParams.get("s") ? Number(searchParams.get("s")) : undefined;
   const episode = searchParams.get("e") ? Number(searchParams.get("e")) : undefined;
@@ -63,7 +64,7 @@ const PlayerPage = () => {
       let cacheQuery = supabase
         .from("video_cache")
         .select("video_url, video_type, provider")
-        .eq("tmdb_id", Number(params.id))
+        .eq("tmdb_id", tmdbId!)
         .eq("content_type", cType)
         .eq("audio_type", aType)
         .gt("expires_at", new Date().toISOString());
@@ -76,7 +77,7 @@ const PlayerPage = () => {
       // Run cache check and title fetch in parallel
       const [cacheResult, titleResult] = await Promise.all([
         cacheQuery.maybeSingle(),
-        supabase.from("content").select("title").eq("tmdb_id", Number(params.id)).eq("content_type", cType).maybeSingle(),
+        supabase.from("content").select("title").eq("tmdb_id", tmdbId!).eq("content_type", cType).maybeSingle(),
       ]);
 
       if (titleResult.data?.title) setBankTitle(titleResult.data.title);
@@ -97,7 +98,7 @@ const PlayerPage = () => {
         const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 45000));
         const extractPromise = supabase.functions.invoke("extract-video", {
           body: {
-            tmdb_id: Number(params.id),
+            tmdb_id: tmdbId!,
             imdb_id: imdbId,
             content_type: cType,
             audio_type: aType,

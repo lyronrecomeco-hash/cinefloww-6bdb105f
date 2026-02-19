@@ -3,6 +3,7 @@ import { Star, Ban } from "lucide-react";
 import { TMDBMovie, posterUrl, getDisplayTitle, getYear, getMediaType } from "@/services/tmdb";
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { toSlug } from "@/lib/slugify";
 
 interface MovieCardProps {
   movie: TMDBMovie;
@@ -10,7 +11,8 @@ interface MovieCardProps {
 
 const MovieCard = ({ movie }: MovieCardProps) => {
   const type = getMediaType(movie);
-  const link = type === "movie" ? `/filme/${movie.id}` : `/serie/${movie.id}`;
+  const title = getDisplayTitle(movie);
+  const link = type === "movie" ? `/filme/${toSlug(title, movie.id)}` : `/serie/${toSlug(title, movie.id)}`;
   const [inactive, setInactive] = useState(false);
 
   useEffect(() => {
@@ -31,7 +33,7 @@ const MovieCard = ({ movie }: MovieCardProps) => {
       <div className="relative aspect-[2/3] rounded-xl sm:rounded-2xl overflow-hidden mb-2 sm:mb-3 card-shine">
         <img
           src={posterUrl(movie.poster_path)}
-          alt={getDisplayTitle(movie)}
+          alt={title}
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
         />
@@ -56,7 +58,7 @@ const MovieCard = ({ movie }: MovieCardProps) => {
       </div>
 
       <h3 className="font-display font-semibold text-xs sm:text-sm leading-tight line-clamp-1 group-hover:text-primary transition-colors">
-        {getDisplayTitle(movie)}
+        {title}
       </h3>
       <p className="text-muted-foreground text-[10px] sm:text-xs mt-0.5 sm:mt-1">{getYear(movie)}</p>
     </div>

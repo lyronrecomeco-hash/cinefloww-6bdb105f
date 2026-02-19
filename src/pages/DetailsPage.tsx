@@ -9,6 +9,8 @@ import CastModal from "@/components/CastModal";
 import AudioSelectModal from "@/components/AudioSelectModal";
 import TrailerModal from "@/components/TrailerModal";
 import RequestModal from "@/components/RequestModal";
+import { fromSlug } from "@/lib/slugify";
+import { toSlug } from "@/lib/slugify";
 import {
   TMDBMovieDetail,
   getMovieDetails,
@@ -24,7 +26,8 @@ interface DetailsPageProps {
 }
 
 const DetailsPage = ({ type }: DetailsPageProps) => {
-  const { id } = useParams();
+  const { id: slug } = useParams();
+  const id = fromSlug(slug || "0");
   const navigate = useNavigate();
   const [detail, setDetail] = useState<TMDBMovieDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,11 +45,11 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     setShowAudioModal(false);
     setShowTrailer(false);
     const fetcher = type === "movie" ? getMovieDetails : getSeriesDetails;
-    fetcher(Number(id)).then((data) => {
+    fetcher(id).then((data) => {
       setDetail(data);
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, [id, type]);
+  }, [slug, type]);
 
   if (loading) {
     return (
@@ -90,7 +93,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
       const { data } = await supabase
         .from("video_cache")
         .select("video_url, video_type, provider")
-        .eq("tmdb_id", Number(id))
+        .eq("tmdb_id", id)
         .eq("content_type", cType)
         .eq("audio_type", audio)
         .is("season", null)
@@ -111,7 +114,8 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     
     // Try to prefetch cached source for instant playback
     const cached = await prefetchSource(audio);
-    navigate(`/player/${type === "tv" ? "series" : "movie"}/${id}?${params.toString()}`, {
+    const playerSlug = toSlug(getDisplayTitle(detail), detail.id);
+    navigate(`/player/${type === "tv" ? "series" : "movie"}/${playerSlug}?${params.toString()}`, {
       state: cached ? { prefetchedSource: cached } : undefined,
     });
   };
