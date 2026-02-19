@@ -38,20 +38,25 @@ const WatchPage = () => {
   // Check if we have a prefetched source from DetailsPage
   const prefetched = (location.state as any)?.prefetchedSource;
 
-  const [sources, setSources] = useState<VideoSource[]>(() => {
-    if (prefetched?.url) {
-      return [{
-        url: secureVideoUrl(prefetched.url),
-        quality: "auto",
-        provider: prefetched.provider || "banco",
-        type: (prefetched.type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
-      }];
-    }
-    return [];
-  });
+  const [sources, setSources] = useState<VideoSource[]>([]);
   const [phase, setPhase] = useState<Phase>(
-    prefetched?.url ? "playing" : (audioParam ? "loading" : "audio-select")
+    prefetched?.url ? "loading" : (audioParam ? "loading" : "audio-select")
   );
+
+  // Handle prefetched source async
+  useEffect(() => {
+    if (prefetched?.url && sources.length === 0) {
+      secureVideoUrl(prefetched.url).then((signedUrl) => {
+        setSources([{
+          url: signedUrl,
+          quality: "auto",
+          provider: prefetched.provider || "banco",
+          type: (prefetched.type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
+        }]);
+        setPhase("playing");
+      });
+    }
+  }, []);
   const [iframeProxyUrl, setIframeProxyUrl] = useState<string | null>(null);
   const [selectedAudio, setSelectedAudio] = useState(audioParam || "");
   const [audioTypes, setAudioTypes] = useState<string[]>([]);
@@ -131,7 +136,7 @@ const WatchPage = () => {
       const { data: cached } = await query.maybeSingle();
       if (cached?.video_url) {
         setSources([{
-          url: secureVideoUrl(cached.video_url),
+          url: await secureVideoUrl(cached.video_url),
           quality: "auto",
           provider: cached.provider || "banco",
           type: (cached.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
@@ -165,7 +170,7 @@ const WatchPage = () => {
           return;
         }
         setSources([{
-          url: secureVideoUrl(data.url),
+          url: await secureVideoUrl(data.url),
           quality: "auto",
           provider: data.provider || "banco",
           type: data.type === "mp4" ? "mp4" : "m3u8",
@@ -280,7 +285,7 @@ const WatchPage = () => {
           proxyUrl={iframeProxyUrl}
           onVideoFound={async (url, vType) => {
             setSources([{
-              url: secureVideoUrl(url),
+              url: await secureVideoUrl(url),
               quality: "auto",
               provider: "playerflix",
               type: vType,

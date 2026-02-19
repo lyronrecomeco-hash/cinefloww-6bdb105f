@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.smart-scraper]
 verify_jwt = false
+
+[functions.video-token]
+verify_jwt = false

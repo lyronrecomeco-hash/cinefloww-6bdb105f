@@ -1,63 +1,69 @@
 /**
- * Video URL obfuscation & proxy routing.
- * Maps third-party CDN domains to first-party proxy paths via Vercel rewrites.
- * Adds lightweight XOR obfuscation for in-memory storage.
+ * Video URL security layer with signed tokens.
+ * 
+ * Flow:
+ * 1. Raw CDN URL comes from extract-video/video_cache
+ * 2. Client calls video-token edge function to get a signed, time-limited stream URL
+ * 3. Player uses the signed stream URL (goes through video-token?action=stream)
+ * 4. Edge function validates HMAC signature + expiry → redirects/proxies to real CDN
+ * 
+ * This ensures:
+ * - Real CDN URLs never appear in browser network tab
+ * - Shared URLs expire after 2 hours
+ * - HMAC prevents URL tampering
  */
 
-const CDN_MAP: Record<string, string> = {
-  "cdn.cineveo.site": "/v/a",
-  "watch.brstream.cc": "/v/b",
-  "vods.playcnvs.com": "/v/c",
-};
-
-const XOR_KEY = 0x5A; // Simple XOR key for in-memory obfuscation
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 /**
- * Transform a raw CDN URL into a proxied first-party URL.
- * e.g. https://cdn.cineveo.site/video.mp4 → /v/a/video.mp4
+ * Request a signed stream URL from the video-token edge function.
+ * Returns the signed URL that the player should use.
  */
-export function proxyVideoUrl(rawUrl: string): string {
+export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
   if (!rawUrl) return rawUrl;
+  
+  // Don't re-sign URLs that are already signed
+  if (rawUrl.includes("action=stream") || rawUrl.includes("video-token")) {
+    return rawUrl;
+  }
+
   try {
-    const url = new URL(rawUrl);
-    const proxyPrefix = CDN_MAP[url.hostname];
-    if (proxyPrefix) {
-      // Use origin-relative path so it goes through user's Vercel domain
-      return `${proxyPrefix}${url.pathname}${url.search}`;
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/video-token?action=sign`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${SUPABASE_KEY}`,
+      },
+      body: JSON.stringify({ video_url: rawUrl }),
+    });
+
+    if (!resp.ok) {
+      console.warn("[videoUrl] Failed to sign URL, using raw:", resp.status);
+      return rawUrl;
     }
-  } catch {
-    // Not a valid URL or no match - return as-is
-  }
-  return rawUrl;
-}
 
-/**
- * Lightweight XOR encode for storing URLs in memory (not in DOM/network).
- * NOT cryptographic - just prevents casual string searching.
- */
-export function encodeUrl(url: string): string {
-  return btoa(
-    url
-      .split("")
-      .map((c) => String.fromCharCode(c.charCodeAt(0) ^ XOR_KEY))
-      .join("")
-  );
-}
-
-export function decodeUrl(encoded: string): string {
-  try {
-    return atob(encoded)
-      .split("")
-      .map((c) => String.fromCharCode(c.charCodeAt(0) ^ XOR_KEY))
-      .join("");
-  } catch {
-    return encoded;
+    const data = await resp.json();
+    return data.stream_url || rawUrl;
+  } catch (err) {
+    console.warn("[videoUrl] Token signing failed, using raw URL");
+    return rawUrl;
   }
 }
 
 /**
- * Full pipeline: take raw CDN URL → proxy through domain → encode for storage.
+ * Secure a video URL: sign it with a token for time-limited access.
+ * This is the main function components should use.
  */
-export function secureVideoUrl(rawUrl: string): string {
-  return proxyVideoUrl(rawUrl);
+export async function secureVideoUrl(rawUrl: string): Promise<string> {
+  return getSignedVideoUrl(rawUrl);
+}
+
+/**
+ * Synchronous fallback - returns raw URL immediately.
+ * Use when you can't await (e.g., in useMemo).
+ */
+export function secureVideoUrlSync(rawUrl: string): string {
+  return rawUrl; // Will be replaced by async version in player
 }

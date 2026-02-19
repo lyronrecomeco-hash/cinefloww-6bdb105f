@@ -85,7 +85,7 @@ const PlayerPage = () => {
 
       if (cacheResult.data?.video_url) {
         setBankSources([{
-          url: secureVideoUrl(cacheResult.data.video_url),
+          url: await secureVideoUrl(cacheResult.data.video_url),
           quality: "auto",
           provider: cacheResult.data.provider || "banco",
           type: (cacheResult.data.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
@@ -111,7 +111,7 @@ const PlayerPage = () => {
         const { data } = await Promise.race([extractPromise, timeoutPromise]) as any;
         if (data?.url) {
           setBankSources([{
-            url: secureVideoUrl(data.url),
+            url: await secureVideoUrl(data.url),
             quality: "auto",
             provider: data.provider || "extracted",
             type: data.type === "mp4" ? "mp4" : "m3u8",
@@ -127,7 +127,7 @@ const PlayerPage = () => {
 
   const sources: VideoSource[] = useMemo(() => {
     if (bankSources.length > 0) return bankSources;
-    if (videoUrl) return [{ url: secureVideoUrl(videoUrl), quality: "auto", provider: "Stream", type: videoType }];
+    if (videoUrl) return [{ url: videoUrl, quality: "auto", provider: "Stream", type: videoType }];
     return [];
   }, [bankSources, videoUrl, videoType]);
 
