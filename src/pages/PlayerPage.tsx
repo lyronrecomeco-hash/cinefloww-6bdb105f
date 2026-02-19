@@ -102,38 +102,40 @@ const PlayerPage = () => {
 
   const isLiveTV = !!tvChannelId;
 
-  // TV channel extraction — proxy through secureVideoUrl to convert HTTP→HTTPS
+  // TV channel extraction — use HTTPS URL directly (no token proxy for live)
   useEffect(() => {
     if (!tvChannelId) return;
     setBankLoading(true);
     let cancelled = false;
     const load = async () => {
       try {
-        const { data } = await supabase.functions.invoke("extract-tv", {
+        const { data, error } = await supabase.functions.invoke("extract-tv", {
           body: { channel_id: tvChannelId },
         });
         if (cancelled) return;
+        console.log("[TV] extract-tv response:", data, error);
         if (data?.channel_name) setBankTitle(data.channel_name);
         if (data?.url && data.type !== "iframe") {
-          // Always proxy through video-token to convert HTTP→HTTPS
-          const securedUrl = await secureVideoUrl(data.url);
-          if (cancelled) return;
+          // Use HTTPS URL directly — no proxy needed for live streams
+          // The edge function already converts HTTP→HTTPS
           setBankSources([{
-            url: securedUrl,
+            url: data.url,
             quality: "live",
             provider: data.provider || "tv",
             type: data.type === "mp4" ? "mp4" : "m3u8",
           }]);
         } else if (data?.url) {
-          const proxyUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(data.url)}`;
+          // Iframe fallback — embed directly
           setBankSources([{
-            url: proxyUrl,
+            url: data.url,
             quality: "live",
-            provider: "tv-proxy",
+            provider: "tv-iframe",
             type: "m3u8",
           }]);
         }
-      } catch { /* ignore */ }
+      } catch (err) {
+        console.error("[TV] Error loading channel:", err);
+      }
       if (!cancelled) setBankLoading(false);
     };
     load();
@@ -236,8 +238,8 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    // Remove crossOrigin for mp4 to avoid CORS issues
-    if (src.type === "mp4") {
+    // Remove crossOrigin for mp4 and live TV to avoid CORS issues
+    if (src.type === "mp4" || isLiveTV) {
       video.removeAttribute("crossorigin");
     } else {
       video.crossOrigin = "anonymous";
@@ -321,7 +323,7 @@ const PlayerPage = () => {
       video.addEventListener("canplay", () => { if (loading) { setLoading(false); video.play().catch(() => {}); } }, { once: true });
     }
     video.addEventListener("error", () => { setError(true); setLoading(false); }, { once: true });
-  }, []);
+  }, [isLiveTV]);
 
   useEffect(() => {
     if (source) attachSource(source);

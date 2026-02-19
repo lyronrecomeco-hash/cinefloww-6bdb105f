@@ -86,8 +86,13 @@ Deno.serve(async (req) => {
     const found = findVideoUrl(html);
 
     if (found) {
+      // Force HTTPS to avoid mixed-content blocking on HTTPS pages
+      let secureUrl = found.url;
+      if (secureUrl.startsWith("http://")) {
+        secureUrl = secureUrl.replace("http://", "https://");
+      }
       return new Response(JSON.stringify({
-        url: found.url,
+        url: secureUrl,
         type: found.type,
         provider: "embedtv",
         channel_name: channel.name,
