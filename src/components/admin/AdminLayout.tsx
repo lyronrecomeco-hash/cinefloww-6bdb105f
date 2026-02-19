@@ -21,7 +21,6 @@ const menuItems = [
   { label: "Bot Telegram", path: "/admin/telegram", icon: Bot },
   { label: "Avisos", path: "/admin/avisos", icon: Bell },
   { label: "Configurações", path: "/admin/config", icon: Settings },
-  { label: "Configurações", path: "/admin/config", icon: Settings },
 ];
 
 // Simple notification sound using Web Audio API
