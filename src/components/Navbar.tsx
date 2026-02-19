@@ -11,6 +11,7 @@ const navItems = [
   { label: "Séries", path: "/series" },
   { label: "Doramas", path: "/doramas" },
   { label: "Lançamentos", path: "/lancamentos" },
+  { label: "Minha Lista", path: "/minha-lista" },
 ];
 
 const Navbar = () => {
@@ -83,12 +84,18 @@ const Navbar = () => {
     >
       <div className="px-4 sm:px-6 lg:px-12 flex items-center justify-between h-14 sm:h-16 lg:h-20">
         {/* Logo */}
-        <Link to="/" className="flex items-center gap-2 group">
-          <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-primary/20 flex items-center justify-center group-hover:bg-primary/30 transition-colors">
-            <span className="text-primary font-display font-bold text-base sm:text-lg">L</span>
-          </div>
-          <span className="font-display font-bold text-lg sm:text-xl tracking-tight">
-            Lyne<span className="text-gradient">Flix</span>
+        <Link to="/" className="flex items-center gap-1.5 group">
+          <span
+            className="font-display font-black text-lg sm:text-xl tracking-tight select-none"
+            style={{
+              background: "linear-gradient(135deg, hsl(217 91% 70%), hsl(217 91% 50%), hsl(230 80% 45%))",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+              filter: "drop-shadow(0 0 12px hsl(217 91% 60% / 0.3))",
+            }}
+          >
+            LYNEFLIX
           </span>
         </Link>
 

@@ -188,6 +188,29 @@ async function handleDoramaImport(
 
   console.log(`[import-dorama] Fetched ${allItems.length} doramas`);
 
+  // For doramas without Portuguese translation, try English name
+  const needsTranslation = allItems.filter(i => i.name === i.original_name && i.name);
+  if (needsTranslation.length > 0) {
+    console.log(`[import-dorama] ${needsTranslation.length} need English fallback`);
+    // Batch fetch English names (max 5 concurrent)
+    for (let i = 0; i < needsTranslation.length; i += 5) {
+      const batch = needsTranslation.slice(i, i + 5);
+      const results = await Promise.allSettled(
+        batch.map(async (item: any) => {
+          try {
+            const res = await fetch(`${TMDB_BASE}/tv/${item.id}?language=en-US`, { headers: tmdbHeaders });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.name && data.name !== item.original_name) {
+                item.name = data.name; // Use English name as fallback
+              }
+            }
+          } catch {}
+        })
+      );
+    }
+  }
+
   const rows = allItems.map(item => ({
     tmdb_id: item.id,
     content_type: "dorama",

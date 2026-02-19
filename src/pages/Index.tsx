@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Flame, Film, Tv } from "lucide-react";
+import { Flame, Film, Tv, Heart } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import HeroSlider from "@/components/HeroSlider";
 import ContentRow from "@/components/ContentRow";
-import ContinueWatchingRow from "@/components/ContinueWatchingRow";
 import Footer from "@/components/Footer";
+import { supabase } from "@/integrations/supabase/client";
 import {
   TMDBMovie,
   getTrending,
@@ -27,15 +27,40 @@ const Index = () => {
   const [nowPlaying, setNowPlaying] = useState<TMDBMovie[]>([]);
   const [popularMovies, setPopularMovies] = useState<TMDBMovie[]>([]);
   const [popularSeries, setPopularSeries] = useState<TMDBMovie[]>([]);
+  const [doramas, setDoramas] = useState<TMDBMovie[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const loadDoramas = async () => {
+      const { data } = await supabase
+        .from("content")
+        .select("tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type")
+        .eq("content_type", "dorama")
+        .eq("status", "published")
+        .order("release_date", { ascending: false, nullsFirst: false })
+        .limit(20);
+      if (data) {
+        setDoramas(data.map((d: any) => ({
+          id: d.tmdb_id,
+          name: d.title,
+          poster_path: d.poster_path,
+          backdrop_path: d.backdrop_path,
+          overview: "",
+          vote_average: d.vote_average || 0,
+          first_air_date: d.release_date,
+          genre_ids: [],
+          media_type: "tv",
+        })));
+      }
+    };
+
     Promise.all([
       getTrending(),
       getNowPlayingMovies(),
       getAiringTodaySeries(),
       getPopularMovies(),
       getPopularSeries(),
+      loadDoramas(),
     ]).then(([t, np, at, pm, ps]) => {
       setTrending(t.results);
       const launches = [...np.results.slice(0, 10), ...at.results.slice(0, 10)];
@@ -60,10 +85,10 @@ const Index = () => {
       <HeroSlider movies={trending} />
 
       <div className="-mt-12 sm:-mt-16 relative z-10 pb-12 sm:pb-20 space-y-1 sm:space-y-2">
-        <ContinueWatchingRow />
         <ContentRow title="🔥 Lançamentos" movies={nowPlaying} icon={<Flame className="w-4 h-4" />} />
         <ContentRow title="🎬 Filmes" movies={popularMovies} icon={<Film className="w-4 h-4" />} />
         <ContentRow title="📺 Séries" movies={popularSeries} icon={<Tv className="w-4 h-4" />} />
+        {doramas.length > 0 && <ContentRow title="🌸 Doramas" movies={doramas} icon={<Heart className="w-4 h-4" />} />}
       </div>
 
       <Footer />

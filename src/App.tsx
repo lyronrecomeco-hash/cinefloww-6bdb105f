@@ -19,6 +19,7 @@ const NotFound = lazy(() => import("./pages/NotFound"));
 const DmcaPage = lazy(() => import("./pages/DmcaPage"));
 const TermsPage = lazy(() => import("./pages/TermsPage"));
 const DadosPage = lazy(() => import("./pages/DadosPage"));
+const MyListPage = lazy(() => import("./pages/MyListPage"));
 
 // Admin (lazy loaded)
 const AdminLogin = lazy(() => import("./pages/AdminLogin"));
@@ -70,6 +71,7 @@ const App = () => (
             <Route path="/series" element={<SeriesPage />} />
             <Route path="/doramas" element={<DoramasPage />} />
             <Route path="/lancamentos" element={<ReleasesPage />} />
+            <Route path="/minha-lista" element={<MyListPage />} />
             <Route path="/filme/:id" element={<DetailsPage type="movie" />} />
             <Route path="/serie/:id" element={<DetailsPage type="tv" />} />
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />

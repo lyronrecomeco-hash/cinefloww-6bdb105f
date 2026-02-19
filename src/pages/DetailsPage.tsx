@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback } from "react";
 import { toast } from "sonner";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Play, Star, Clock, Calendar, Users, Tv, List, MessageSquare, Flag } from "lucide-react";
+import { Play, Star, Clock, Calendar, Users, Tv, List, MessageSquare, Flag, Share2, BookmarkPlus, BookmarkCheck } from "lucide-react";
+import { addToMyList, removeFromMyList, isInMyList } from "@/lib/myList";
 import Navbar from "@/components/Navbar";
 import ContentRow from "@/components/ContentRow";
 import SeasonsModal from "@/components/SeasonsModal";
@@ -39,6 +40,13 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [showTrailer, setShowTrailer] = useState(false);
   const [showRequest, setShowRequest] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [inMyList, setInMyList] = useState(false);
+
+  useEffect(() => {
+    if (detail) {
+      setInMyList(isInMyList(detail.id, type));
+    }
+  }, [detail, type]);
 
   useEffect(() => {
     setLoading(true);
@@ -259,6 +267,45 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                   Temporadas
                 </button>
               )}
+              <button
+                onClick={() => {
+                  if (inMyList) {
+                    removeFromMyList(detail.id, type);
+                    setInMyList(false);
+                  } else {
+                    addToMyList({
+                      tmdb_id: detail.id,
+                      content_type: type,
+                      title: getDisplayTitle(detail),
+                      poster_path: detail.poster_path,
+                    });
+                    setInMyList(true);
+                  }
+                }}
+                className={`flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl glass glass-hover font-semibold text-xs sm:text-sm ${inMyList ? "text-primary" : ""}`}
+                title={inMyList ? "Remover da lista" : "Adicionar à lista"}
+              >
+                {inMyList ? <BookmarkCheck className="w-4 h-4 sm:w-5 sm:h-5" /> : <BookmarkPlus className="w-4 h-4 sm:w-5 sm:h-5" />}
+                {inMyList ? "Na Lista" : "Minha Lista"}
+              </button>
+              <button
+                onClick={() => {
+                  const url = window.location.href;
+                  const text = `🎬 Tô assistindo "${getDisplayTitle(detail)}" na LyneFlix e tá incrível! Vem conferir 👉 ${url}`;
+                  if (navigator.share) {
+                    navigator.share({ title: `${getDisplayTitle(detail)} — LyneFlix`, text, url }).catch(() => {});
+                  } else {
+                    navigator.clipboard.writeText(text).then(() => {
+                      toast.success("Link copiado! Compartilhe com seus amigos 🚀");
+                    });
+                  }
+                }}
+                className="flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl glass glass-hover font-semibold text-xs sm:text-sm"
+                title="Compartilhar"
+              >
+                <Share2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                Compartilhar
+              </button>
               <button
                 onClick={() => setShowReport(true)}
                 className="flex items-center gap-2 px-4 sm:px-5 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl glass glass-hover font-semibold text-xs sm:text-sm text-destructive/80 hover:text-destructive"

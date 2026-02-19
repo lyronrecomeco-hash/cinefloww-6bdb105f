@@ -7,7 +7,7 @@ import { toSlug } from "@/lib/slugify";
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Settings, AlertTriangle,
-  RefreshCw, ArrowLeft, PictureInPicture,
+  RefreshCw, ArrowLeft, PictureInPicture, Subtitles,
 } from "lucide-react";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
 import { getSeasonDetails } from "@/services/tmdb";
@@ -147,6 +147,8 @@ const PlayerPage = () => {
   const [currentLevel, setCurrentLevel] = useState(-1);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
   const [savedTime, setSavedTime] = useState(0);
+  const [ccEnabled, setCcEnabled] = useState(false);
+  const [ccTracks, setCcTracks] = useState<TextTrack[]>([]);
 
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   const source = sources[currentSourceIdx];
@@ -250,8 +252,16 @@ const PlayerPage = () => {
         setLoading(false);
         setHlsLevels(data.levels.map(l => ({ height: l.height, bitrate: l.bitrate })));
         video.play().catch(() => {});
+        // Check for subtitle tracks
+        if (hls.subtitleTracks?.length > 0) {
+          hls.subtitleDisplay = ccEnabled;
+          if (ccEnabled) hls.subtitleTrack = 0;
+        }
       });
       hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setCurrentLevel(data.level));
+      hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
+        // Subtitles available from HLS
+      });
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
@@ -428,6 +438,23 @@ const PlayerPage = () => {
     setPlaybackSpeed(speed);
     if (videoRef.current) videoRef.current.playbackRate = speed;
     setShowSettings(false);
+  };
+
+  const toggleCC = () => {
+    const newState = !ccEnabled;
+    setCcEnabled(newState);
+    const video = videoRef.current;
+    const hls = hlsRef.current;
+    if (hls && hls.subtitleTracks?.length > 0) {
+      hls.subtitleDisplay = newState;
+      if (newState) hls.subtitleTrack = 0;
+      else hls.subtitleTrack = -1;
+    } else if (video) {
+      // Native text tracks
+      for (let i = 0; i < video.textTracks.length; i++) {
+        video.textTracks[i].mode = newState ? "showing" : "hidden";
+      }
+    }
   };
 
   const changeQuality = (level: number) => {
@@ -666,6 +693,10 @@ const PlayerPage = () => {
             </div>
 
             <div className="flex items-center gap-0.5 sm:gap-1">
+              {/* CC / Subtitles toggle */}
+              <button onClick={toggleCC} className={`p-1.5 sm:p-2 hover:bg-white/10 rounded-xl transition-colors ${ccEnabled ? "text-primary" : "text-white"}`} title={ccEnabled ? "Desativar legendas" : "Ativar legendas"}>
+                <Subtitles className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
               {/* Next episode button in controls */}
               {nextEpUrl && (
                 <button onClick={goNextEpisode} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors text-[10px] sm:text-xs font-medium text-white">
