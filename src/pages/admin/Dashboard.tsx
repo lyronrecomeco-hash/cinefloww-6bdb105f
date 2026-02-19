@@ -13,17 +13,53 @@ const Dashboard = () => {
   const [viewsByType, setViewsByType] = useState<{ name: string; value: number }[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const processVisitorData = (visitorData: any[]) => {
+    // Unique visitors count
+    const uniqueIds = new Set(visitorData.map((v: any) => v.visitor_id));
+    setUniqueVisitors(uniqueIds.size);
+
+    // Views by day (last 7 days)
+    const now = new Date();
+    const dayMap: Record<string, Set<string>> = {};
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      dayMap[d.toISOString().split("T")[0]] = new Set();
+    }
+    visitorData.forEach((v: any) => {
+      const day = v.visited_at?.split("T")[0];
+      if (day && dayMap[day]) dayMap[day].add(v.visitor_id);
+    });
+    setViewsByDay(Object.entries(dayMap).map(([date, set]) => ({
+      date: new Date(date).toLocaleDateString("pt-BR", { weekday: "short" }),
+      views: set.size,
+    })));
+
+    // Views by page type
+    const typeMap: Record<string, Set<string>> = {};
+    visitorData.forEach((v: any) => {
+      const p = v.pathname || "/";
+      let t = "Outros";
+      if (p.startsWith("/filme")) t = "Filmes";
+      else if (p.startsWith("/serie")) t = "Séries";
+      else if (p === "/") t = "Home";
+      else if (p.startsWith("/player")) t = "Player";
+      if (!typeMap[t]) typeMap[t] = new Set();
+      typeMap[t].add(v.visitor_id);
+    });
+    const vbt = Object.entries(typeMap).map(([name, set]) => ({ name, value: set.size }));
+    setViewsByType(vbt.length ? vbt : [{ name: "Sem dados", value: 0 }]);
+  };
+
   useEffect(() => {
-    const fetch = async () => {
+    const fetchData = async () => {
       try {
-        // All queries in parallel for speed
         const [movies, series, doramas, animes, recent, visitors] = await Promise.all([
           supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "movie"),
           supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "series"),
           supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "dorama"),
           supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "anime"),
           supabase.from("content").select("id, title, poster_path, content_type, created_at").order("created_at", { ascending: false }).limit(5),
-          // Real unique visitors from lyneflix.online (last 30 days)
           supabase.from("site_visitors").select("visitor_id, visited_at, pathname").eq("hostname", "lyneflix.online"),
         ]);
 
@@ -34,50 +70,33 @@ const Dashboard = () => {
           animes: animes.count || 0,
         });
         setRecentContent(recent.data || []);
-
-        // Unique visitors count (distinct visitor_ids)
-        const visitorData = visitors.data || [];
-        const uniqueIds = new Set(visitorData.map((v: any) => v.visitor_id));
-        setUniqueVisitors(uniqueIds.size);
-
-        // Views by day (last 7 days) - unique visitors per day
-        const now = new Date();
-        const dayMap: Record<string, Set<string>> = {};
-        for (let i = 6; i >= 0; i--) {
-          const d = new Date(now);
-          d.setDate(d.getDate() - i);
-          dayMap[d.toISOString().split("T")[0]] = new Set();
-        }
-        visitorData.forEach((v: any) => {
-          const day = v.visited_at?.split("T")[0];
-          if (day && dayMap[day]) dayMap[day].add(v.visitor_id);
-        });
-        setViewsByDay(Object.entries(dayMap).map(([date, set]) => ({
-          date: new Date(date).toLocaleDateString("pt-BR", { weekday: "short" }),
-          views: set.size,
-        })));
-
-        // Views by page type
-        const typeMap: Record<string, Set<string>> = {};
-        visitorData.forEach((v: any) => {
-          const p = v.pathname || "/";
-          let t = "Outros";
-          if (p.startsWith("/filme")) t = "Filmes";
-          else if (p.startsWith("/serie")) t = "Séries";
-          else if (p === "/") t = "Home";
-          else if (p.startsWith("/player")) t = "Player";
-          if (!typeMap[t]) typeMap[t] = new Set();
-          typeMap[t].add(v.visitor_id);
-        });
-        const vbt = Object.entries(typeMap).map(([name, set]) => ({ name, value: set.size }));
-        setViewsByType(vbt.length ? vbt : [{ name: "Sem dados", value: 0 }]);
+        processVisitorData(visitors.data || []);
       } catch (err) {
         console.error("Dashboard error:", err);
       } finally {
         setLoading(false);
       }
     };
-    fetch();
+    fetchData();
+
+    // Realtime subscription for live visitor updates
+    const channel = supabase
+      .channel("dashboard-visitors")
+      .on("postgres_changes", {
+        event: "INSERT",
+        schema: "public",
+        table: "site_visitors",
+      }, async () => {
+        // Refetch visitors on new entry
+        const { data } = await supabase
+          .from("site_visitors")
+          .select("visitor_id, visited_at, pathname")
+          .eq("hostname", "lyneflix.online");
+        if (data) processVisitorData(data);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
   const statCards = useMemo(() => [
@@ -99,7 +118,7 @@ const Dashboard = () => {
     <div className="space-y-6">
       <div>
         <h1 className="font-display text-2xl font-bold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">Visão geral do seu catálogo</p>
+        <p className="text-sm text-muted-foreground mt-1">Visão geral do seu catálogo • Visitantes em tempo real</p>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
@@ -114,7 +133,13 @@ const Dashboard = () => {
             </div>
           </div>
         ))}
-        <div className="glass p-4 flex items-center gap-4">
+        <div className="glass p-4 flex items-center gap-4 relative overflow-hidden">
+          <div className="absolute top-2 right-2">
+            <span className="flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+          </div>
           <div className="w-11 h-11 rounded-xl bg-amber-400/10 flex items-center justify-center flex-shrink-0">
             <Eye className="w-5 h-5 text-amber-400" />
           </div>
@@ -130,6 +155,10 @@ const Dashboard = () => {
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="w-4 h-4 text-primary" />
             <h3 className="font-display font-semibold text-sm">Visitantes únicos (7 dias)</h3>
+            <span className="ml-auto flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
           </div>
           <ResponsiveContainer width="100%" height={220}>
             <AreaChart data={viewsByDay}>

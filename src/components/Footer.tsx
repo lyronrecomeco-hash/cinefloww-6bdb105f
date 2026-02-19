@@ -1,12 +1,11 @@
 import { Link } from "react-router-dom";
+import LyneflixLogo from "@/components/LyneflixLogo";
 
 const Footer = () => {
   return (
     <footer className="border-t border-white/5 py-8 sm:py-10 px-4 sm:px-6 lg:px-12">
       <div className="max-w-7xl mx-auto flex flex-col items-center gap-5 text-center">
-        <span className="font-display font-bold text-xl sm:text-2xl">
-          Lyne<span className="text-gradient">Flix</span>
-        </span>
+        <LyneflixLogo size="sm" animate={false} />
         
         <p className="text-muted-foreground text-xs sm:text-sm max-w-2xl leading-relaxed">
           AVISO LEGAL: Nós não armazenamos nenhum dos arquivos em nenhum servidor. Todos os conteúdos são fornecidos por terceiros sem qualquer tipo de filiação.
