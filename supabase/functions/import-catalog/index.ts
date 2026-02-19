@@ -98,6 +98,144 @@ function sanitizeDate(d: string | null | undefined): string | null {
 
 const MAX_PAGES_PER_CALL = 20;
 
+// ── Dorama import via TMDB Discover (Korean/Japanese dramas) ────────
+async function fetchDoramaTMDBPage(page: number): Promise<any[]> {
+  // Search Korean and Japanese drama TV shows
+  const urls = [
+    `${TMDB_BASE}/discover/tv?language=pt-BR&sort_by=popularity.desc&with_origin_country=KR&with_genres=18&page=${page}`,
+    `${TMDB_BASE}/discover/tv?language=pt-BR&sort_by=popularity.desc&with_origin_country=JP&with_genres=18&page=${page}`,
+  ];
+  const allResults: any[] = [];
+  const seenIds = new Set<number>();
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, { headers: tmdbHeaders });
+      if (!res.ok) continue;
+      const data = await res.json();
+      if (Array.isArray(data.results)) {
+        for (const item of data.results) {
+          if (!seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allResults.push(item);
+          }
+        }
+      }
+    } catch { /* skip */ }
+  }
+  return allResults;
+}
+
+async function getDoramaTotalPages(): Promise<number> {
+  try {
+    const res = await fetch(
+      `${TMDB_BASE}/discover/tv?language=pt-BR&sort_by=popularity.desc&with_origin_country=KR&with_genres=18&page=1`,
+      { headers: tmdbHeaders },
+    );
+    if (!res.ok) return 50;
+    const data = await res.json();
+    return Math.min(data.total_pages || 50, 500);
+  } catch { return 50; }
+}
+
+async function handleDoramaImport(
+  action: string, startPage: number, _enrich: boolean,
+  userId: string, adminClient: any,
+): Promise<Response> {
+  if (action === "count") {
+    const totalPages = await getDoramaTotalPages();
+    return new Response(
+      JSON.stringify({ success: true, total_pages: totalPages, estimated_items: totalPages * 20 }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  if (action === "sync-check") {
+    const totalPages = await getDoramaTotalPages();
+    const { count: dbCount } = await adminClient
+      .from("content").select("*", { count: "exact", head: true })
+      .eq("content_type", "dorama");
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        total_pages: totalPages,
+        estimated_total: totalPages * 20,
+        in_database: dbCount || 0,
+        estimated_missing: Math.max(0, totalPages * 20 - (dbCount || 0)),
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
+  }
+
+  // Import action
+  const endPage = startPage + Math.min(MAX_PAGES_PER_CALL, 10) - 1;
+  console.log(`[import-dorama] Pages ${startPage}-${endPage}`);
+
+  const allItems: any[] = [];
+  const seenIds = new Set<number>();
+
+  for (let p = startPage; p <= endPage; p++) {
+    const items = await fetchDoramaTMDBPage(p);
+    for (const item of items) {
+      if (!seenIds.has(item.id)) {
+        seenIds.add(item.id);
+        allItems.push(item);
+      }
+    }
+    if (items.length === 0) break;
+  }
+
+  console.log(`[import-dorama] Fetched ${allItems.length} doramas`);
+
+  const rows = allItems.map(item => ({
+    tmdb_id: item.id,
+    content_type: "dorama",
+    title: item.name || item.original_name || "Sem título",
+    original_title: item.original_name || null,
+    overview: item.overview || "",
+    poster_path: item.poster_path || null,
+    backdrop_path: item.backdrop_path || null,
+    release_date: sanitizeDate(item.first_air_date),
+    vote_average: item.vote_average || 0,
+    number_of_seasons: null,
+    number_of_episodes: null,
+    status: "published",
+    featured: false,
+    audio_type: ["legendado"],
+    created_by: userId,
+  }));
+
+  let imported = 0;
+  const errors: string[] = [];
+  const BATCH_SIZE = 100;
+
+  for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+    const batch = rows.slice(i, i + BATCH_SIZE);
+    const { error } = await adminClient.from("content").upsert(batch, {
+      onConflict: "tmdb_id,content_type",
+    });
+    if (error) {
+      errors.push(error.message);
+    } else {
+      imported += batch.length;
+    }
+  }
+
+  return new Response(
+    JSON.stringify({
+      success: true,
+      imported,
+      total: allItems.length,
+      next_page: allItems.length > 0 ? endPage + 1 : null,
+      has_more: allItems.length > 0,
+      pages_processed: endPage - startPage + 1,
+      errors: errors.slice(0, 5),
+    }),
+    { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+  );
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS")
     return new Response(null, { headers: corsHeaders });
@@ -125,7 +263,13 @@ Deno.serve(async (req: Request) => {
     const contentType: string = body.content_type || "movie";
     const startPage: number = body.start_page || 1;
     const enrichWithTmdb: boolean = body.enrich !== false;
+    const isDorama = contentType === "dorama";
     const catalogType: "movie" | "tv" = contentType === "movie" ? "movie" : "tv";
+
+    // ── Dorama imports use TMDB Discover API (Korean/Japanese dramas) ──
+    if (isDorama) {
+      return await handleDoramaImport(action, startPage, enrichWithTmdb, user.id, adminClient);
+    }
 
     if (action === "count") {
       const totalAvailable = await getTotalPages(catalogType);

@@ -925,7 +925,7 @@ Deno.serve(async (req) => {
 
     const cType = content_type || "movie";
     const aType = audio_type || "legendado";
-    const isMovie = cType === "movie";
+    const isMovie = cType === "movie"; // dorama and anime are treated as TV/series
     const s = season || 1;
     const e = episode || 1;
 
