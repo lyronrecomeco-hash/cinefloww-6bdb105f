@@ -47,6 +47,7 @@ const PlayerPage = () => {
   const season = searchParams.get("s") ? Number(searchParams.get("s")) : undefined;
   const episode = searchParams.get("e") ? Number(searchParams.get("e")) : undefined;
   const nextEpUrl = searchParams.get("next") || null;
+  const tvChannelId = searchParams.get("tv") || null;
 
   const [bankSources, setBankSources] = useState<VideoSource[]>([]);
   const [bankLoading, setBankLoading] = useState(false);
@@ -98,6 +99,39 @@ const PlayerPage = () => {
     load();
     return () => controller.abort();
   }, [params.id, params.type, audioParam, imdbId, season, episode]);
+
+  // TV channel extraction
+  useEffect(() => {
+    if (!tvChannelId) return;
+    setBankLoading(true);
+    setBankTitle(title);
+    const load = async () => {
+      try {
+        const { data } = await supabase.functions.invoke("extract-tv", {
+          body: { channel_id: tvChannelId },
+        });
+        if (data?.url && data.type !== "iframe") {
+          setBankSources([{
+            url: await secureVideoUrl(data.url),
+            quality: "auto",
+            provider: data.provider || "tv",
+            type: data.type === "mp4" ? "mp4" : "m3u8",
+          }]);
+        } else if (data?.url) {
+          // Iframe fallback — use proxy-player
+          const proxyUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(data.url)}`;
+          setBankSources([{
+            url: proxyUrl,
+            quality: "auto",
+            provider: "tv-proxy",
+            type: "m3u8",
+          }]);
+        }
+      } catch { /* ignore */ }
+      setBankLoading(false);
+    };
+    load();
+  }, [tvChannelId, title]);
 
   const sources: VideoSource[] = useMemo(() => {
     if (bankSources.length > 0) return bankSources;
