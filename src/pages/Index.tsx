@@ -25,7 +25,7 @@ const sortByYear = (items: TMDBMovie[]) =>
 const Index = () => {
   const [trending, setTrending] = useState<TMDBMovie[]>([]);
   const [nowPlaying, setNowPlaying] = useState<TMDBMovie[]>([]);
-  const [releases2026, setReleases2026] = useState<TMDBMovie[]>([]);
+  
   const [popularMovies, setPopularMovies] = useState<TMDBMovie[]>([]);
   const [popularSeries, setPopularSeries] = useState<TMDBMovie[]>([]);
   const [doramas, setDoramas] = useState<TMDBMovie[]>([]);
@@ -55,30 +55,7 @@ const Index = () => {
       }
     };
 
-    const loadReleases2026 = async () => {
-      const { data } = await supabase
-        .from("content")
-        .select("tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type")
-        .eq("status", "published")
-        .gte("release_date", "2026-01-01")
-        .lte("release_date", "2026-12-31")
-        .order("release_date", { ascending: false, nullsFirst: false })
-        .limit(30);
-      if (data) {
-        setReleases2026(data.map((d: any) => ({
-          id: d.tmdb_id,
-          name: d.title,
-          poster_path: d.poster_path,
-          backdrop_path: d.backdrop_path,
-          overview: "",
-          vote_average: d.vote_average || 0,
-          first_air_date: d.release_date,
-          release_date: d.release_date,
-          genre_ids: [],
-          media_type: d.content_type === "movie" ? "movie" : "tv",
-        })));
-      }
-    };
+;
 
     Promise.all([
       getTrending(),
@@ -87,7 +64,6 @@ const Index = () => {
       getPopularMovies(),
       getPopularSeries(),
       loadDoramas(),
-      loadReleases2026(),
     ]).then(([t, np, at, pm, ps]) => {
       setTrending(t.results);
       const launches = [...np.results.slice(0, 10), ...at.results.slice(0, 10)];
@@ -112,7 +88,7 @@ const Index = () => {
       <HeroSlider movies={trending} />
 
       <div className="-mt-12 sm:-mt-16 relative z-10 pb-12 sm:pb-20 space-y-1 sm:space-y-2">
-        {releases2026.length > 0 && <ContentRow title="🆕 Lançamentos 2026" movies={releases2026} icon={<Flame className="w-4 h-4" />} />}
+        
         <ContentRow title="🔥 Em Alta" movies={nowPlaying} icon={<Flame className="w-4 h-4" />} />
         <ContentRow title="🎬 Filmes" movies={popularMovies} icon={<Film className="w-4 h-4" />} />
         <ContentRow title="📺 Séries" movies={popularSeries} icon={<Tv className="w-4 h-4" />} />
