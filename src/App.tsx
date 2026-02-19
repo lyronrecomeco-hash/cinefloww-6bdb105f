@@ -34,6 +34,7 @@ const LogsPage = lazy(() => import("./pages/admin/LogsPage"));
 const SecurityMonitor = lazy(() => import("./pages/admin/SecurityMonitor"));
 const TelegramPage = lazy(() => import("./pages/admin/TelegramPage"));
 const ReportsPage = lazy(() => import("./pages/admin/ReportsPage"));
+const BulkImportPage = lazy(() => import("./pages/admin/BulkImportPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -96,6 +97,7 @@ const App = () => (
               <Route path="avisos" element={<AlertsPage />} />
               <Route path="telegram" element={<TelegramPage />} />
               <Route path="config" element={<SettingsPage />} />
+              <Route path="importar" element={<BulkImportPage />} />
             </Route>
 
             <Route path="*" element={<NotFound />} />
