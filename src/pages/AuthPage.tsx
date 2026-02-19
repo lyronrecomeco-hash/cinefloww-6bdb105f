@@ -76,15 +76,13 @@ const AuthPage = () => {
           password,
           options: {
             data: { name: name.trim() },
-            emailRedirectTo: window.location.origin,
+            emailRedirectTo: "https://lyneflix.online",
           },
         });
         if (error) throw error;
         await logAuthEvent("signup", data.user?.id, { email: email.trim() });
 
-        if (data.user && !data.session) {
-          toast({ title: "Verifique seu e-mail", description: "Enviamos um link de confirmação para seu e-mail." });
-        } else if (data.session) {
+        if (data.session) {
           await supabase.from("user_profiles").insert({
             user_id: data.user!.id,
             name: name.trim(),
