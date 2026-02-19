@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Play, Star, Clock, Calendar, Users, Tv, List, MessageSquare, Flag, Share2, BookmarkPlus, BookmarkCheck } from "lucide-react";
 import { addToMyList, removeFromMyList, isInMyList } from "@/lib/myList";
 import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
 import ContentRow from "@/components/ContentRow";
 import SeasonsModal from "@/components/SeasonsModal";
 import CastModal from "@/components/CastModal";
@@ -13,6 +14,7 @@ import TrailerModal from "@/components/TrailerModal";
 import RequestModal from "@/components/RequestModal";
 import ReportModal from "@/components/ReportModal";
 import DetailAutoWarning from "@/components/DetailAutoWarning";
+import LoginRequiredModal from "@/components/LoginRequiredModal";
 import { fromSlug } from "@/lib/slugify";
 import { toSlug } from "@/lib/slugify";
 import {
@@ -41,6 +43,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [showTrailer, setShowTrailer] = useState(false);
   const [showRequest, setShowRequest] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
   const [inMyList, setInMyList] = useState(false);
 
   useEffect(() => {
@@ -272,7 +275,13 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                 </button>
               )}
               <button
-                onClick={() => {
+                onClick={async () => {
+                  // Check if logged in
+                  const { data: { session } } = await supabase.auth.getSession();
+                  if (!session) {
+                    setShowLoginModal(true);
+                    return;
+                  }
                   if (inMyList) {
                     removeFromMyList(detail.id, type);
                     setInMyList(false);
@@ -345,6 +354,8 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         )}
       </div>
 
+      <Footer />
+
       {/* Modals */}
       {showSeasons && detail.seasons && (
         <SeasonsModal
@@ -382,6 +393,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
           onClose={() => setShowReport(false)}
         />
       )}
+      {showLoginModal && <LoginRequiredModal onClose={() => setShowLoginModal(false)} />}
     </div>
   );
 };

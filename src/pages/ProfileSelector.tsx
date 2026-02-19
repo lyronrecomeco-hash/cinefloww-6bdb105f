@@ -5,17 +5,17 @@ import { Plus, Pencil, Loader2, LogOut, Copy, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 const AVATAR_COLORS = [
-  "from-red-500 to-orange-500",
-  "from-blue-500 to-cyan-500",
-  "from-green-500 to-emerald-500",
-  "from-purple-500 to-pink-500",
-  "from-yellow-500 to-amber-500",
-  "from-indigo-500 to-violet-500",
-  "from-teal-500 to-green-500",
-  "from-rose-500 to-red-500",
+  "from-blue-500 to-indigo-600",
+  "from-red-500 to-rose-600",
+  "from-emerald-500 to-teal-600",
+  "from-violet-500 to-purple-600",
+  "from-amber-500 to-orange-600",
+  "from-cyan-500 to-blue-600",
+  "from-pink-500 to-rose-600",
+  "from-green-500 to-emerald-600",
 ];
 
-const AVATAR_EMOJIS = ["😎", "🎬", "🍿", "🎮", "🎵", "🌟", "🦊", "🐱"];
+const AVATAR_ICONS = ["🎬", "🎮", "🍿", "🌟", "🎵", "🎭", "🎯", "🔥"];
 
 interface UserProfile {
   id: string;
@@ -144,7 +144,7 @@ const ProfileSelector = () => {
           {/* Avatar picker */}
           <div className="flex justify-center mb-6">
             <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${AVATAR_COLORS[newAvatar]} flex items-center justify-center text-3xl shadow-lg transition-all duration-300`}>
-              {AVATAR_EMOJIS[newAvatar]}
+              {AVATAR_ICONS[newAvatar]}
             </div>
           </div>
           <div className="flex justify-center gap-2 mb-6 flex-wrap">
@@ -156,7 +156,7 @@ const ProfileSelector = () => {
                   newAvatar === i ? "ring-2 ring-primary scale-110" : "opacity-60 hover:opacity-100"
                 }`}
               >
-                {AVATAR_EMOJIS[i]}
+                {AVATAR_ICONS[i]}
               </button>
             ))}
           </div>
@@ -223,7 +223,7 @@ const ProfileSelector = () => {
                   onClick={() => selectProfile(profile)}
                   className={`w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-gradient-to-br ${AVATAR_COLORS[profile.avatar_index]} flex items-center justify-center text-4xl sm:text-5xl shadow-lg transition-all duration-300 group-hover:scale-105 group-hover:shadow-xl group-hover:shadow-primary/20 border-2 border-transparent group-hover:border-primary/30`}
                 >
-                  {AVATAR_EMOJIS[profile.avatar_index]}
+                  {AVATAR_ICONS[profile.avatar_index]}
                 </button>
                 <button
                   onClick={(e) => {

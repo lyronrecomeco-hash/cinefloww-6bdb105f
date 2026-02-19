@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Search, Menu, X, MessageSquare } from "lucide-react";
+import { Search, Menu, X, MessageSquare, User, LogIn } from "lucide-react";
 import { searchMulti, TMDBMovie, posterUrl, getDisplayTitle, getMediaType } from "@/services/tmdb";
 import { toSlug } from "@/lib/slugify";
+import { supabase } from "@/integrations/supabase/client";
 import RequestModal from "@/components/RequestModal";
 
 const navItems = [
@@ -22,6 +23,8 @@ const Navbar = () => {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<TMDBMovie[]>([]);
   const [searching, setSearching] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [activeProfile, setActiveProfile] = useState<{ name: string; avatar_index: number } | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const searchRef = useRef<HTMLDivElement>(null);
@@ -34,10 +37,33 @@ const Navbar = () => {
   }, []);
 
   useEffect(() => {
+    // Check auth state
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsLoggedIn(!!session);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsLoggedIn(!!session);
+    });
+
+    // Load active profile
+    try {
+      const stored = localStorage.getItem("lyneflix_active_profile");
+      if (stored) setActiveProfile(JSON.parse(stored));
+    } catch {}
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
     setMenuOpen(false);
     setSearchOpen(false);
     setQuery("");
     setResults([]);
+    // Refresh profile on navigation
+    try {
+      const stored = localStorage.getItem("lyneflix_active_profile");
+      if (stored) setActiveProfile(JSON.parse(stored));
+    } catch {}
   }, [location]);
 
   useEffect(() => {
@@ -72,6 +98,17 @@ const Navbar = () => {
     setQuery("");
     setResults([]);
   };
+
+  const AVATAR_COLORS = [
+    "from-red-500 to-orange-500",
+    "from-blue-500 to-cyan-500",
+    "from-green-500 to-emerald-500",
+    "from-purple-500 to-pink-500",
+    "from-yellow-500 to-amber-500",
+    "from-indigo-500 to-violet-500",
+    "from-teal-500 to-green-500",
+    "from-rose-500 to-red-500",
+  ];
 
   return (
     <>
@@ -179,6 +216,33 @@ const Navbar = () => {
               </div>
             )}
           </div>
+
+          {/* Auth button / Profile avatar */}
+          {isLoggedIn ? (
+            <button
+              onClick={() => navigate("/perfis")}
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl overflow-hidden border-2 border-transparent hover:border-primary/50 transition-all flex-shrink-0"
+              title={activeProfile?.name || "Perfil"}
+            >
+              {activeProfile ? (
+                <div className={`w-full h-full bg-gradient-to-br ${AVATAR_COLORS[activeProfile.avatar_index % 8]} flex items-center justify-center text-sm font-bold text-white`}>
+                  {activeProfile.name.charAt(0).toUpperCase()}
+                </div>
+              ) : (
+                <div className="w-full h-full bg-white/10 flex items-center justify-center">
+                  <User className="w-4 h-4 text-muted-foreground" />
+                </div>
+              )}
+            </button>
+          ) : (
+            <Link
+              to="/conta"
+              className="flex items-center gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl bg-primary text-primary-foreground text-xs sm:text-sm font-semibold hover:bg-primary/90 transition-all"
+            >
+              <LogIn className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              <span className="hidden sm:inline">Entrar</span>
+            </Link>
+          )}
 
           {/* Mobile menu */}
           <button

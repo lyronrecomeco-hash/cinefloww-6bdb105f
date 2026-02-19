@@ -47,12 +47,14 @@ const DetailAutoWarning = () => {
   const [visible, setVisible] = useState<typeof WARNINGS[0] | null>(null);
 
   useEffect(() => {
-    // Skip PWA template if already installed as PWA
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     
     for (const w of WARNINGS) {
-      // Skip PWA install prompt if already in standalone mode
-      if (w.isPwa && isStandalone) continue;
+      // PWA install prompt: only show on iOS and not already standalone
+      if (w.isPwa) {
+        if (!isIOS || isStandalone) continue;
+      }
       
       const key = STORAGE_KEY + w.id;
       const last = localStorage.getItem(key);
