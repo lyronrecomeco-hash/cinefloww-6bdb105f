@@ -3,13 +3,16 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import MovieCard from "@/components/MovieCard";
 import { TMDBMovie, getPopularSeries } from "@/services/tmdb";
-import { Tv, ChevronLeft, ChevronRight } from "lucide-react";
+import { Tv, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
+import CategoriesModal from "@/components/CategoriesModal";
 
 const SeriesPage = () => {
   const [series, setSeries] = useState<TMDBMovie[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [showCategories, setShowCategories] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<{ id: string; name: string } | null>(null);
 
   const fetchPage = useCallback(async (p: number) => {
     setLoading(true);
@@ -58,11 +61,27 @@ const SeriesPage = () => {
               <Tv className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
             </div>
             <div>
-              <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-bold">Séries</h1>
+              <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-bold">
+                Séries {selectedCategory && <span className="text-primary text-lg">• {selectedCategory.name}</span>}
+              </h1>
               <p className="text-[10px] sm:text-xs text-muted-foreground">Página {page} de {totalPages}</p>
             </div>
           </div>
+          <button
+            onClick={() => setShowCategories(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs sm:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Categorias</span>
+          </button>
         </div>
+
+      <CategoriesModal
+        open={showCategories}
+        onClose={() => setShowCategories(false)}
+        onSelect={(cat) => setSelectedCategory(cat ? { id: cat.id, name: cat.name } : null)}
+        selectedId={selectedCategory?.id}
+      />
 
         {loading ? (
           <div className="flex justify-center py-20">

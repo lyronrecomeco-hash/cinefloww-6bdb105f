@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { ArrowRight, Loader2, Mail, Lock, User, Eye, EyeOff, Shield } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import LyneflixLogo from "@/components/LyneflixLogo";
-import { getTrending, backdropUrl, TMDBMovie } from "@/services/tmdb";
+import { getTrending, backdropUrl, getDisplayTitle, getYear, TMDBMovie } from "@/services/tmdb";
 
 const AuthPage = () => {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -30,7 +30,6 @@ const AuthPage = () => {
     }).catch(() => {});
   }, [navigate]);
 
-  // Auto-rotate banners
   useEffect(() => {
     if (banners.length < 2) return;
     const timer = setInterval(() => {
@@ -159,10 +158,12 @@ const AuthPage = () => {
     }
   };
 
+  const currentMovie = banners[currentBanner];
+
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center relative overflow-hidden">
-      {/* Background banner slider */}
-      <div className="absolute inset-0 z-0">
+    <div className="min-h-screen bg-background flex flex-col lg:flex-row">
+      {/* LEFT SIDE — Banner Slider */}
+      <div className="relative w-full lg:w-[55%] xl:w-[60%] h-[280px] sm:h-[340px] lg:h-screen flex-shrink-0 overflow-hidden">
         {banners.map((banner, i) => (
           <div
             key={banner.id}
@@ -172,25 +173,57 @@ const AuthPage = () => {
           >
             <img
               src={backdropUrl(banner.backdrop_path, "original")}
-              alt=""
+              alt={getDisplayTitle(banner)}
               className="w-full h-full object-cover"
               loading={i === 0 ? "eager" : "lazy"}
             />
           </div>
         ))}
-        {/* Dark overlay for readability */}
-        <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" />
-        <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-background/30" />
+        {/* Gradient overlays */}
+        <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-background/40 lg:bg-gradient-to-r lg:from-transparent lg:via-transparent lg:to-background" />
+        <div className="absolute inset-0 bg-background/30" />
+
+        {/* Movie info overlay */}
+        {currentMovie && (
+          <div className="absolute bottom-6 left-6 right-6 lg:bottom-12 lg:left-12 lg:right-24 z-10">
+            <h2 className="font-display text-lg sm:text-xl lg:text-3xl font-bold text-white drop-shadow-lg line-clamp-2">
+              {getDisplayTitle(currentMovie)}
+            </h2>
+            <div className="flex items-center gap-3 mt-2 text-white/70 text-xs sm:text-sm">
+              {currentMovie.vote_average > 0 && (
+                <span className="flex items-center gap-1">
+                  <span className="text-yellow-400">★</span>
+                  {currentMovie.vote_average.toFixed(1)}
+                </span>
+              )}
+              {getYear(currentMovie) && <span>{getYear(currentMovie)}</span>}
+            </div>
+          </div>
+        )}
+
+        {/* Dot indicators */}
+        {banners.length > 1 && (
+          <div className="absolute bottom-3 left-1/2 -translate-x-1/2 lg:bottom-6 lg:left-12 lg:translate-x-0 flex gap-1.5 z-10">
+            {banners.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => setCurrentBanner(i)}
+                className={`h-1 rounded-full transition-all duration-300 ${
+                  i === currentBanner ? "w-6 bg-primary" : "w-1.5 bg-white/30"
+                }`}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
-      <div
-        className={`relative z-10 w-full max-w-md mx-4 transition-all duration-700 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}
-      >
-        {/* Glass card */}
-        <div className="glass-strong rounded-2xl overflow-hidden border border-white/10 p-6 sm:p-8">
-          
+      {/* RIGHT SIDE — Auth Form */}
+      <div className="flex-1 flex items-center justify-center px-5 py-8 sm:py-12 lg:py-0">
+        <div
+          className={`w-full max-w-[400px] transition-all duration-700 ${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-8"}`}
+        >
           {/* Logo */}
-          <div className="flex justify-center mb-5">
+          <div className="flex justify-center mb-6 lg:mb-8">
             <LyneflixLogo size="lg" animate={true} />
           </div>
 
@@ -301,21 +334,6 @@ const AuthPage = () => {
             <span>Conexão segura E2E</span>
           </div>
         </div>
-
-        {/* Banner indicators */}
-        {banners.length > 1 && (
-          <div className="flex justify-center gap-1.5 mt-4">
-            {banners.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setCurrentBanner(i)}
-                className={`h-1 rounded-full transition-all duration-300 ${
-                  i === currentBanner ? "w-6 bg-primary" : "w-1.5 bg-white/20"
-                }`}
-              />
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

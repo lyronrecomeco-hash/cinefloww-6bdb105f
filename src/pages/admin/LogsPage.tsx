@@ -20,9 +20,12 @@ interface ResolveLog {
 
 const providerLabels: Record<string, string> = {
   cineveo: "CDN Prime",
+  "cineveo-embed": "Cineveo Embed",
   megaembed: "Fonte B",
   embedplay: "Fonte C",
   playerflix: "Fonte D",
+  superflix: "SuperFlix",
+  "auto-retry": "🔄 Auto-Retry",
   "json-import": "📦 JSON Import",
 };
 
@@ -219,7 +222,22 @@ const LogsPage = () => {
             Monitoramento em tempo real de indexação de vídeos
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={async () => {
+              toast.info("🔄 Iniciando auto-retry de falhas...");
+              try {
+                const { data, error } = await supabase.functions.invoke("auto-retry-failures");
+                if (error) throw error;
+                toast.success(`Auto-retry: ${data?.resolved || 0} resolvidos, ${data?.stillFailed || 0} ainda falhando`);
+              } catch (err: any) {
+                toast.error(`Erro: ${err.message}`);
+              }
+            }}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 border border-amber-500/20 transition-colors"
+          >
+            🔄 Auto-Retry
+          </button>
           <button
             onClick={startJsonImport}
             disabled={importing}

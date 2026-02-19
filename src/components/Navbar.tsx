@@ -5,6 +5,15 @@ import { searchMulti, TMDBMovie, posterUrl, getDisplayTitle, getMediaType } from
 import { toSlug } from "@/lib/slugify";
 import { supabase } from "@/integrations/supabase/client";
 import RequestModal from "@/components/RequestModal";
+import avatar1 from "@/assets/avatars/avatar-1.png";
+import avatar2 from "@/assets/avatars/avatar-2.png";
+import avatar3 from "@/assets/avatars/avatar-3.png";
+import avatar4 from "@/assets/avatars/avatar-4.png";
+import avatar5 from "@/assets/avatars/avatar-5.png";
+import avatar6 from "@/assets/avatars/avatar-6.png";
+import avatar7 from "@/assets/avatars/avatar-7.png";
+import avatar8 from "@/assets/avatars/avatar-8.png";
+const AVATAR_IMAGES = [avatar1, avatar2, avatar3, avatar4, avatar5, avatar6, avatar7, avatar8];
 
 const navItems = [
   { label: "Início", path: "/" },
@@ -99,16 +108,7 @@ const Navbar = () => {
     setResults([]);
   };
 
-  const AVATAR_COLORS = [
-    "from-red-500 to-orange-500",
-    "from-blue-500 to-cyan-500",
-    "from-green-500 to-emerald-500",
-    "from-purple-500 to-pink-500",
-    "from-yellow-500 to-amber-500",
-    "from-indigo-500 to-violet-500",
-    "from-teal-500 to-green-500",
-    "from-rose-500 to-red-500",
-  ];
+  // No longer needed - using avatar images
 
   return (
     <>
@@ -225,9 +225,11 @@ const Navbar = () => {
               title={activeProfile?.name || "Perfil"}
             >
               {activeProfile ? (
-                <div className={`w-full h-full bg-gradient-to-br ${AVATAR_COLORS[activeProfile.avatar_index % 8]} flex items-center justify-center text-sm font-bold text-white`}>
-                  {activeProfile.name.charAt(0).toUpperCase()}
-                </div>
+                <img
+                  src={AVATAR_IMAGES[activeProfile.avatar_index % 8]}
+                  alt={activeProfile.name}
+                  className="w-full h-full object-cover"
+                />
               ) : (
                 <div className="w-full h-full bg-white/10 flex items-center justify-center">
                   <User className="w-4 h-4 text-muted-foreground" />
