@@ -71,9 +71,14 @@ Deno.serve(async (req) => {
       const signature = await hmacSign(payload, SIGNING_SECRET);
       const token = `${payload}.${signature}`;
 
-      // Build the stream URL using the Supabase functions endpoint
-      const supabaseUrl = Deno.env.get("SUPABASE_URL") || url.origin;
-      const streamUrl = `${supabaseUrl}/functions/v1/video-token?action=stream&t=${encodeURIComponent(token)}`;
+      // Build stream URL — prefer client origin to hide backend domain
+      const clientOrigin = req.headers.get("origin") || req.headers.get("referer")?.replace(/\/$/, "") || "";
+      const baseUrl = clientOrigin || Deno.env.get("SUPABASE_URL") || url.origin;
+      const streamPath = `/functions/v1/video-token?action=stream&t=${encodeURIComponent(token)}`;
+      // If client origin is available, use /b/ proxy path; otherwise use full supabase URL
+      const streamUrl = clientOrigin 
+        ? `${clientOrigin}/b${streamPath}`
+        : `${baseUrl}${streamPath}`;
 
       return new Response(JSON.stringify({ stream_url: streamUrl, expires }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },

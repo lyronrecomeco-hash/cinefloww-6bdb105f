@@ -1,80 +1,88 @@
 /**
- * Network Cloaking Layer
+ * Network Cloaking Layer — AUTO-EXECUTING
  * 
- * Intercepts fetch/XHR to:
- * 1. Rewrite supabase.co URLs to local /b/ proxy (in production)
- * 2. Strip identifying headers (x-client-info)
- * 3. Hide backend infrastructure from network sniffers
+ * This module patches fetch, XHR, and WebSocket IMMEDIATELY on import
+ * (before any other module can capture references to the originals).
+ * 
+ * 1. Rewrites supabase.co URLs to local /b/ proxy (production only)
+ * 2. Rewrites wss://supabase.co to wss://own-domain/b/ 
+ * 3. Strips identifying headers (x-client-info)
+ * 4. Rewrites any supabase.co reference in response bodies (stream URLs)
  */
 
-const SUPABASE_HOST = "mfcnkltcdvitxczjwoer.supabase.co";
-const HEADERS_TO_STRIP = ["x-client-info"];
+const SB_HOST = "mfcnkltcdvitxczjwoer.supabase.co";
+const SB_ORIGIN = `https://${SB_HOST}`;
+const SB_WSS = `wss://${SB_HOST}`;
+const STRIP_HEADERS = ["x-client-info"];
 
-function isProduction(): boolean {
-  const host = window.location.hostname;
-  return !host.includes("localhost") && !host.includes("lovableproject.com") && !host.includes("lovable.app");
+function isProd(): boolean {
+  if (typeof window === "undefined") return false;
+  const h = window.location.hostname;
+  return h !== "localhost" && !h.includes("lovableproject.com") && !h.includes("lovable.app") && !h.includes("127.0.0.1");
 }
 
 function rewriteUrl(url: string): string {
-  if (!isProduction()) return url;
-  
+  if (!isProd()) return url;
   try {
-    const parsed = new URL(url);
-    if (parsed.hostname === SUPABASE_HOST) {
-      // /rest/v1/... → /b/rest/v1/...
-      // /functions/v1/... → /b/functions/v1/...
-      // /auth/v1/... → /b/auth/v1/...
-      const path = parsed.pathname + parsed.search;
-      return window.location.origin + "/b" + path;
+    if (url.includes(SB_HOST)) {
+      const parsed = new URL(url);
+      if (parsed.hostname === SB_HOST) {
+        return window.location.origin + "/b" + parsed.pathname + parsed.search;
+      }
     }
-  } catch {
-    // Not a valid URL, return as-is
+  } catch {}
+  return url;
+}
+
+function rewriteWsUrl(url: string): string {
+  if (!isProd()) return url;
+  if (url.startsWith(SB_WSS)) {
+    // wss://supabase.co/realtime/... → wss://own-domain/b/realtime/...
+    return url.replace(SB_WSS, `wss://${window.location.host}/b`);
   }
   return url;
 }
 
-function cleanHeaders(headers?: HeadersInit): HeadersInit | undefined {
-  if (!headers || !isProduction()) return headers;
+/** Rewrite any supabase.co URLs found in a string (e.g. JSON response body) */
+export function rewriteBodyUrls(text: string): string {
+  if (!isProd() || !text.includes(SB_HOST)) return text;
+  return text.split(SB_ORIGIN).join(window.location.origin + "/b");
+}
+
+function stripHeaders(headers?: HeadersInit): HeadersInit | undefined {
+  if (!headers || !isProd()) return headers;
 
   if (headers instanceof Headers) {
-    const clean = new Headers(headers);
-    HEADERS_TO_STRIP.forEach(h => clean.delete(h));
-    return clean;
+    const h = new Headers(headers);
+    STRIP_HEADERS.forEach(k => h.delete(k));
+    return h;
   }
-
   if (Array.isArray(headers)) {
-    return headers.filter(([key]) => !HEADERS_TO_STRIP.includes(key.toLowerCase()));
+    return headers.filter(([k]) => !STRIP_HEADERS.includes(k.toLowerCase()));
   }
-
   if (typeof headers === "object") {
-    const clean = { ...headers } as Record<string, string>;
-    HEADERS_TO_STRIP.forEach(h => {
-      delete clean[h];
-      // Also try exact case variations
-      delete clean["X-Client-Info"];
-      delete clean["x-client-info"];
-    });
-    return clean;
+    const c = { ...headers } as Record<string, string>;
+    for (const k of Object.keys(c)) {
+      if (STRIP_HEADERS.includes(k.toLowerCase())) delete c[k];
+    }
+    return c;
   }
-
   return headers;
 }
 
-export function initNetworkCloak() {
+// ========== AUTO-EXECUTE ON IMPORT ==========
+(function installCloak() {
   if (typeof window === "undefined") return;
 
-  // Intercept fetch
-  const originalFetch = window.fetch;
+  // --- FETCH ---
+  const _fetch = window.fetch.bind(window);
   window.fetch = function (input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-    let url: string;
-    let newInit = init ? { ...init } : {};
-
     if (input instanceof Request) {
-      url = rewriteUrl(input.url);
-      const cleanH = cleanHeaders(new Headers(input.headers));
-      const newRequest = new Request(url, {
+      const url = rewriteUrl(input.url);
+      const h = stripHeaders(new Headers(input.headers));
+      const nr = new Request(url, {
         method: input.method,
-        headers: cleanH,
+        headers: h,
         body: input.body,
         mode: input.mode,
         credentials: input.credentials,
@@ -84,43 +92,45 @@ export function initNetworkCloak() {
         referrerPolicy: input.referrerPolicy,
         signal: init?.signal || input.signal,
       });
-      return originalFetch.call(window, newRequest);
+      return _fetch(nr);
     }
 
-    if (input instanceof URL) {
-      url = rewriteUrl(input.toString());
-    } else {
-      url = rewriteUrl(input as string);
-    }
-
-    if (newInit.headers) {
-      newInit.headers = cleanHeaders(newInit.headers);
-    }
-
-    return originalFetch.call(window, url, newInit);
+    const url = rewriteUrl(typeof input === "string" ? input : input.toString());
+    const ni = init ? { ...init, headers: stripHeaders(init.headers) } : undefined;
+    return _fetch(url, ni);
   };
 
-  // Intercept XMLHttpRequest
-  const originalOpen = XMLHttpRequest.prototype.open;
-  const originalSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+  // --- XMLHttpRequest ---
+  const _xhrOpen = XMLHttpRequest.prototype.open;
+  const _xhrSetHeader = XMLHttpRequest.prototype.setRequestHeader;
 
   XMLHttpRequest.prototype.open = function (
-    method: string,
-    url: string | URL,
-    async?: boolean,
-    username?: string | null,
-    password?: string | null
+    method: string, url: string | URL, async?: boolean,
+    user?: string | null, pass?: string | null
   ) {
-    const rewritten = rewriteUrl(typeof url === "string" ? url : url.toString());
-    // @ts-ignore - store for header filtering
-    this._cloakedHeaders = new Set<string>();
-    return originalOpen.call(this, method, rewritten, async ?? true, username, password);
+    const rw = rewriteUrl(typeof url === "string" ? url : url.toString());
+    return _xhrOpen.call(this, method, rw, async ?? true, user, pass);
   };
 
   XMLHttpRequest.prototype.setRequestHeader = function (name: string, value: string) {
-    if (isProduction() && HEADERS_TO_STRIP.includes(name.toLowerCase())) {
-      return; // Silently drop
-    }
-    return originalSetHeader.call(this, name, value);
+    if (isProd() && STRIP_HEADERS.includes(name.toLowerCase())) return;
+    return _xhrSetHeader.call(this, name, value);
   };
-}
+
+  // --- WebSocket ---
+  const _WS = window.WebSocket;
+  // @ts-ignore — replacing global constructor
+  window.WebSocket = function (url: string | URL, protocols?: string | string[]) {
+    const rw = rewriteWsUrl(typeof url === "string" ? url : url.toString());
+    return new _WS(rw, protocols);
+  } as any;
+  // Preserve prototype chain
+  window.WebSocket.prototype = _WS.prototype;
+  Object.defineProperty(window.WebSocket, 'CONNECTING', { value: 0 });
+  Object.defineProperty(window.WebSocket, 'OPEN', { value: 1 });
+  Object.defineProperty(window.WebSocket, 'CLOSING', { value: 2 });
+  Object.defineProperty(window.WebSocket, 'CLOSED', { value: 3 });
+})();
+
+// Keep export for compatibility but it's a no-op now (auto-executed above)
+export function initNetworkCloak() {}
