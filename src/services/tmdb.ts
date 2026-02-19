@@ -86,8 +86,16 @@ export interface TMDBList {
 
 // Endpoints
 export const getTrending = (page = 1) => fetchTMDB<TMDBList>("/trending/all/week", { page: String(page) });
-export const getPopularMovies = (page = 1) => fetchTMDB<TMDBList>("/movie/popular", { page: String(page) });
-export const getPopularSeries = (page = 1) => fetchTMDB<TMDBList>("/tv/popular", { page: String(page) });
+export const getPopularMovies = (page = 1, genreId?: number) => {
+  const params: Record<string, string> = { page: String(page) };
+  if (genreId) params.with_genres = String(genreId);
+  return fetchTMDB<TMDBList>(genreId ? "/discover/movie" : "/movie/popular", params);
+};
+export const getPopularSeries = (page = 1, genreId?: number) => {
+  const params: Record<string, string> = { page: String(page) };
+  if (genreId) params.with_genres = String(genreId);
+  return fetchTMDB<TMDBList>(genreId ? "/discover/tv" : "/tv/popular", params);
+};
 export const getTopRatedMovies = (page = 1) => fetchTMDB<TMDBList>("/movie/top_rated", { page: String(page) });
 export const getTopRatedSeries = (page = 1) => fetchTMDB<TMDBList>("/tv/top_rated", { page: String(page) });
 export const getNowPlayingMovies = (page = 1) => fetchTMDB<TMDBList>("/movie/now_playing", { page: String(page) });

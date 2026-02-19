@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Search, Trash2, Star, Loader2, Film, Eye, EyeOff, Download, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Trash2, Star, Loader2, Film, Eye, EyeOff, Download, Pencil, ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import ContentEditModal from "./ContentEditModal";
 import ImportModal from "@/components/admin/ImportModal";
+import { searchMulti, TMDBMovie, getDisplayTitle, getYear, getMediaType, posterUrl, getMovieDetails, getSeriesDetails } from "@/services/tmdb";
 
 interface ContentManagerProps {
   contentType: "movie" | "series" | "dorama" | "anime";
@@ -35,6 +36,11 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
   const [page, setPage] = useState(0);
   const [filterText, setFilterText] = useState("");
   const [autoImportStatus, setAutoImportStatus] = useState<string | null>(null);
+  const [showTmdbSearch, setShowTmdbSearch] = useState(false);
+  const [tmdbQuery, setTmdbQuery] = useState("");
+  const [tmdbResults, setTmdbResults] = useState<TMDBMovie[]>([]);
+  const [tmdbSearching, setTmdbSearching] = useState(false);
+  const [addingTmdb, setAddingTmdb] = useState<number | null>(null);
   const cancelRef = useRef(false);
   const autoImportRanRef = useRef(false);
   const { toast } = useToast();
@@ -197,6 +203,56 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
 
   const handleCancelImport = () => { cancelRef.current = true; };
 
+  // TMDB search + add
+  const handleTmdbSearch = async () => {
+    if (tmdbQuery.trim().length < 2) return;
+    setTmdbSearching(true);
+    try {
+      const data = await searchMulti(tmdbQuery);
+      const targetType = contentType === "movie" ? "movie" : "tv";
+      setTmdbResults(data.results.filter(r => getMediaType(r) === targetType).slice(0, 12));
+    } catch { setTmdbResults([]); }
+    setTmdbSearching(false);
+  };
+
+  const handleAddFromTmdb = async (movie: TMDBMovie) => {
+    setAddingTmdb(movie.id);
+    try {
+      const cType = contentType === "movie" ? "movie" : (contentType === "dorama" ? "dorama" : (contentType === "anime" ? "anime" : "series"));
+      // Check if already exists
+      const { data: existing } = await supabase.from("content").select("id").eq("tmdb_id", movie.id).eq("content_type", cType).maybeSingle();
+      if (existing) {
+        toast({ title: "Já existe", description: `"${getDisplayTitle(movie)}" já está no catálogo.` });
+        setAddingTmdb(null);
+        return;
+      }
+      // Fetch full details
+      const detail = contentType === "movie" ? await getMovieDetails(movie.id) : await getSeriesDetails(movie.id);
+      const { error } = await supabase.from("content").insert({
+        tmdb_id: movie.id,
+        title: getDisplayTitle(movie),
+        original_title: (detail as any).original_title || (detail as any).original_name || null,
+        content_type: cType,
+        poster_path: movie.poster_path,
+        backdrop_path: movie.backdrop_path,
+        overview: movie.overview || null,
+        vote_average: movie.vote_average || 0,
+        release_date: (movie as any).release_date || (movie as any).first_air_date || null,
+        imdb_id: detail.imdb_id || detail.external_ids?.imdb_id || null,
+        runtime: detail.runtime || null,
+        number_of_seasons: (detail as any).number_of_seasons || null,
+        number_of_episodes: (detail as any).number_of_episodes || null,
+        status: "published",
+      });
+      if (error) throw error;
+      toast({ title: "Adicionado!", description: `"${getDisplayTitle(movie)}" foi adicionado ao catálogo.` });
+      fetchContent();
+    } catch (err: any) {
+      toast({ title: "Erro", description: err.message, variant: "destructive" });
+    }
+    setAddingTmdb(null);
+  };
+
   const handleDelete = async (id: string, itemTitle: string) => {
     if (!confirm(`Remover "${itemTitle}" do catálogo?`)) return;
     const { error } = await supabase.from("content").delete().eq("id", id);
@@ -222,6 +278,11 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
           <p className="text-sm text-muted-foreground mt-1">{totalCount} itens no catálogo</p>
         </div>
         <div className="flex items-center gap-2 self-start">
+          <button onClick={() => setShowTmdbSearch(true)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-500 transition-colors">
+            <Plus className="w-4 h-4" />
+            Adicionar TMDB
+          </button>
           <button onClick={openImportModal}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors">
             <Download className="w-4 h-4" />
@@ -369,6 +430,58 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
           totalToImport={totalToImport}
           onCancel={handleCancelImport}
         />
+      )}
+
+      {/* TMDB Search Modal */}
+      {showTmdbSearch && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={() => setShowTmdbSearch(false)}>
+          <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+          <div className="relative glass-strong rounded-2xl border border-white/10 w-full max-w-2xl max-h-[85vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-5 border-b border-white/10">
+              <h2 className="font-display text-lg font-bold">Buscar no TMDB</h2>
+              <button onClick={() => setShowTmdbSearch(false)} className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={tmdbQuery}
+                  onChange={e => setTmdbQuery(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleTmdbSearch()}
+                  placeholder="Ex: Toy Story 5, Deadpool..."
+                  className="flex-1 h-10 px-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                />
+                <button onClick={handleTmdbSearch} disabled={tmdbSearching}
+                  className="px-4 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-50">
+                  {tmdbSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : "Buscar"}
+                </button>
+              </div>
+              <div className="overflow-y-auto max-h-[55vh] space-y-2 scrollbar-hide">
+                {tmdbResults.length === 0 && !tmdbSearching && (
+                  <p className="text-center text-muted-foreground text-sm py-8">Busque um título para adicionar ao catálogo</p>
+                )}
+                {tmdbResults.map(item => (
+                  <div key={item.id} className="flex items-center gap-3 p-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.06] transition-colors">
+                    <img src={posterUrl(item.poster_path, "w92")} alt="" className="w-10 h-14 rounded-lg object-cover flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{getDisplayTitle(item)}</p>
+                      <p className="text-[10px] text-muted-foreground">{getYear(item)} • ★ {item.vote_average?.toFixed(1)}</p>
+                    </div>
+                    <button
+                      onClick={() => handleAddFromTmdb(item)}
+                      disabled={addingTmdb === item.id}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-500 disabled:opacity-50 flex-shrink-0"
+                    >
+                      {addingTmdb === item.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

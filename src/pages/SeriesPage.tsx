@@ -17,13 +17,14 @@ const SeriesPage = () => {
   const fetchPage = useCallback(async (p: number) => {
     setLoading(true);
     try {
-      const data = await getPopularSeries(p);
+      const genreId = selectedCategory ? Number(selectedCategory.id) : undefined;
+      const data = await getPopularSeries(p, genreId);
       setSeries(data.results);
       setTotalPages(Math.min(data.total_pages, 500));
       setPage(p);
     } catch { /* ignore */ }
     setLoading(false);
-  }, []);
+  }, [selectedCategory]);
 
   useEffect(() => { fetchPage(1); }, [fetchPage]);
 
@@ -79,8 +80,9 @@ const SeriesPage = () => {
       <CategoriesModal
         open={showCategories}
         onClose={() => setShowCategories(false)}
-        onSelect={(cat) => setSelectedCategory(cat ? { id: cat.id, name: cat.name } : null)}
+        onSelect={(cat) => { setSelectedCategory(cat); setPage(1); }}
         selectedId={selectedCategory?.id}
+        contentType="tv"
       />
 
         {loading ? (
