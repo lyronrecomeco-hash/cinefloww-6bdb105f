@@ -3,6 +3,9 @@
     { "source": "/v/a/:path*", "destination": "https://cdn.cineveo.site/:path*" },
     { "source": "/v/b/:path*", "destination": "https://watch.brstream.cc/:path*" },
     { "source": "/v/c/:path*", "destination": "https://vods.playcnvs.com/:path*" },
+    { "source": "/b/rest/:path*", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/rest/:path*" },
+    { "source": "/b/functions/:path*", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/functions/:path*" },
+    { "source": "/b/auth/:path*", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/auth/:path*" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
@@ -12,6 +15,13 @@
         { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
         { "key": "Cache-Control", "value": "private, no-store" },
         { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    },
+    {
+      "source": "/b/(.*)",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Cache-Control", "value": "private, no-store" }
       ]
     }
   ]
