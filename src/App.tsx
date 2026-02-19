@@ -6,16 +6,18 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import SiteAlertModal from "./components/SiteAlertModal";
 import Index from "./pages/Index";
-import DetailsPage from "./pages/DetailsPage";
-import MoviesPage from "./pages/MoviesPage";
-import SeriesPage from "./pages/SeriesPage";
-import ReleasesPage from "./pages/ReleasesPage";
-import PlayerPage from "./pages/PlayerPage";
-import ApiRedirect from "./pages/ApiRedirect";
-import NotFound from "./pages/NotFound";
-import DmcaPage from "./pages/DmcaPage";
-import TermsPage from "./pages/TermsPage";
-import DadosPage from "./pages/DadosPage";
+
+// Lazy load ALL non-index pages for faster initial load
+const DetailsPage = lazy(() => import("./pages/DetailsPage"));
+const MoviesPage = lazy(() => import("./pages/MoviesPage"));
+const SeriesPage = lazy(() => import("./pages/SeriesPage"));
+const ReleasesPage = lazy(() => import("./pages/ReleasesPage"));
+const PlayerPage = lazy(() => import("./pages/PlayerPage"));
+const ApiRedirect = lazy(() => import("./pages/ApiRedirect"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const DmcaPage = lazy(() => import("./pages/DmcaPage"));
+const TermsPage = lazy(() => import("./pages/TermsPage"));
+const DadosPage = lazy(() => import("./pages/DadosPage"));
 
 // Admin (lazy loaded)
 const AdminLogin = lazy(() => import("./pages/AdminLogin"));
@@ -33,9 +35,18 @@ const SecurityMonitor = lazy(() => import("./pages/admin/SecurityMonitor"));
 const TelegramPage = lazy(() => import("./pages/admin/TelegramPage"));
 const ReportsPage = lazy(() => import("./pages/admin/ReportsPage"));
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5 min — reduce refetches
+      gcTime: 10 * 60 * 1000,   // 10 min cache
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
-const AdminLoader = () => (
+const PageLoader = () => (
   <div className="min-h-screen bg-background flex items-center justify-center">
     <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
   </div>
@@ -48,7 +59,7 @@ const App = () => (
       <Sonner />
       <SiteAlertModal />
       <BrowserRouter>
-        <Suspense fallback={<AdminLoader />}>
+        <Suspense fallback={<PageLoader />}>
           <Routes>
             {/* Public */}
             <Route path="/" element={<Index />} />

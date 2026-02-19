@@ -52,7 +52,7 @@ const PlayerPage = () => {
   const [bankLoading, setBankLoading] = useState(false);
   const [bankTitle, setBankTitle] = useState(title);
 
-  // If accessed via /player/:type/:id, fetch from video_cache then fallback to extract-video
+  // If accessed via /player/:type/:id, resolve video via extract-video edge function
   useEffect(() => {
     if (!params.id || !params.type) return;
     setBankLoading(true);
@@ -61,63 +61,37 @@ const PlayerPage = () => {
       const cType = params.type === "movie" ? "movie" : "series";
       const aType = audioParam || "legendado";
 
-      // 1. Check video_cache first (fast path)
-      let cacheQuery = supabase
-        .from("video_cache")
-        .select("video_url, video_type, provider")
-        .eq("tmdb_id", tmdbId!)
-        .eq("content_type", cType)
-        .eq("audio_type", aType)
-        .gt("expires_at", new Date().toISOString());
+      // Fetch title in parallel with video extraction
+      const titlePromise = supabase.from("content").select("title").eq("tmdb_id", tmdbId!).eq("content_type", cType).maybeSingle();
 
-      if (season) cacheQuery = cacheQuery.eq("season", season);
-      else cacheQuery = cacheQuery.is("season", null);
-      if (episode) cacheQuery = cacheQuery.eq("episode", episode);
-      else cacheQuery = cacheQuery.is("episode", null);
+      // Always use extract-video (server-side) — it checks cache internally
+      // This prevents video_url from ever reaching the frontend directly
+      const extractPromise = supabase.functions.invoke("extract-video", {
+        body: {
+          tmdb_id: tmdbId!,
+          imdb_id: imdbId,
+          content_type: cType,
+          audio_type: aType,
+          season,
+          episode,
+        },
+      });
 
-      // Run cache check and title fetch in parallel
-      const [cacheResult, titleResult] = await Promise.all([
-        cacheQuery.maybeSingle(),
-        supabase.from("content").select("title").eq("tmdb_id", tmdbId!).eq("content_type", cType).maybeSingle(),
-      ]);
-
+      const [titleResult, extractResult] = await Promise.all([titlePromise, extractPromise]);
+      
       if (titleResult.data?.title) setBankTitle(titleResult.data.title);
 
-      if (cacheResult.data?.video_url) {
+      const data = extractResult.data;
+      if (data?.url) {
         setBankSources([{
-          url: await secureVideoUrl(cacheResult.data.video_url),
+          url: await secureVideoUrl(data.url),
           quality: "auto",
-          provider: cacheResult.data.provider || "banco",
-          type: (cacheResult.data.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
+          provider: data.provider || "cache",
+          type: data.type === "mp4" ? "mp4" : "m3u8",
         }]);
-        setBankLoading(false);
-        return;
       }
 
-      // 2. Fallback: call extract-video with timeout
-      try {
-        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 45000));
-        const extractPromise = supabase.functions.invoke("extract-video", {
-          body: {
-            tmdb_id: tmdbId!,
-            imdb_id: imdbId,
-            content_type: cType,
-            audio_type: aType,
-            season,
-            episode,
-          },
-        });
-
-        const { data } = await Promise.race([extractPromise, timeoutPromise]) as any;
-        if (data?.url) {
-          setBankSources([{
-            url: await secureVideoUrl(data.url),
-            quality: "auto",
-            provider: data.provider || "extracted",
-            type: data.type === "mp4" ? "mp4" : "m3u8",
-          }]);
-        }
-      } catch { /* silent */ }
+      // extract-video already handles cache + fallback server-side
 
       setBankLoading(false);
     };

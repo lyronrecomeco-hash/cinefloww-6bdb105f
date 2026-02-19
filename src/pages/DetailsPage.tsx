@@ -112,13 +112,14 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     setShowAudioModal(true);
   };
 
-  // Prefetch video source for faster playback
+  // Prefetch: check if video is cached (existence only, no URL exposed)
   const prefetchSource = async (audio: string) => {
     const cType = type === "movie" ? "movie" : "series";
     try {
+      // Only select metadata, NOT video_url — URL stays server-side
       const { data } = await supabase
         .from("video_cache")
-        .select("video_url, video_type, provider")
+        .select("video_type, provider")
         .eq("tmdb_id", id)
         .eq("content_type", cType)
         .eq("audio_type", audio)
@@ -126,8 +127,8 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         .is("episode", null)
         .gt("expires_at", new Date().toISOString())
         .maybeSingle();
-      if (data?.video_url) {
-        return { url: data.video_url, type: data.video_type, provider: data.provider };
+      if (data) {
+        return { url: "__cached__", type: data.video_type, provider: data.provider };
       }
     } catch {}
     return null;
