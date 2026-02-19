@@ -86,7 +86,7 @@ async function tryPrimarySource(
   const tmdbUrl = `https://api.themoviedb.org/3/${tmdbType}/${tmdbId}?api_key=${_k}&language=pt-BR`;
   console.log(`[src-a] Fetching metadata`);
 
-  const tmdbRes = await fetch(tmdbUrl, { headers: { "User-Agent": UA } });
+  const tmdbRes = await fetchWithTimeout(tmdbUrl, { timeout: 4000, headers: { "User-Agent": UA } });
   if (!tmdbRes.ok) {
     console.log(`[src-a] Metadata returned ${tmdbRes.status}`);
     return null;
@@ -133,7 +133,8 @@ async function tryPrimarySlugs(
     const pageUrl = `${_h}/${pathType}/${slug}.html`;
     console.log(`[src-a] Trying: ${pageUrl}`);
 
-    const pageRes = await fetch(pageUrl, {
+    const pageRes = await fetchWithTimeout(pageUrl, {
+      timeout: 5000,
       headers: { "User-Agent": UA, "Referer": `${_h}/`, "Accept": "text/html,*/*" },
       redirect: "follow",
     });
@@ -693,6 +694,14 @@ async function deepExtractFromIframe(
   return null;
 }
 
+// ── Helper: fetch with timeout via AbortController ──────────────────
+function fetchWithTimeout(url: string, opts: RequestInit & { timeout?: number } = {}): Promise<Response> {
+  const ms = opts.timeout || 5000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 // ── Cineveo Embed API extraction (primevicio.lat) ────────────────────
 async function tryCineveoEmbed(
   tmdbId: number,
@@ -707,7 +716,8 @@ async function tryCineveoEmbed(
   console.log(`[src-e] Trying Primevício Embed: ${embedUrl}`);
 
   try {
-    const res = await fetch(embedUrl, {
+    const res = await fetchWithTimeout(embedUrl, {
+      timeout: 6000,
       headers: {
         "User-Agent": UA,
         "Referer": embedBase + "/",
@@ -720,7 +730,6 @@ async function tryCineveoEmbed(
     });
     if (!res.ok) {
       console.log(`[src-e] HTTP ${res.status}`);
-      // Fallback to iframe-proxy even on HTTP error
       return fallbackToIframeProxy(embedUrl, "src-e");
     }
 
@@ -744,7 +753,8 @@ async function tryCineveoEmbed(
       console.log(`[src-e] Following iframe: ${iframeSrc.substring(0, 80)}`);
 
       try {
-        const iframeRes = await fetch(iframeSrc, {
+        const iframeRes = await fetchWithTimeout(iframeSrc, {
+          timeout: 5000,
           headers: { "User-Agent": UA, "Referer": embedUrl, "Sec-Fetch-Dest": "iframe" },
           redirect: "follow",
         });
@@ -755,20 +765,14 @@ async function tryCineveoEmbed(
             console.log(`[src-e] Found video in iframe`);
             return iframeVideo;
           }
-
-          // Deep iframe
-          const deepResult = await deepExtractFromIframe(iframeSrc, embedUrl, 0);
-          if (deepResult) {
-            console.log(`[src-e] Found video in deep iframe`);
-            return deepResult;
-          }
         }
       } catch {}
     }
 
     // 3. Try JSON feed API
     try {
-      const feedRes = await fetch(`${embedBase}/api/feed_externo.php?id=${tmdbId}`, {
+      const feedRes = await fetchWithTimeout(`${embedBase}/api/feed_externo.php?id=${tmdbId}`, {
+        timeout: 4000,
         headers: { "User-Agent": UA },
       });
       if (feedRes.ok) {
@@ -781,7 +785,7 @@ async function tryCineveoEmbed(
       }
     } catch {}
 
-    // 4. Fallback: iframe-proxy (embed plays in iframe with interceptor)
+    // 4. Fallback: iframe-proxy
     console.log(`[src-e] No direct video, falling back to iframe-proxy`);
     return fallbackToIframeProxy(embedUrl, "src-e");
   } catch (err) {
@@ -795,6 +799,19 @@ function fallbackToIframeProxy(embedUrl: string, tag: string): { url: string; ty
   const proxyUrl = `${supabaseUrl}/functions/v1/proxy-player?url=${encodeURIComponent(embedUrl)}`;
   console.log(`[${tag}] Using iframe-proxy fallback`);
   return { url: proxyUrl, type: "iframe-proxy" as any };
+}
+
+// ── Wrap any provider with a hard timeout ────────────────────────────
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => {
+      setTimeout(() => {
+        console.log(`[${label}] Timeout after ${ms}ms, skipping`);
+        resolve(null);
+      }, ms);
+    }),
+  ]);
 }
 
 // ── Main handler ─────────────────────────────────────────────────────
@@ -849,56 +866,84 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2. Try providers (internal codenames mapped)
+    // 2. Try providers - PRIORITY ORDER: E (fastest) → A → B → C → D
+    // Each provider has a hard timeout to fail-fast
     const _pMap: Record<string, string> = { "cineveo": "src-a", "cineveo-embed": "src-e", "megaembed": "src-b", "embedplay": "src-c", "playerflix": "src-d" };
     let videoUrl: string | null = null;
     let videoType: "mp4" | "m3u8" = "mp4";
-    let provider = "cineveo";
+    let provider = "cineveo-embed";
 
     const shouldTry = (p: string) => (!force_provider || force_provider === p) && !skipProviders.includes(p);
 
-    if (shouldTry("cineveo") && !videoUrl) {
-      try {
-        const cv = await tryPrimarySource(tmdb_id, cType, season, episode);
-        if (cv) { videoUrl = cv.url; videoType = cv.type; provider = "cineveo"; }
-      } catch (err) { console.log(`[extract] Provider A error: ${err}`); }
-    }
-
+    // ── Fonte E (Primevício) - FIRST, fastest ──
     if (shouldTry("cineveo-embed") && !videoUrl) {
       try {
-        const ce = await tryCineveoEmbed(tmdb_id, isMovie, s, e);
+        const ce = await withTimeout(tryCineveoEmbed(tmdb_id, isMovie, s, e), 8000, "src-e");
         if (ce) {
           if ((ce.type as string) === "iframe-proxy") {
-            return new Response(JSON.stringify({
-              url: ce.url, type: "iframe-proxy", provider: "cineveo-embed", cached: false,
-            }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            // Don't return iframe-proxy yet, try other providers for direct links first
+            // unless it's forced
+            if (force_provider === "cineveo-embed") {
+              return new Response(JSON.stringify({
+                url: ce.url, type: "iframe-proxy", provider: "cineveo-embed", cached: false,
+              }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+            }
+          } else {
+            videoUrl = ce.url; videoType = ce.type as "mp4" | "m3u8"; provider = "cineveo-embed";
           }
-          videoUrl = ce.url; videoType = ce.type as "mp4" | "m3u8"; provider = "cineveo-embed";
         }
       } catch (err) { console.log(`[extract] Provider E error: ${err}`); }
     }
 
+    // ── Fonte A (CineVeo CDN) - 5s timeout ──
+    if (shouldTry("cineveo") && !videoUrl) {
+      try {
+        const cv = await withTimeout(tryPrimarySource(tmdb_id, cType, season, episode), 8000, "src-a");
+        if (cv) { videoUrl = cv.url; videoType = cv.type; provider = "cineveo"; }
+      } catch (err) { console.log(`[extract] Provider A error: ${err}`); }
+    }
+
+    // ── Fonte B (MegaEmbed) - 5s timeout ──
     if (shouldTry("megaembed") && !videoUrl) {
-      const me = await tryMegaEmbed(tmdb_id, isMovie, s, e);
-      if (me) { videoUrl = me.url; videoType = me.type; provider = "megaembed"; }
+      try {
+        const me = await withTimeout(tryMegaEmbed(tmdb_id, isMovie, s, e), 6000, "src-b");
+        if (me) { videoUrl = me.url; videoType = me.type; provider = "megaembed"; }
+      } catch (err) { console.log(`[extract] Provider B error: ${err}`); }
     }
 
+    // ── Fonte C (EmbedPlay) - 6s timeout ──
     if (shouldTry("embedplay") && !videoUrl) {
-      const ep = await tryEmbedPlay(tmdb_id, imdb_id || null, isMovie, s, e);
-      if (ep) { videoUrl = ep.url; videoType = ep.type; provider = "embedplay"; }
+      try {
+        const ep = await withTimeout(tryEmbedPlay(tmdb_id, imdb_id || null, isMovie, s, e), 6000, "src-c");
+        if (ep) { videoUrl = ep.url; videoType = ep.type; provider = "embedplay"; }
+      } catch (err) { console.log(`[extract] Provider C error: ${err}`); }
     }
 
+    // ── Fonte D (PlayerFlix) - 6s timeout ──
     if (shouldTry("playerflix") && !videoUrl) {
-      const pf = await tryPlayerFlix(tmdb_id, imdb_id || null, isMovie, s, e);
-      if (pf) {
-        // Don't cache iframe-proxy results
-        if ((pf.type as string) === "iframe-proxy") {
-          return new Response(JSON.stringify({
-            url: pf.url, type: "iframe-proxy", provider: "playerflix", cached: false,
-          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      try {
+        const pf = await withTimeout(tryPlayerFlix(tmdb_id, imdb_id || null, isMovie, s, e), 6000, "src-d");
+        if (pf) {
+          if ((pf.type as string) === "iframe-proxy") {
+            return new Response(JSON.stringify({
+              url: pf.url, type: "iframe-proxy", provider: "playerflix", cached: false,
+            }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          videoUrl = pf.url; videoType = pf.type; provider = "playerflix";
         }
-        videoUrl = pf.url; videoType = pf.type; provider = "playerflix";
-      }
+      } catch (err) { console.log(`[extract] Provider D error: ${err}`); }
+    }
+
+    // ── Last resort: return iframe-proxy from Fonte E if we have nothing ──
+    if (!videoUrl && !force_provider) {
+      const embedBase = "http://primevicio.lat";
+      const embedUrl = isMovie
+        ? `${embedBase}/embed/movie/${tmdb_id}`
+        : `${embedBase}/embed/tv/${tmdb_id}/${s}/${e}`;
+      const proxy = fallbackToIframeProxy(embedUrl, "final");
+      return new Response(JSON.stringify({
+        url: proxy.url, type: "iframe-proxy", provider: "cineveo-embed", cached: false,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     // 3. Save to cache, log & return
