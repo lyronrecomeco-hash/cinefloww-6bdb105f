@@ -148,15 +148,43 @@ Deno.serve(async (req) => {
         });
       }
 
-      // For .mp4 files, redirect with anti-caching headers
-      return new Response(null, {
-        status: 302,
-        headers: {
-          ...corsHeaders,
-          Location: realUrl,
-          "Cache-Control": "no-store, private",
-          "X-Robots-Tag": "noindex",
-        },
+      // For .mp4 and other files, PROXY instead of redirect to hide real CDN
+      const rangeHeader = req.headers.get("Range");
+      const fetchHeaders: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Referer": new URL(realUrl).origin + "/",
+      };
+      if (rangeHeader) {
+        fetchHeaders["Range"] = rangeHeader;
+      }
+
+      const mediaResp = await fetch(realUrl, { headers: fetchHeaders });
+
+      if (!mediaResp.ok && mediaResp.status !== 206) {
+        return new Response("Upstream error", { status: 502, headers: corsHeaders });
+      }
+
+      const responseHeaders: Record<string, string> = {
+        ...corsHeaders,
+        "Cache-Control": "no-store, private",
+        "X-Robots-Tag": "noindex",
+      };
+
+      // Forward essential headers from upstream
+      const forwardHeaders = ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"];
+      for (const h of forwardHeaders) {
+        const val = mediaResp.headers.get(h);
+        if (val) responseHeaders[h] = val;
+      }
+
+      // Ensure content type
+      if (!responseHeaders["Content-Type"]) {
+        responseHeaders["Content-Type"] = "video/mp4";
+      }
+
+      return new Response(mediaResp.body, {
+        status: mediaResp.status, // 200 or 206 for range requests
+        headers: responseHeaders,
       });
     }
 
