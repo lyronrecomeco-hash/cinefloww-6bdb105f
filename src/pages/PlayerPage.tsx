@@ -91,16 +91,43 @@ const PlayerPage = () => {
       const cType = params.type === "movie" ? "movie" : "series";
       const aType = audioParam || "legendado";
 
-      const [titleResult, extractResult] = await Promise.all([
+      // 1. Title + cache check in parallel (FAST)
+      let cacheQuery = supabase
+        .from("video_cache")
+        .select("video_url, video_type, provider")
+        .eq("tmdb_id", tmdbId!)
+        .eq("content_type", cType)
+        .eq("audio_type", aType)
+        .gt("expires_at", new Date().toISOString());
+      if (season) cacheQuery = cacheQuery.eq("season", season);
+      else cacheQuery = cacheQuery.is("season", null);
+      if (episode) cacheQuery = cacheQuery.eq("episode", episode);
+      else cacheQuery = cacheQuery.is("episode", null);
+
+      const [titleResult, cacheResult] = await Promise.all([
         supabase.from("content").select("title").eq("tmdb_id", tmdbId!).eq("content_type", cType).maybeSingle(),
-        supabase.functions.invoke("extract-video", {
-          body: { tmdb_id: tmdbId!, imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
-        }),
+        cacheQuery.maybeSingle(),
       ]);
-      
+
       if (titleResult.data?.title) setBankTitle(titleResult.data.title);
 
-      const data = extractResult.data;
+      // 2. If cache hit, use instantly
+      if (cacheResult.data?.video_url) {
+        setBankSources([{
+          url: cacheResult.data.video_url,
+          quality: "auto",
+          provider: cacheResult.data.provider || "cache",
+          type: cacheResult.data.video_type === "mp4" ? "mp4" : "m3u8",
+        }]);
+        setBankLoading(false);
+        return;
+      }
+
+      // 3. No cache, call extract-video
+      const { data } = await supabase.functions.invoke("extract-video", {
+        body: { tmdb_id: tmdbId!, imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
+      });
+
       if (data?.url) {
         setBankSources([{
           url: data.url,

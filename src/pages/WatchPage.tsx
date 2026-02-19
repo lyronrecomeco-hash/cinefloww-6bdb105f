@@ -34,7 +34,6 @@ const WatchPage = () => {
   const season = searchParams.get("s") ? Number(searchParams.get("s")) : undefined;
   const episode = searchParams.get("e") ? Number(searchParams.get("e")) : undefined;
 
-  // Check if we have a prefetched source from DetailsPage
   const prefetched = (location.state as any)?.prefetchedSource;
 
   const [sources, setSources] = useState<VideoSource[]>([]);
@@ -42,7 +41,7 @@ const WatchPage = () => {
     prefetched?.url ? "loading" : (audioParam ? "loading" : "audio-select")
   );
 
-  // Handle prefetched source async
+  // Handle prefetched source - skip intro entirely
   useEffect(() => {
     if (prefetched?.url && sources.length === 0) {
       setSources([{
@@ -54,6 +53,7 @@ const WatchPage = () => {
       setPhase("playing");
     }
   }, []);
+
   const [iframeProxyUrl, setIframeProxyUrl] = useState<string | null>(null);
   const [selectedAudio, setSelectedAudio] = useState(audioParam || "");
   const [audioTypes, setAudioTypes] = useState<string[]>([]);
@@ -62,6 +62,9 @@ const WatchPage = () => {
   const resumeChecked = useRef(false);
   const videoStartTime = useRef(0);
   const lastSaveTime = useRef(0);
+  const extractionStarted = useRef(false);
+  const extractionResult = useRef<{ url: string; type: string; provider: string } | null>(null);
+  const [introComplete, setIntroComplete] = useState(false);
 
   const tmdbId = Number(id);
   const isMovie = type === "movie";
@@ -110,50 +113,94 @@ const WatchPage = () => {
       });
   }, [id, type]);
 
-  // Use extract-video edge function (server-side cache + extraction)
+  // START extraction IMMEDIATELY when we have audio (parallel with intro)
   const tryExtraction = useCallback(async () => {
+    if (extractionStarted.current) return;
+    extractionStarted.current = true;
+
     const cType = isMovie ? "movie" : "series";
     const aType = selectedAudio || "legendado";
 
-    // 2. Fallback: call extract-video with timeout
+    // 1. FAST: Check client-side cache first (direct DB query)
     try {
-      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 45000));
+      let query = supabase
+        .from("video_cache")
+        .select("video_url, video_type, provider")
+        .eq("tmdb_id", Number(id))
+        .eq("content_type", cType)
+        .eq("audio_type", aType)
+        .gt("expires_at", new Date().toISOString());
+
+      if (season) query = query.eq("season", season);
+      else query = query.is("season", null);
+      if (episode) query = query.eq("episode", episode);
+      else query = query.is("episode", null);
+
+      const { data: cached } = await query.maybeSingle();
+      if (cached?.video_url) {
+        console.log("[WatchPage] Cache hit - instant play!");
+        const result = { url: cached.video_url, type: cached.video_type || "m3u8", provider: cached.provider || "cache" };
+        extractionResult.current = result;
+        // If intro already done, go straight to playing
+        if (introComplete) {
+          setSources([{ url: result.url, quality: "auto", provider: result.provider, type: result.type === "mp4" ? "mp4" : "m3u8" }]);
+          setPhase("playing");
+        }
+        return;
+      }
+    } catch { /* cache miss, continue */ }
+
+    // 2. Call extract-video edge function
+    try {
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 25000));
       const extractPromise = supabase.functions.invoke("extract-video", {
-        body: {
-          tmdb_id: Number(id),
-          imdb_id: imdbId,
-          content_type: cType,
-          audio_type: aType,
-          season,
-          episode,
-        },
+        body: { tmdb_id: Number(id), imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
       });
 
       const { data, error: fnError } = await Promise.race([extractPromise, timeoutPromise]) as any;
 
       if (!fnError && data?.url) {
-        // Check if it's an iframe-proxy (needs client-side interception)
         if (data.type === "iframe-proxy") {
           setIframeProxyUrl(data.url);
           setPhase("iframe-intercept");
           return;
         }
-        setSources([{
-          url: data.url,
-          quality: "auto",
-          provider: data.provider || "banco",
-          type: data.type === "mp4" ? "mp4" : "m3u8",
-        }]);
-        setPhase("playing");
+        const result = { url: data.url, type: data.type || "m3u8", provider: data.provider || "banco" };
+        extractionResult.current = result;
+        if (introComplete) {
+          setSources([{ url: result.url, quality: "auto", provider: result.provider, type: result.type === "mp4" ? "mp4" : "m3u8" }]);
+          setPhase("playing");
+        }
         return;
       }
-    } catch { /* silent - timeout or error */ }
-    setPhase("unavailable");
-  }, [id, imdbId, isMovie, selectedAudio, season, episode]);
+    } catch { /* timeout or error */ }
 
+    if (introComplete) setPhase("unavailable");
+    else extractionResult.current = null; // mark as failed
+  }, [id, imdbId, isMovie, selectedAudio, season, episode, introComplete]);
+
+  // Start extraction as soon as we have audio selected
   useEffect(() => {
-    if (phase === "loading" && selectedAudio) tryExtraction();
+    if (phase === "loading" && selectedAudio) {
+      extractionStarted.current = false;
+      extractionResult.current = undefined as any;
+      tryExtraction();
+    }
   }, [phase, selectedAudio, tryExtraction]);
+
+  // When intro completes, check if extraction already finished
+  const handleIntroComplete = useCallback(() => {
+    setIntroComplete(true);
+    const result = extractionResult.current;
+    if (result && result.url) {
+      setSources([{ url: result.url, quality: "auto", provider: result.provider, type: result.type === "mp4" ? "mp4" : "m3u8" }]);
+      setPhase("playing");
+    } else if (result === null) {
+      // extraction failed
+      setPhase("unavailable");
+    }
+    // else: extraction still in progress, will resolve via tryExtraction callback
+  }, []);
 
   useEffect(() => {
     if (audioParam) {
@@ -246,22 +293,15 @@ const WatchPage = () => {
     );
   }
 
-  // ===== IFRAME INTERCEPT (waiting for video source from proxy) =====
+  // ===== IFRAME INTERCEPT =====
   if (phase === "iframe-intercept" && iframeProxyUrl) {
     return (
       <div className="fixed inset-0 z-[100] bg-black">
         <IframeInterceptor
           proxyUrl={iframeProxyUrl}
           onVideoFound={async (url, vType) => {
-            setSources([{
-              url,
-              quality: "auto",
-              provider: "playerflix",
-              type: vType,
-            }]);
+            setSources([{ url, quality: "auto", provider: "playerflix", type: vType }]);
             setPhase("playing");
-
-            // Cache is handled server-side by extract-video edge function
           }}
           onError={() => setPhase("unavailable")}
           onClose={goBack}
@@ -271,17 +311,17 @@ const WatchPage = () => {
     );
   }
 
-
+  // ===== LOADING: Show intro while extraction runs in parallel =====
   if (phase === "loading") {
     return (
       <LyneflixIntro
-        onComplete={() => {}}
+        onComplete={handleIntroComplete}
         skip={false}
       />
     );
   }
 
-  // ===== PLAYING (native CustomPlayer) =====
+  // ===== PLAYING =====
   if (phase === "playing" && sources.length > 0) {
     return (
       <div className="fixed inset-0 z-[100] bg-black">
@@ -312,10 +352,9 @@ const WatchPage = () => {
     );
   }
 
-  // ===== UNAVAILABLE - Friendly modal =====
+  // ===== UNAVAILABLE =====
   return (
     <div className="fixed inset-0 z-[100] bg-black flex items-center justify-center p-4">
-      {/* Background brand watermark */}
       <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03]">
         <span className="text-[100px] sm:text-[140px] font-black tracking-wider text-white select-none">LYNEFLIX</span>
       </div>
