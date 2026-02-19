@@ -370,7 +370,11 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                 title={getDisplayTitle(detail)}
                 posterPath={detail.poster_path || undefined}
                 onRoomJoined={(code) => {
-                  toast.success(`Sala ${code} — recurso em fase de testes!`);
+                  const playerSlug = toSlug(getDisplayTitle(detail), detail.id);
+                  const cType = type === "tv" ? "series" : "movie";
+                  const params = new URLSearchParams({ title: getDisplayTitle(detail), room: code });
+                  if (imdbId) params.set("imdb", imdbId);
+                  navigate(`/player/${cType}/${playerSlug}?${params.toString()}`);
                 }}
               />
             </div>

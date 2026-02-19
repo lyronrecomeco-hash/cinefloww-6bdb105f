@@ -22,6 +22,7 @@ const menuItems = [
   { label: "Bot Telegram", path: "/admin/telegram", icon: Bot },
   { label: "Usuários", path: "/admin/usuarios", icon: Users },
   { label: "Avisos", path: "/admin/avisos", icon: Bell },
+  { label: "Watch Together", path: "/admin/watch-rooms", icon: Radio },
   { label: "Configurações", path: "/admin/config", icon: Settings },
 ];
 

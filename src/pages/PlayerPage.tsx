@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
 import { getSeasonDetails } from "@/services/tmdb";
+import { useWatchRoom } from "@/hooks/useWatchRoom";
+import RoomOverlay from "@/components/watch-together/RoomOverlay";
 
 interface VideoSource {
   url: string;
@@ -54,6 +56,48 @@ const PlayerPage = () => {
   const [nextEpUrl, setNextEpUrl] = useState<string | null>(null);
   const [showNextEp, setShowNextEp] = useState(false);
   const nextEpTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // Watch Together
+  const roomCodeParam = searchParams.get("room") || null;
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [activeProfileName, setActiveProfileName] = useState<string | undefined>();
+
+  useEffect(() => {
+    const stored = localStorage.getItem("lyneflix_active_profile");
+    if (stored) {
+      try {
+        const p = JSON.parse(stored);
+        setActiveProfileId(p.id);
+        setActiveProfileName(p.name);
+      } catch {}
+    }
+  }, []);
+
+  const handlePlaybackSync = useCallback((state: { action: "play" | "pause" | "seek"; position: number }) => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (state.action === "seek") {
+      v.currentTime = state.position;
+    } else if (state.action === "play") {
+      if (Math.abs(v.currentTime - state.position) > 3) v.currentTime = state.position;
+      v.play().catch(() => {});
+    } else if (state.action === "pause") {
+      v.pause();
+    }
+  }, []);
+
+  const watchRoom = useWatchRoom({
+    profileId: activeProfileId,
+    profileName: activeProfileName,
+    onPlaybackSync: handlePlaybackSync,
+  });
+
+  // Auto-join room from URL param
+  useEffect(() => {
+    if (roomCodeParam && activeProfileId && !watchRoom.room) {
+      watchRoom.joinRoom(roomCodeParam);
+    }
+  }, [roomCodeParam, activeProfileId]);
 
   // Compute next episode URL
   useEffect(() => {
@@ -546,7 +590,37 @@ const PlayerPage = () => {
       }}
       style={{ cursor: showControls ? "default" : "none" }}>
       
-      <video ref={videoRef} className="w-full h-full object-contain" playsInline preload="auto" />
+      <video ref={videoRef} className="w-full h-full object-contain" playsInline preload="auto"
+        onPlay={() => {
+          if (watchRoom.isHost && watchRoom.room) {
+            watchRoom.broadcastPlayback({ action: "play", position: videoRef.current?.currentTime || 0, timestamp: Date.now() });
+          }
+        }}
+        onPause={() => {
+          if (watchRoom.isHost && watchRoom.room) {
+            watchRoom.broadcastPlayback({ action: "pause", position: videoRef.current?.currentTime || 0, timestamp: Date.now() });
+          }
+        }}
+        onSeeked={() => {
+          if (watchRoom.isHost && watchRoom.room) {
+            watchRoom.broadcastPlayback({ action: "seek", position: videoRef.current?.currentTime || 0, timestamp: Date.now() });
+          }
+        }}
+      />
+
+      {/* Watch Together Overlay */}
+      {watchRoom.room && activeProfileId && (
+        <RoomOverlay
+          roomCode={watchRoom.room.room_code}
+          isHost={watchRoom.isHost}
+          participants={watchRoom.participants}
+          messages={watchRoom.messages}
+          profileId={activeProfileId}
+          onLeave={watchRoom.leaveRoom}
+          onSendMessage={watchRoom.sendMessage}
+          showControls={showControls}
+        />
+      )}
 
       {/* Resume prompt */}
       {showResumePrompt && (
