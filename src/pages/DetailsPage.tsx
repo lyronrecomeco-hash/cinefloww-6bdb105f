@@ -12,6 +12,7 @@ import AudioSelectModal from "@/components/AudioSelectModal";
 import TrailerModal from "@/components/TrailerModal";
 import RequestModal from "@/components/RequestModal";
 import ReportModal from "@/components/ReportModal";
+import DetailAutoWarning from "@/components/DetailAutoWarning";
 import { fromSlug } from "@/lib/slugify";
 import { toSlug } from "@/lib/slugify";
 import {
@@ -169,6 +170,9 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/50 to-background/20" />
         <div className="absolute inset-0 bg-gradient-to-r from-background/90 via-background/40 to-transparent" />
       </div>
+
+      {/* Auto warning for new site */}
+      <DetailAutoWarning />
 
       {/* Main Content */}
       <div className="relative -mt-32 sm:-mt-44 lg:-mt-52 z-10 px-3 sm:px-6 lg:px-12 pb-20">
