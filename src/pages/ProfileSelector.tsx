@@ -12,8 +12,16 @@ import avatar5 from "@/assets/avatars/avatar-5.png";
 import avatar6 from "@/assets/avatars/avatar-6.png";
 import avatar7 from "@/assets/avatars/avatar-7.png";
 import avatar8 from "@/assets/avatars/avatar-8.png";
+import anime1 from "@/assets/avatars/anime-1.png";
+import anime2 from "@/assets/avatars/anime-2.png";
+import anime3 from "@/assets/avatars/anime-3.png";
+import anime4 from "@/assets/avatars/anime-4.png";
+import anime5 from "@/assets/avatars/anime-5.png";
+import anime6 from "@/assets/avatars/anime-6.png";
+import anime7 from "@/assets/avatars/anime-7.png";
+import anime8 from "@/assets/avatars/anime-8.png";
 
-const AVATARS = [avatar1, avatar2, avatar3, avatar4, avatar5, avatar6, avatar7, avatar8];
+const AVATARS = [avatar1, avatar2, avatar3, avatar4, avatar5, avatar6, avatar7, avatar8, anime1, anime2, anime3, anime4, anime5, anime6, anime7, anime8];
 
 interface UserProfile {
   id: string;
@@ -32,6 +40,7 @@ const ProfileSelector = () => {
   const [newAvatar, setNewAvatar] = useState(0);
   const [mounted, setMounted] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [avatarTab, setAvatarTab] = useState<"classic" | "anime">("classic");
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -122,6 +131,10 @@ const ProfileSelector = () => {
     navigate("/conta");
   };
 
+  const classicAvatars = AVATARS.slice(0, 8);
+  const animeAvatars = AVATARS.slice(8, 16);
+  const displayAvatars = avatarTab === "classic" ? classicAvatars : animeAvatars;
+
   if (loading && profiles.length === 0) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -140,27 +153,54 @@ const ProfileSelector = () => {
           </h2>
 
           {/* Avatar preview */}
-          <div className="flex justify-center mb-6">
+          <div className="flex justify-center mb-4">
             <img
-              src={AVATARS[newAvatar]}
+              src={AVATARS[newAvatar] || AVATARS[0]}
               alt="Avatar"
               className="w-24 h-24 rounded-xl object-cover shadow-lg border-2 border-primary/30"
             />
           </div>
 
+          {/* Tab selector */}
+          <div className="flex justify-center gap-2 mb-4">
+            <button
+              onClick={() => setAvatarTab("classic")}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                avatarTab === "classic"
+                  ? "bg-primary/20 text-primary border border-primary/30"
+                  : "bg-white/5 text-muted-foreground border border-white/10 hover:bg-white/10"
+              }`}
+            >
+              Clássicos
+            </button>
+            <button
+              onClick={() => setAvatarTab("anime")}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                avatarTab === "anime"
+                  ? "bg-primary/20 text-primary border border-primary/30"
+                  : "bg-white/5 text-muted-foreground border border-white/10 hover:bg-white/10"
+              }`}
+            >
+              🎌 Anime
+            </button>
+          </div>
+
           {/* Avatar picker */}
           <div className="flex justify-center gap-2 mb-6 flex-wrap">
-            {AVATARS.map((src, i) => (
-              <button
-                key={i}
-                onClick={() => setNewAvatar(i)}
-                className={`w-12 h-12 rounded-lg overflow-hidden transition-all ${
-                  newAvatar === i ? "ring-2 ring-primary scale-110" : "opacity-60 hover:opacity-100"
-                }`}
-              >
-                <img src={src} alt={`Avatar ${i + 1}`} className="w-full h-full object-cover" />
-              </button>
-            ))}
+            {displayAvatars.map((src, i) => {
+              const globalIndex = avatarTab === "classic" ? i : i + 8;
+              return (
+                <button
+                  key={globalIndex}
+                  onClick={() => setNewAvatar(globalIndex)}
+                  className={`w-12 h-12 rounded-lg overflow-hidden transition-all ${
+                    newAvatar === globalIndex ? "ring-2 ring-primary scale-110" : "opacity-60 hover:opacity-100"
+                  }`}
+                >
+                  <img src={src} alt={`Avatar ${globalIndex + 1}`} className="w-full h-full object-cover" />
+                </button>
+              );
+            })}
           </div>
 
           <input
@@ -237,6 +277,7 @@ const ProfileSelector = () => {
                     setEditing(profile.id);
                     setNewName(profile.name);
                     setNewAvatar(profile.avatar_index);
+                    setAvatarTab(profile.avatar_index >= 8 ? "anime" : "classic");
                   }}
                   className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-card border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-white/10"
                 >
@@ -262,7 +303,7 @@ const ProfileSelector = () => {
           {/* Add profile button */}
           {profiles.length < 5 && (
             <button
-              onClick={() => { setCreating(true); setNewAvatar(Math.floor(Math.random() * 8)); }}
+              onClick={() => { setCreating(true); setNewAvatar(Math.floor(Math.random() * AVATARS.length)); setAvatarTab("classic"); }}
               className="flex flex-col items-center gap-3 cursor-pointer group"
             >
               <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-xl border-2 border-dashed border-white/20 flex items-center justify-center transition-all group-hover:border-primary/50 group-hover:bg-white/5">

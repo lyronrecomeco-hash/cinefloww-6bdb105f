@@ -67,11 +67,11 @@ const WatchTogetherButton = ({
       {showMenu && (
         <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4">
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowMenu(false)} />
-          <div className="relative z-[9999] w-full max-w-[260px] bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl">
-            <p className="text-xs text-muted-foreground px-4 pt-2 pb-1 font-medium">O que deseja fazer?</p>
+          <div className="relative z-[9999] w-full max-w-[280px] bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl p-3 shadow-2xl mx-auto">
+            <p className="text-xs text-muted-foreground px-3 pt-1 pb-2 font-medium">O que deseja fazer?</p>
             <button
               onClick={() => { setShowMenu(false); setShowCreate(true); }}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-foreground hover:bg-white/10 transition-colors"
+              className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-foreground hover:bg-white/10 transition-colors"
             >
               <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
                 <Users className="w-4 h-4 text-primary" />
@@ -83,7 +83,7 @@ const WatchTogetherButton = ({
             </button>
             <button
               onClick={() => { setShowMenu(false); setShowJoin(true); }}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm text-foreground hover:bg-white/10 transition-colors"
+              className="w-full flex items-center gap-3 px-3 py-3 rounded-xl text-sm text-foreground hover:bg-white/10 transition-colors"
             >
               <div className="w-8 h-8 rounded-lg bg-accent/15 flex items-center justify-center">
                 <span className="text-sm">🔗</span>
@@ -123,7 +123,7 @@ const WatchTogetherButton = ({
         <JoinRoomModal
           profileId={profileId}
           onClose={() => setShowJoin(false)}
-          onJoined={(code) => { setShowJoin(false); onRoomJoined(code); }}
+          onJoined={(code, mode) => { setShowJoin(false); onRoomJoined(code, mode); }}
         />
       )}
     </>
