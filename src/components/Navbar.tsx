@@ -20,7 +20,7 @@ const navItems = [
   { label: "Filmes", path: "/filmes" },
   { label: "Séries", path: "/series" },
   { label: "Doramas", path: "/doramas" },
-  { label: "TV Lyne", path: "/tv" },
+  { label: "TV Lyne", path: "/tv", disabled: true },
   { label: "Lançamentos", path: "/lancamentos" },
   { label: "Minha Lista", path: "/minha-lista" },
 ];
@@ -139,19 +139,29 @@ const Navbar = () => {
 
         {/* Desktop Nav */}
         <div className="hidden md:flex items-center gap-1">
-          {navItems.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 ${
-                location.pathname === item.path
-                  ? "text-foreground bg-white/10"
-                  : "text-muted-foreground hover:text-foreground hover:bg-white/5"
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {navItems.map((item) =>
+            item.disabled ? (
+              <span
+                key={item.path}
+                className="px-4 py-2 rounded-xl text-sm font-medium text-muted-foreground/40 cursor-not-allowed select-none"
+                title="Em breve"
+              >
+                {item.label}
+              </span>
+            ) : (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 ${
+                  location.pathname === item.path
+                    ? "text-foreground bg-white/10"
+                    : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                }`}
+              >
+                {item.label}
+              </Link>
+            )
+          )}
         </div>
 
         {/* Right side */}
@@ -260,19 +270,28 @@ const Navbar = () => {
       {/* Mobile Menu */}
       {menuOpen && (
         <div className="md:hidden glass mx-3 mb-3 p-2 animate-scale-in">
-          {navItems.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`block px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                location.pathname === item.path
-                  ? "text-foreground bg-white/10"
-                  : "text-muted-foreground hover:text-foreground hover:bg-white/5"
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {navItems.map((item) =>
+            item.disabled ? (
+              <span
+                key={item.path}
+                className="block px-4 py-3 rounded-xl text-sm font-medium text-muted-foreground/40 cursor-not-allowed select-none"
+              >
+                {item.label}
+              </span>
+            ) : (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`block px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                  location.pathname === item.path
+                    ? "text-foreground bg-white/10"
+                    : "text-muted-foreground hover:text-foreground hover:bg-white/5"
+                }`}
+              >
+                {item.label}
+              </Link>
+            )
+          )}
           {/* Pedidos inside menu */}
           <button
             onClick={() => { setShowRequest(true); setMenuOpen(false); }}
