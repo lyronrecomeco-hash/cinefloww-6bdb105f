@@ -108,10 +108,32 @@ export function useWatchRoom({ profileId, profileName, onPlaybackSync }: UseWatc
   // Send chat message
   const handleSendMessage = useCallback(async (message: string) => {
     if (!room || !profileId || !message.trim()) return;
+    const msgId = crypto.randomUUID();
+    const msgPayload: ChatMessage = {
+      id: msgId,
+      profile_id: profileId,
+      profile_name: profileName || "Anônimo",
+      message: message.trim(),
+      created_at: new Date().toISOString(),
+    };
+
+    // Add to local state immediately (optimistic)
+    setMessages(prev => [...prev.slice(-99), msgPayload]);
+
+    // Broadcast to other participants for instant delivery
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "chat_message",
+      payload: msgPayload,
+    });
+
+    // Persist to database
     try {
       await sendChatMessage(room.id, profileId, message.trim());
-    } catch { /* rate limited or error */ }
-  }, [room, profileId]);
+    } catch (err) {
+      console.error("[WatchRoom] Failed to persist message:", err);
+    }
+  }, [room, profileId, profileName]);
 
   // Setup Realtime channel when room exists
   useEffect(() => {
@@ -146,18 +168,34 @@ export function useWatchRoom({ profileId, profileName, onPlaybackSync }: UseWatc
       }
     });
 
-    // Chat messages via realtime DB changes
+    // Chat messages via broadcast (immediate delivery)
+    channel.on("broadcast", { event: "chat_message" }, ({ payload }) => {
+      if (payload && payload.profile_id !== profileId) {
+        setMessages(prev => {
+          // Deduplicate by id
+          if (prev.some(m => m.id === payload.id)) return prev;
+          return [...prev.slice(-99), payload as ChatMessage];
+        });
+      }
+    });
+
+    // Chat messages via realtime DB changes (backup/persistence)
     channel.on(
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "watch_room_messages", filter: `room_id=eq.${room.id}` },
       (payload) => {
         const msg = payload.new as any;
-        setMessages(prev => [...prev.slice(-99), {
-          id: msg.id,
-          profile_id: msg.profile_id,
-          message: msg.message,
-          created_at: msg.created_at,
-        }]);
+        setMessages(prev => {
+          // Deduplicate - might already have it from broadcast
+          if (prev.some(m => m.id === msg.id)) return prev;
+          return [...prev.slice(-99), {
+            id: msg.id,
+            profile_id: msg.profile_id,
+            profile_name: msg.profile_name,
+            message: msg.message,
+            created_at: msg.created_at,
+          }];
+        });
       }
     );
 
