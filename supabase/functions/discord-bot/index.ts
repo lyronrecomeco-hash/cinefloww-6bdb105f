@@ -159,17 +159,20 @@ async function sendReleaseNotification() {
 
   const siteUrl = config.site_url || "https://cinefloww.lovable.app";
 
-  // Get the latest added content WITH synopsis (skip content without overview)
+  // Get latest 2026 content (movies/series only, no anime/dorama)
   const { data: items } = await sb.from("content")
-    .select("tmdb_id, title, content_type, poster_path, overview, release_date, vote_average, runtime")
+    .select("tmdb_id, title, content_type, poster_path, backdrop_path, overview, release_date, vote_average, runtime")
     .eq("status", "published")
     .not("overview", "is", null)
+    .in("content_type", ["movie", "tv", "series"])
+    .gte("release_date", "2026-01-01")
+    .lte("release_date", "2026-12-31")
     .order("created_at", { ascending: false })
-    .limit(5);
+    .limit(10);
 
   // Filter items that actually have synopsis
   const validItems = (items || []).filter(i => i.overview && i.overview.trim().length > 10);
-  if (!validItems.length) throw new Error("Nenhum conteúdo com sinopse encontrado para notificar");
+  if (!validItems.length) throw new Error("Nenhum conteúdo de 2026 com sinopse encontrado para notificar");
 
   const item = validItems[0];
   const type = item.content_type === "movie" ? "filme" : "serie";
@@ -200,9 +203,17 @@ async function sendReleaseNotification() {
 
   const content = `${titleLine}${directorLine}${castLine}${genresLine}${synopsisLine}${linkLine}${footerLine}`;
 
+  // Use backdrop for wide image, fallback to poster
+  const imageUrl = item.backdrop_path 
+    ? `https://image.tmdb.org/t/p/w780${item.backdrop_path}` 
+    : item.poster_path 
+      ? `https://image.tmdb.org/t/p/w500${item.poster_path}` 
+      : undefined;
+
   const embed = {
     color: 0x8B5CF6,
-    image: item.poster_path ? { url: `https://image.tmdb.org/t/p/w500${item.poster_path}` } : undefined,
+    image: imageUrl ? { url: imageUrl } : undefined,
+    thumbnail: item.poster_path ? { url: `https://image.tmdb.org/t/p/w200${item.poster_path}` } : undefined,
   };
 
   await discordApi(`/channels/${config.notification_channel_id}/messages`, "POST", { content, embeds: [embed] });
