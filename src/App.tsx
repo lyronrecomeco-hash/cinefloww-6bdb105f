@@ -34,6 +34,7 @@ const ContentManager = lazy(() => import("./pages/admin/ContentManager"));
 const CategoriesManager = lazy(() => import("./pages/admin/CategoriesManager"));
 const SettingsPage = lazy(() => import("./pages/admin/SettingsPage"));
 const CineveoTester = lazy(() => import("./pages/admin/CineveoTester"));
+const DiscordBotPage = lazy(() => import("./pages/admin/DiscordBotPage"));
 const BancoPage = lazy(() => import("./pages/admin/BancoPage"));
 const RequestsPage = lazy(() => import("./pages/admin/RequestsPage"));
 const AlertsPage = lazy(() => import("./pages/admin/AlertsPage"));
@@ -91,6 +92,7 @@ const App = () => (
             <Route path="/conta" element={<AuthPage />} />
             <Route path="/perfis" element={<ProfileSelector />} />
             <Route path="/importar-lista" element={<ImportListPage />} />
+            <Route path="/extrator" element={<CineveoTester />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
@@ -108,7 +110,7 @@ const App = () => (
               <Route path="banco" element={<BancoPage />} />
               <Route path="reports" element={<ReportsPage />} />
               {/* TV manager removed */}
-              <Route path="cineveo" element={<CineveoTester />} />
+              <Route path="discord" element={<DiscordBotPage />} />
               <Route path="logs" element={<LogsPage />} />
               <Route path="seguranca" element={<SecurityMonitor />} />
               <Route path="avisos" element={<AlertsPage />} />

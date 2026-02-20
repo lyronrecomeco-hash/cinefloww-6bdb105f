@@ -315,6 +315,72 @@ export type Database = {
           },
         ]
       }
+      discord_bot_logs: {
+        Row: {
+          channel_id: string | null
+          created_at: string
+          details: string | null
+          event: string
+          guild_id: string | null
+          id: string
+          user_tag: string | null
+        }
+        Insert: {
+          channel_id?: string | null
+          created_at?: string
+          details?: string | null
+          event: string
+          guild_id?: string | null
+          id?: string
+          user_tag?: string | null
+        }
+        Update: {
+          channel_id?: string | null
+          created_at?: string
+          details?: string | null
+          event?: string
+          guild_id?: string | null
+          id?: string
+          user_tag?: string | null
+        }
+        Relationships: []
+      }
+      discord_config: {
+        Row: {
+          auto_notify_new_content: boolean
+          bot_status: string
+          created_at: string
+          guild_id: string | null
+          id: string
+          notification_channel_id: string | null
+          site_url: string | null
+          updated_at: string
+          welcome_message: string | null
+        }
+        Insert: {
+          auto_notify_new_content?: boolean
+          bot_status?: string
+          created_at?: string
+          guild_id?: string | null
+          id?: string
+          notification_channel_id?: string | null
+          site_url?: string | null
+          updated_at?: string
+          welcome_message?: string | null
+        }
+        Update: {
+          auto_notify_new_content?: boolean
+          bot_status?: string
+          created_at?: string
+          guild_id?: string | null
+          id?: string
+          notification_channel_id?: string | null
+          site_url?: string | null
+          updated_at?: string
+          welcome_message?: string | null
+        }
+        Relationships: []
+      }
       my_list: {
         Row: {
           added_at: string
