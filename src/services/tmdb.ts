@@ -100,6 +100,8 @@ export const getTopRatedMovies = (page = 1) => fetchTMDB<TMDBList>("/movie/top_r
 export const getTopRatedSeries = (page = 1) => fetchTMDB<TMDBList>("/tv/top_rated", { page: String(page) });
 export const getNowPlayingMovies = (page = 1) => fetchTMDB<TMDBList>("/movie/now_playing", { page: String(page) });
 export const getAiringTodaySeries = (page = 1) => fetchTMDB<TMDBList>("/tv/airing_today", { page: String(page) });
+export const getUpcomingMovies = (page = 1) => fetchTMDB<TMDBList>("/movie/upcoming", { page: String(page) });
+export const getOnTheAirSeries = (page = 1) => fetchTMDB<TMDBList>("/tv/on_the_air", { page: String(page) });
 
 export const getMovieDetails = (id: number) =>
   fetchTMDB<TMDBMovieDetail>(`/movie/${id}`, { append_to_response: "credits,similar,videos,images" });
