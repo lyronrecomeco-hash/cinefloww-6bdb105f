@@ -200,6 +200,30 @@ const DiscordBotPage = () => {
     finally { setActionLoading(null); }
   };
 
+  const sendRelease = async () => {
+    setActionLoading("send_release");
+    try {
+      const res = await invokeBot("send_release");
+      if (res.success) {
+        toast.success(`Lançamento "${res.title}" enviado!`);
+        fetchData();
+      } else toast.error(res.error);
+    } catch (e) { toast.error(String(e)); }
+    finally { setActionLoading(null); }
+  };
+
+  const sendDailyTemplate = async () => {
+    setActionLoading("send_template");
+    try {
+      const res = await invokeBot("send_daily_template");
+      if (res.success) {
+        toast.success("Template diário enviado!");
+        fetchData();
+      } else toast.error(res.error);
+    } catch (e) { toast.error(String(e)); }
+    finally { setActionLoading(null); }
+  };
+
   const clearLogs = async () => {
     await supabase.from("discord_bot_logs").delete().neq("id", "00000000-0000-0000-0000-000000000000");
     setLogs([]);
@@ -536,6 +560,41 @@ const DiscordBotPage = () => {
             >
               {actionLoading === "send_msg" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
               Enviar
+            </button>
+          </div>
+          {/* Send Release Notification */}
+          <div className="glass-strong rounded-2xl p-5 space-y-3">
+            <h3 className="font-display font-bold flex items-center gap-2">
+              🔥 Enviar Lançamento
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Envia o último conteúdo adicionado ao catálogo com texto persuasivo e link direto.
+            </p>
+            <button
+              onClick={sendRelease}
+              disabled={actionLoading === "send_release"}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 font-medium text-sm hover:bg-emerald-500/25 transition-colors disabled:opacity-50"
+            >
+              {actionLoading === "send_release" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Enviar Lançamento Agora
+            </button>
+          </div>
+
+          {/* Send Daily Template */}
+          <div className="glass-strong rounded-2xl p-5 space-y-3">
+            <h3 className="font-display font-bold flex items-center gap-2">
+              💡 Template Diário
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Envia uma mensagem aleatória tipo "Sabia que na LyneFlix..." ou "Saboor, meme do Toguro".
+            </p>
+            <button
+              onClick={sendDailyTemplate}
+              disabled={actionLoading === "send_template"}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500/15 text-amber-400 border border-amber-500/20 font-medium text-sm hover:bg-amber-500/25 transition-colors disabled:opacity-50"
+            >
+              {actionLoading === "send_template" ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
+              Enviar Template Agora
             </button>
           </div>
         </div>
