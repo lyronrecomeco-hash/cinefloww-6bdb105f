@@ -19,20 +19,27 @@ const ComingSoonPage = () => {
   const fetchPage = useCallback(async (p: number) => {
     setLoading(true);
     try {
-      const today = new Date().toISOString().split("T")[0];
+      // Use tomorrow to exclude anything already released
+      const now = new Date();
+      now.setDate(now.getDate() + 1);
+      const tomorrow = now.toISOString().split("T")[0];
       const futureLimit = "2027-12-31";
       const data = tab === "movies"
         ? await discoverMovies(p, {
-            "primary_release_date.gte": today,
+            "primary_release_date.gte": tomorrow,
             "primary_release_date.lte": futureLimit,
             sort_by: "primary_release_date.asc",
           })
         : await discoverSeries(p, {
-            "first_air_date.gte": today,
+            "first_air_date.gte": tomorrow,
             "first_air_date.lte": futureLimit,
             sort_by: "first_air_date.asc",
           });
-      const future = data.results.filter((item) => item.poster_path);
+      // Only show items with poster, overview and confirmed future date
+      const future = data.results.filter((item) => {
+        const d = item.release_date || item.first_air_date;
+        return item.poster_path && item.overview && d && d >= tomorrow;
+      });
       setItems(future);
       setTotalPages(Math.min(data.total_pages, 500));
       setPage(p);
