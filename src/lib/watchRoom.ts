@@ -12,6 +12,7 @@ export interface WatchRoom {
   poster_path: string | null;
   status: string;
   max_participants: number;
+  room_mode: "chat" | "call";
   created_at: string;
   updated_at: string;
   expires_at: string;
@@ -34,6 +35,7 @@ export async function createRoom(params: {
   posterPath?: string;
   season?: number;
   episode?: number;
+  roomMode?: "chat" | "call";
 }): Promise<WatchRoom | null> {
   const { data, error } = await supabase
     .from("watch_rooms")
@@ -46,7 +48,8 @@ export async function createRoom(params: {
       season: params.season || null,
       episode: params.episode || null,
       room_code: "", // trigger generates it
-    })
+      room_mode: params.roomMode || "chat",
+    } as any)
     .select()
     .single();
 

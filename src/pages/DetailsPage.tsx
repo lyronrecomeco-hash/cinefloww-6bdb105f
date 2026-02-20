@@ -385,11 +385,12 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                 contentType={type}
                 title={getDisplayTitle(detail)}
                 posterPath={detail.poster_path || undefined}
-                onRoomJoined={(code) => {
+                onRoomJoined={(code, mode) => {
                   const playerSlug = toSlug(getDisplayTitle(detail), detail.id);
                   const cType = type === "tv" ? "series" : "movie";
                   const params = new URLSearchParams({ title: getDisplayTitle(detail), room: code });
                   if (imdbId) params.set("imdb", imdbId);
+                  if (mode) params.set("roomMode", mode);
                   navigate(`/player/${cType}/${playerSlug}?${params.toString()}`);
                 }}
               />

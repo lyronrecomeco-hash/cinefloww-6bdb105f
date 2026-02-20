@@ -13,7 +13,7 @@ interface WatchTogetherButtonProps {
   posterPath?: string;
   season?: number;
   episode?: number;
-  onRoomJoined: (roomCode: string) => void;
+  onRoomJoined: (roomCode: string, roomMode?: "chat" | "call") => void;
 }
 
 const WatchTogetherButton = ({
@@ -27,7 +27,6 @@ const WatchTogetherButton = ({
 
   const isLoggedIn = !!profileId;
 
-  // Fetch admin setting
   useEffect(() => {
     const fetchSetting = async () => {
       try {
@@ -36,7 +35,6 @@ const WatchTogetherButton = ({
           .select("value")
           .eq("key", "watch_together_enabled")
           .maybeSingle();
-
         setEnabled((data?.value as any)?.value === true);
       } catch {
         setEnabled(false);
@@ -45,7 +43,6 @@ const WatchTogetherButton = ({
     fetchSetting();
   }, []);
 
-  // Don't render if disabled or still loading
   if (enabled !== true) return null;
 
   const handleButtonClick = () => {
@@ -68,12 +65,9 @@ const WatchTogetherButton = ({
       </button>
 
       {showMenu && (
-        <div className="fixed inset-0 z-[9998]">
-          <div className="fixed inset-0" onClick={() => setShowMenu(false)} />
-          <div
-            className="fixed z-[9999] w-56 bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl"
-            style={{ left: "50%", top: "50%", transform: "translate(-50%, -50%)" }}
-          >
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setShowMenu(false)} />
+          <div className="relative z-[9999] w-full max-w-[260px] bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl">
             <p className="text-xs text-muted-foreground px-4 pt-2 pb-1 font-medium">O que deseja fazer?</p>
             <button
               onClick={() => { setShowMenu(false); setShowCreate(true); }}
@@ -121,7 +115,7 @@ const WatchTogetherButton = ({
           season={season}
           episode={episode}
           onClose={() => setShowCreate(false)}
-          onCreated={(code) => { setShowCreate(false); onRoomJoined(code); }}
+          onCreated={(code, mode) => { setShowCreate(false); onRoomJoined(code, mode); }}
         />
       )}
 

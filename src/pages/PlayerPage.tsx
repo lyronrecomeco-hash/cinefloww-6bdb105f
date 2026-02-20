@@ -12,6 +12,7 @@ import {
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
 import { getSeasonDetails } from "@/services/tmdb";
 import { useWatchRoom } from "@/hooks/useWatchRoom";
+import { useWebRTC } from "@/hooks/useWebRTC";
 import RoomOverlay from "@/components/watch-together/RoomOverlay";
 
 interface VideoSource {
@@ -90,6 +91,17 @@ const PlayerPage = () => {
     profileId: activeProfileId,
     profileName: activeProfileName,
     onPlaybackSync: handlePlaybackSync,
+  });
+
+  const roomMode = (watchRoom.room as any)?.room_mode as "chat" | "call" | undefined;
+  const isCallMode = roomMode === "call";
+
+  const webRTC = useWebRTC({
+    roomId: watchRoom.room?.id || null,
+    profileId: activeProfileId,
+    profileName: activeProfileName,
+    isHost: watchRoom.isHost,
+    enabled: isCallMode && !!watchRoom.room,
   });
 
   // Auto-join room from URL param
@@ -627,13 +639,24 @@ const PlayerPage = () => {
       {watchRoom.room && activeProfileId && (
         <RoomOverlay
           roomCode={watchRoom.room.room_code}
+          roomMode={roomMode || "chat"}
           isHost={watchRoom.isHost}
           participants={watchRoom.participants}
           messages={watchRoom.messages}
           profileId={activeProfileId}
-          onLeave={watchRoom.leaveRoom}
+          profileName={activeProfileName || "Anônimo"}
+          onLeave={() => { webRTC.endCall(); watchRoom.leaveRoom(); }}
           onSendMessage={watchRoom.sendMessage}
           showControls={showControls}
+          voiceCallActive={webRTC.isCallActive}
+          voiceMuted={webRTC.isMuted}
+          voicePeers={webRTC.peers}
+          voiceError={webRTC.error}
+          onToggleVoiceMute={webRTC.toggleMute}
+          onEndVoiceCall={() => { webRTC.endCall(); watchRoom.leaveRoom(); }}
+          onHostMute={webRTC.hostMute}
+          onHostUnmute={webRTC.hostUnmute}
+          onHostKick={webRTC.hostKick}
         />
       )}
 
