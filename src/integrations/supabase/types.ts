@@ -958,6 +958,7 @@ export type Database = {
           id: string
           joined_at: string
           last_heartbeat: string
+          muted_by_host: boolean
           profile_id: string
           role: string
           room_id: string
@@ -966,6 +967,7 @@ export type Database = {
           id?: string
           joined_at?: string
           last_heartbeat?: string
+          muted_by_host?: boolean
           profile_id: string
           role?: string
           room_id: string
@@ -974,6 +976,7 @@ export type Database = {
           id?: string
           joined_at?: string
           last_heartbeat?: string
+          muted_by_host?: boolean
           profile_id?: string
           role?: string
           room_id?: string
@@ -1006,6 +1009,7 @@ export type Database = {
           max_participants: number
           poster_path: string | null
           room_code: string
+          room_mode: string
           season: number | null
           status: string
           title: string
@@ -1022,6 +1026,7 @@ export type Database = {
           max_participants?: number
           poster_path?: string | null
           room_code: string
+          room_mode?: string
           season?: number | null
           status?: string
           title?: string
@@ -1038,6 +1043,7 @@ export type Database = {
           max_participants?: number
           poster_path?: string | null
           room_code?: string
+          room_mode?: string
           season?: number | null
           status?: string
           title?: string

@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Users, Copy, Check, X, Crown, LogOut, MessageCircle } from "lucide-react";
+import { Users, Copy, Check, X, Crown, LogOut, MessageCircle, Phone } from "lucide-react";
 import RoomChat from "./RoomChat";
 import ChatBubbleNotification from "./ChatBubbleNotification";
+import VoiceCallOverlay from "./VoiceCallOverlay";
 
 interface Participant {
   id: string;
@@ -17,21 +18,48 @@ interface Message {
   created_at: string;
 }
 
+interface PeerInfo {
+  peerId: string;
+  peerName: string;
+  isMuted: boolean;
+  isMutedByHost: boolean;
+  isSpeaking: boolean;
+}
+
 interface Props {
   roomCode: string;
+  roomMode: "chat" | "call";
   isHost: boolean;
   participants: Participant[];
   messages: Message[];
   profileId: string;
+  profileName: string;
   onLeave: () => void;
   onSendMessage: (msg: string) => void;
   showControls: boolean;
+  // Voice call props
+  voiceCallActive?: boolean;
+  voiceMuted?: boolean;
+  voicePeers?: PeerInfo[];
+  voiceError?: string | null;
+  onToggleVoiceMute?: () => void;
+  onEndVoiceCall?: () => void;
+  onHostMute?: (peerId: string) => void;
+  onHostUnmute?: (peerId: string) => void;
+  onHostKick?: (peerId: string) => void;
 }
 
-const RoomOverlay = ({ roomCode, isHost, participants, messages, profileId, onLeave, onSendMessage, showControls }: Props) => {
+const RoomOverlay = ({
+  roomCode, roomMode, isHost, participants, messages, profileId, profileName,
+  onLeave, onSendMessage, showControls,
+  voiceCallActive, voiceMuted, voicePeers, voiceError,
+  onToggleVoiceMute, onEndVoiceCall, onHostMute, onHostUnmute, onHostKick,
+}: Props) => {
   const [copied, setCopied] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [showPanel, setShowPanel] = useState(false);
+
+  const isCallMode = roomMode === "call";
 
   const copyCode = () => {
     navigator.clipboard.writeText(roomCode);
@@ -41,24 +69,37 @@ const RoomOverlay = ({ roomCode, isHost, participants, messages, profileId, onLe
 
   return (
     <>
-      {/* Floating message bubbles when chat is closed */}
-      {!showChat && (
-        <ChatBubbleNotification
-          messages={messages}
-          profileId={profileId}
-          onOpenChat={() => setShowChat(true)}
-        />
+      {/* Chat mode: floating bubbles & drawer */}
+      {!isCallMode && (
+        <>
+          {!showChat && (
+            <ChatBubbleNotification
+              messages={messages}
+              profileId={profileId}
+              onOpenChat={() => setShowChat(true)}
+            />
+          )}
+        </>
       )}
 
       {/* Room badge - top right */}
       <div className={`absolute top-4 right-16 z-20 flex items-center gap-2 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
-        <button
-          onClick={(e) => { e.stopPropagation(); setShowChat(!showChat); }}
-          className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs font-medium hover:bg-black/80 transition-colors"
-        >
-          <MessageCircle className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Chat</span>
-        </button>
+        {!isCallMode && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowChat(!showChat); }}
+            className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs font-medium hover:bg-black/80 transition-colors"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Chat</span>
+          </button>
+        )}
+
+        {isCallMode && (
+          <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-500/20 backdrop-blur-md border border-green-500/30 text-green-400 text-xs font-bold">
+            <Phone className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Chamada</span>
+          </div>
+        )}
 
         <button
           onClick={(e) => { e.stopPropagation(); setShowPanel(!showPanel); }}
@@ -74,7 +115,7 @@ const RoomOverlay = ({ roomCode, isHost, participants, messages, profileId, onLe
       {showPanel && (
         <>
           <div className="fixed inset-0 z-[60]" onClick={() => setShowPanel(false)} />
-          <div className="absolute top-16 right-16 z-[61] w-72 bg-[#0d0d0d]/95 backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden">
+          <div className="absolute top-16 right-4 sm:right-16 z-[61] w-64 sm:w-72 bg-[#0d0d0d]/95 backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden">
             <div className="p-4 border-b border-white/[0.06]">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-sm font-bold text-white">Watch Together</h4>
@@ -86,6 +127,12 @@ const RoomOverlay = ({ roomCode, isHost, participants, messages, profileId, onLe
                 <span className="font-mono font-bold text-primary">{roomCode}</span>
                 {copied ? <Check className="w-3 h-3 text-green-400" /> : <Copy className="w-3 h-3" />}
               </button>
+              {isCallMode && (
+                <div className="flex items-center gap-1.5 mt-2">
+                  <Phone className="w-3 h-3 text-green-400" />
+                  <span className="text-[10px] text-green-400 font-medium">Chamada de Voz Ativa</span>
+                </div>
+              )}
             </div>
 
             <div className="p-3 max-h-48 overflow-y-auto">
@@ -118,14 +165,35 @@ const RoomOverlay = ({ roomCode, isHost, participants, messages, profileId, onLe
         </>
       )}
 
-      {/* Chat drawer */}
-      <RoomChat
-        messages={messages}
-        profileId={profileId}
-        onSend={onSendMessage}
-        onClose={() => setShowChat(false)}
-        isOpen={showChat}
-      />
+      {/* Chat drawer (only in chat mode) */}
+      {!isCallMode && (
+        <RoomChat
+          messages={messages}
+          profileId={profileId}
+          onSend={onSendMessage}
+          onClose={() => setShowChat(false)}
+          isOpen={showChat}
+        />
+      )}
+
+      {/* Voice call overlay (only in call mode) */}
+      {isCallMode && voiceCallActive !== undefined && (
+        <VoiceCallOverlay
+          isHost={isHost}
+          isMuted={voiceMuted || false}
+          peers={voicePeers || []}
+          profileId={profileId}
+          profileName={profileName}
+          isCallActive={voiceCallActive}
+          error={voiceError || null}
+          showControls={showControls}
+          onToggleMute={onToggleVoiceMute || (() => {})}
+          onEndCall={onEndVoiceCall || (() => {})}
+          onHostMute={onHostMute || (() => {})}
+          onHostUnmute={onHostUnmute || (() => {})}
+          onHostKick={onHostKick || (() => {})}
+        />
+      )}
     </>
   );
 };
