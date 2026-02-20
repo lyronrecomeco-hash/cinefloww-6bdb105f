@@ -44,7 +44,7 @@ const TelegramPage = lazy(() => import("./pages/admin/TelegramPage"));
 const ReportsPage = lazy(() => import("./pages/admin/ReportsPage"));
 const UsersPage = lazy(() => import("./pages/admin/UsersPage"));
 const WatchRoomsPage = lazy(() => import("./pages/admin/WatchRoomsPage"));
-const VisioncinePage = lazy(() => import("./pages/admin/VisioncinePage"));
+
 
 
 const queryClient = new QueryClient({
@@ -119,7 +119,6 @@ const App = () => (
               <Route path="usuarios" element={<UsersPage />} />
               <Route path="config" element={<SettingsPage />} />
               <Route path="watch-rooms" element={<WatchRoomsPage />} />
-              <Route path="visioncine" element={<VisioncinePage />} />
             </Route>
 
             <Route path="*" element={<NotFound />} />

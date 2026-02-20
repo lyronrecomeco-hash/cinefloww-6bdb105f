@@ -72,6 +72,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   }, [detail, type, activeProfileId]);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
     setDetail(null);
     setShowSeasons(false);
@@ -81,9 +82,10 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     setHasVideo(null);
     const fetcher = type === "movie" ? getMovieDetails : getSeriesDetails;
     fetcher(id).then((data) => {
+      if (cancelled) return;
       setDetail(data);
       setLoading(false);
-      // Track view
+      // Track view (non-blocking)
       supabase.from("content_views").insert({
         tmdb_id: id,
         content_type: type === "movie" ? "movie" : "tv",
@@ -97,9 +99,9 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         .eq("content_type", cType)
         .limit(1)
         .then(({ data: cacheData }) => {
-          setHasVideo(!!(cacheData && cacheData.length > 0));
+          if (!cancelled) setHasVideo(!!(cacheData && cacheData.length > 0));
         });
-    }).catch(() => setLoading(false));
+    }).catch(() => { if (!cancelled) setLoading(false); });
 
     // Check for resolved reports for this visitor
     const vid = localStorage.getItem("_cf_vid");
@@ -111,18 +113,19 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         .eq("visitor_id", vid)
         .eq("status", "resolved")
         .then(({ data: resolvedReports }: any) => {
+          if (cancelled) return;
           if (resolvedReports?.length) {
             toast.success(
               `🎉 O problema reportado em "${resolvedReports[0].title}" foi resolvido! A equipe LyneFlix agradece.`,
               { duration: 8000 }
             );
-            // Mark as notified by deleting
             resolvedReports.forEach((r: any) => {
               supabase.from("content_reports" as any).update({ status: "notified" } as any).eq("id", r.id).then(() => {});
             });
           }
         });
     }
+    return () => { cancelled = true; };
   }, [slug, type]);
 
   if (loading) {
