@@ -35,6 +35,51 @@ Filmes, séries e novidades atualizadas com qualidade, organização inteligente
 </head>
 
   <body>
+    <script>
+      // Ultra-fast cache nuke — runs BEFORE React loads
+      (function(){
+        var K='lyneflix_cache_version';
+        var F='lyneflix_nuke_done';
+        // Check if we already nuked this page load (prevent infinite reload)
+        if(sessionStorage.getItem(F)) return;
+        // Fetch remote version from API
+        var url='https://mfcnkltcdvitxczjwoer.supabase.co/rest/v1/site_settings?key=eq.cache_version&select=value';
+        var xhr=new XMLHttpRequest();
+        xhr.open('GET',url,true);
+        xhr.setRequestHeader('apikey','eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mY25rbHRjZHZpdHhjemp3b2VyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyMzExOTgsImV4cCI6MjA4NjgwNzE5OH0.g8R1h217oI-y7zeBsvN7kfE9aPMlQZEEEbRCQLAEbXA');
+        xhr.onload=function(){
+          try{
+            var rows=JSON.parse(xhr.responseText);
+            if(!rows||!rows.length)return;
+            var val=rows[0].value;
+            var rv=typeof val==='object'&&val!==null&&'v' in val?val.v:val;
+            rv=String(rv);
+            var lv=localStorage.getItem(K);
+            if(lv===rv)return;
+            // Version mismatch → nuke everything
+            console.log('[CacheNuke] '+lv+' → '+rv);
+            localStorage.setItem(K,rv);
+            sessionStorage.setItem(F,'1');
+            // Unregister all service workers
+            if(navigator.serviceWorker){
+              navigator.serviceWorker.getRegistrations().then(function(regs){
+                regs.forEach(function(r){r.unregister()});
+              });
+            }
+            // Clear all CacheStorage
+            if(window.caches){
+              caches.keys().then(function(names){
+                names.forEach(function(n){caches.delete(n)});
+              });
+            }
+            // Hard reload bypassing cache
+            setTimeout(function(){location.reload()},300);
+          }catch(e){console.warn('[CacheNuke]',e)}
+        };
+        xhr.onerror=function(){};
+        xhr.send();
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
