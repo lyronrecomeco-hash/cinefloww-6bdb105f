@@ -136,7 +136,22 @@ async function handleStats() {
   ], footer: { text: "LyneFlix Bot" } }] } };
 }
 
-// --- Send a release notification with persuasive text ---
+// --- Fetch TMDB details for rich notifications ---
+const TMDB_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI3MmJhMDM0NWIxMzMyMmMxYjkzYmIwMTE1MjVjNjMwYSIsIm5iZiI6MTczOTgyMDk4NC41MjgsInN1YiI6IjY3YjQ0NTU4OWMyNGM4MzFjMTg3OGM5ZiIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.SMM78Mku6GRGlMxPgkKjMiEm22-ikomPfKEhETAeJpc";
+
+async function fetchTMDBDetails(tmdbId: number, type: string): Promise<any> {
+  const mediaType = type === "movie" ? "movie" : "tv";
+  try {
+    const res = await fetch(
+      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?language=pt-BR&append_to_response=credits`,
+      { headers: { Authorization: `Bearer ${TMDB_TOKEN}` } }
+    );
+    if (!res.ok) return null;
+    return await res.json();
+  } catch { return null; }
+}
+
+// --- Send a release notification with rich formatting ---
 async function sendReleaseNotification() {
   const sb = getSupabase();
   const { data: config } = await sb.from("discord_config").select("*").limit(1).single();
@@ -144,38 +159,50 @@ async function sendReleaseNotification() {
 
   const siteUrl = config.site_url || "https://cinefloww.lovable.app";
 
-  // Get the latest added content
+  // Get the latest added content WITH synopsis (skip content without overview)
   const { data: items } = await sb.from("content")
-    .select("tmdb_id, title, content_type, poster_path, overview, release_date, vote_average")
+    .select("tmdb_id, title, content_type, poster_path, overview, release_date, vote_average, runtime")
     .eq("status", "published")
+    .not("overview", "is", null)
     .order("created_at", { ascending: false })
-    .limit(1);
+    .limit(5);
 
-  if (!items?.length) throw new Error("Nenhum conteúdo encontrado para notificar");
+  // Filter items that actually have synopsis
+  const validItems = (items || []).filter(i => i.overview && i.overview.trim().length > 10);
+  if (!validItems.length) throw new Error("Nenhum conteúdo com sinopse encontrado para notificar");
 
-  const item = items[0];
+  const item = validItems[0];
   const type = item.content_type === "movie" ? "filme" : "serie";
   const url = `${siteUrl}/${type}/${item.tmdb_id}`;
   const emoji = item.content_type === "movie" ? "🎬" : "📺";
-  const year = item.release_date ? ` (${item.release_date.substring(0, 4)})` : "";
+  const year = item.release_date ? item.release_date.substring(0, 4) : "N/A";
   const rating = item.vote_average ? `⭐ ${Number(item.vote_average).toFixed(1)}` : "";
 
-  const persuasiveTexts = [
-    `🔥 **ACABOU DE CAIR!** ${emoji} **${item.title}${year}** já tá disponível na LyneFlix! Corre antes que todo mundo descubra!`,
-    `🚨 **ALERTA DE LANÇAMENTO!** ${emoji} **${item.title}${year}** chegou na LyneFlix! Não perde tempo, clica e assiste AGORA!`,
-    `💣 **BOMBA!** ${emoji} **${item.title}${year}** tá na LyneFlix! Saboor, esse aqui é imperdível! 🔥`,
-    `🎯 **NOVO NA ÁREA!** ${emoji} **${item.title}${year}** acabou de ser adicionado! Assista de graça na LyneFlix!`,
-  ];
+  // Fetch rich TMDB details (genres, cast, director, runtime)
+  const tmdb = await fetchTMDBDetails(item.tmdb_id, item.content_type);
 
-  const content = persuasiveTexts[Math.floor(Math.random() * persuasiveTexts.length)];
+  const genres = tmdb?.genres?.map((g: any) => g.name).join(", ") || "N/A";
+  const runtime = tmdb?.runtime || tmdb?.episode_run_time?.[0] || item.runtime || null;
+  const runtimeStr = runtime ? `${runtime}min` : "";
+  const director = tmdb?.credits?.crew?.find((c: any) => c.job === "Director")?.name || 
+                    tmdb?.created_by?.[0]?.name || "";
+  const cast = tmdb?.credits?.cast?.slice(0, 3).map((c: any) => c.name).join(", ") || "";
+  const synopsis = (item.overview || "").substring(0, 400);
+
+  // Build rich formatted message like the reference screenshot
+  const titleLine = `➤ **Título:** ${item.title} » ${year}${runtimeStr ? ` » ${runtimeStr}` : ""}`;
+  const directorLine = director ? `\n**Diretor:** ${director}` : "";
+  const castLine = cast ? `\n**Elenco:** ${cast}` : "";
+  const genresLine = `\n**Gêneros:** ${genres}`;
+  const synopsisLine = `\n**Sinopse:** *${synopsis}*`;
+  const linkLine = `\n\n🔴 **LINK PARA ASSISTIR:** ${url}`;
+  const footerLine = `\n\n➡ Acesse **LyneFlix** — Filmes e séries GRÁTIS, sem anúncios!\n➡ @here`;
+
+  const content = `${titleLine}${directorLine}${castLine}${genresLine}${synopsisLine}${linkLine}${footerLine}`;
 
   const embed = {
-    title: `${emoji} ${item.title}${year}`,
-    description: `${(item.overview || "").substring(0, 300)}\n\n${rating}\n\n👉 **[Assistir agora na LyneFlix](${url})**`,
-    url,
-    color: 0x10B981,
+    color: 0x8B5CF6,
     image: item.poster_path ? { url: `https://image.tmdb.org/t/p/w500${item.poster_path}` } : undefined,
-    footer: { text: "LyneFlix • O melhor catálogo grátis 🍿" },
   };
 
   await discordApi(`/channels/${config.notification_channel_id}/messages`, "POST", { content, embeds: [embed] });
@@ -198,30 +225,44 @@ async function sendDailyTemplate() {
   return template;
 }
 
-// --- Notify new content (existing) ---
+// --- Notify new content (with rich formatting) ---
 async function notifyNewContent(content: { title: string; tmdb_id: number; content_type: string; poster_path?: string; overview?: string; release_date?: string }) {
   const sb = getSupabase();
   const { data: config } = await sb.from("discord_config").select("*").limit(1).single();
   if (!config?.notification_channel_id || !config.auto_notify_new_content) return;
 
+  // Skip content without synopsis
+  if (!content.overview || content.overview.trim().length < 10) return;
+
   const type = content.content_type === "movie" ? "filme" : "serie";
   const siteUrl = config.site_url || "https://cinefloww.lovable.app";
   const url = `${siteUrl}/${type}/${content.tmdb_id}`;
-  const emoji = content.content_type === "movie" ? "🎬" : "📺";
-  const year = content.release_date ? ` (${content.release_date.substring(0, 4)})` : "";
+  const year = content.release_date ? content.release_date.substring(0, 4) : "";
+
+  // Fetch rich TMDB details
+  const tmdb = await fetchTMDBDetails(content.tmdb_id, content.content_type);
+  const genres = tmdb?.genres?.map((g: any) => g.name).join(", ") || "";
+  const runtime = tmdb?.runtime || tmdb?.episode_run_time?.[0] || null;
+  const director = tmdb?.credits?.crew?.find((c: any) => c.job === "Director")?.name || 
+                    tmdb?.created_by?.[0]?.name || "";
+  const cast = tmdb?.credits?.cast?.slice(0, 3).map((c: any) => c.name).join(", ") || "";
+
+  const titleLine = `➤ **Título:** ${content.title}${year ? ` » ${year}` : ""}${runtime ? ` » ${runtime}min` : ""}`;
+  const details = [
+    director ? `**Diretor:** ${director}` : "",
+    cast ? `**Elenco:** ${cast}` : "",
+    genres ? `**Gêneros:** ${genres}` : "",
+    `**Sinopse:** *${(content.overview || "").substring(0, 400)}*`,
+  ].filter(Boolean).join("\n");
+
+  const msg = `${titleLine}\n\n${details}\n\n🔴 **LINK PARA ASSISTIR:** ${url}\n\n➡ Acesse **LyneFlix** — Filmes e séries GRÁTIS!\n➡ @here`;
 
   const embed = {
-    title: `${emoji} Novo ${content.content_type === "movie" ? "Filme" : "Série"} Adicionado!`,
-    description: `**${content.title}${year}**\n\n${(content.overview || "").substring(0, 300)}\n\n👉 **[Assistir agora](${url})**`,
-    url, color: 0x10B981,
+    color: 0x10B981,
     image: content.poster_path ? { url: `https://image.tmdb.org/t/p/w500${content.poster_path}` } : undefined,
-    footer: { text: "LyneFlix • Assista agora! 🍿" },
   };
 
-  await discordApi(`/channels/${config.notification_channel_id}/messages`, "POST", {
-    content: `🔥 **Acabou de cair na LyneFlix!** Corre pra conferir!`,
-    embeds: [embed],
-  });
+  await discordApi(`/channels/${config.notification_channel_id}/messages`, "POST", { content: msg, embeds: [embed] });
   await logEvent("new_content_notified", content.title, { channel_id: config.notification_channel_id });
 }
 

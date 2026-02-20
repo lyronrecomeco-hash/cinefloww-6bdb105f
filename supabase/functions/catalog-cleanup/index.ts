@@ -15,19 +15,23 @@ Deno.serve(async (req: Request) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const adminClient = createClient(supabaseUrl, serviceKey);
 
-    // 1. Block/remove content without synopsis (overview is null or empty)
+    // 1. Block content without synopsis (null, empty, or too short < 20 chars)
     const { data: noSynopsis, error: fetchErr } = await adminClient
       .from("content")
-      .select("id, title, content_type")
-      .eq("status", "published")
-      .or("overview.is.null,overview.eq.");
+      .select("id, title, content_type, overview")
+      .eq("status", "published");
 
     if (fetchErr) throw fetchErr;
 
+    // Filter to items with missing/bad synopsis
+    const toBlock = (noSynopsis || []).filter((item: any) => {
+      const ov = (item.overview || "").trim();
+      return !ov || ov.length < 20;
+    });
+
     let blocked = 0;
-    if (noSynopsis && noSynopsis.length > 0) {
-      const ids = noSynopsis.map((item: any) => item.id);
-      // Block in batches of 200
+    if (toBlock.length > 0) {
+      const ids = toBlock.map((item: any) => item.id);
       for (let i = 0; i < ids.length; i += 200) {
         const batch = ids.slice(i, i + 200);
         const { error } = await adminClient

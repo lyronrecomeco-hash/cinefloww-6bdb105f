@@ -32,6 +32,14 @@ const VisioncinePage = () => {
     }
   }, []);
 
+  // Auto-start import when items are loaded
+  useEffect(() => {
+    if (stats.valid > 0 && !importing && !progress?.done) {
+      startImport();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stats.valid]);
+
   useEffect(() => { loadJSON(); }, [loadJSON]);
 
   // Poll progress
