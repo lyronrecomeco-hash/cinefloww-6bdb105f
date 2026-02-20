@@ -26,6 +26,8 @@ const MyListPage = lazy(() => import("./pages/MyListPage"));
 const AuthPage = lazy(() => import("./pages/AuthPage"));
 const ProfileSelector = lazy(() => import("./pages/ProfileSelector"));
 const ImportListPage = lazy(() => import("./pages/ImportListPage"));
+const TVPage = lazy(() => import("./pages/TVPage"));
+const TVPlayerPage = lazy(() => import("./pages/TVPlayerPage"));
 
 // Admin (lazy loaded)
 const AdminLogin = lazy(() => import("./pages/AdminLogin"));
@@ -45,6 +47,7 @@ const TelegramPage = lazy(() => import("./pages/admin/TelegramPage"));
 const ReportsPage = lazy(() => import("./pages/admin/ReportsPage"));
 const UsersPage = lazy(() => import("./pages/admin/UsersPage"));
 const WatchRoomsPage = lazy(() => import("./pages/admin/WatchRoomsPage"));
+const TVManager = lazy(() => import("./pages/admin/TVManager"));
 
 
 
@@ -88,7 +91,8 @@ const App = () => (
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />
             <Route path="/player" element={<PlayerPage />} />
             <Route path="/player/:type/:id" element={<PlayerPage />} />
-            {/* TV routes removed */}
+            <Route path="/tv" element={<TVPage />} />
+            <Route path="/tv/:id" element={<TVPlayerPage />} />
             <Route path="/dmca" element={<DmcaPage />} />
             <Route path="/termos" element={<TermsPage />} />
             <Route path="/dados" element={<DadosPage />} />
@@ -112,7 +116,7 @@ const App = () => (
               <Route path="pedidos" element={<RequestsPage />} />
               <Route path="banco" element={<BancoPage />} />
               <Route path="reports" element={<ReportsPage />} />
-              {/* TV manager removed */}
+              <Route path="tv" element={<TVManager />} />
               <Route path="discord" element={<DiscordBotPage />} />
               <Route path="logs" element={<LogsPage />} />
               <Route path="seguranca" element={<SecurityMonitor />} />
