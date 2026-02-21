@@ -3,6 +3,7 @@ import { Play, Info, ChevronLeft, ChevronRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { TMDBMovie, backdropUrl, getDisplayTitle, getYear, getMediaType } from "@/services/tmdb";
 import { toSlug } from "@/lib/slugify";
+import { supabase } from "@/integrations/supabase/client";
 
 interface HeroSliderProps {
   movies: TMDBMovie[];
@@ -12,6 +13,22 @@ const HeroSlider = ({ movies }: HeroSliderProps) => {
   const items = movies.slice(0, 6);
   const [current, setCurrent] = useState(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
+  const [itemsWithVideo, setItemsWithVideo] = useState<Set<number>>(new Set());
+
+  // Check which items have cached video
+  useEffect(() => {
+    if (!items.length) return;
+    const tmdbIds = items.map((m) => m.id);
+    supabase
+      .from("video_cache_safe")
+      .select("tmdb_id")
+      .in("tmdb_id", tmdbIds)
+      .then(({ data }) => {
+        if (data) {
+          setItemsWithVideo(new Set(data.map((d) => d.tmdb_id!)));
+        }
+      });
+  }, [movies]);
 
   const goTo = useCallback((index: number) => {
     if (isTransitioning) return;
@@ -34,6 +51,7 @@ const HeroSlider = ({ movies }: HeroSliderProps) => {
   const type = getMediaType(movie);
   const sliderTitle = getDisplayTitle(movie);
   const link = type === "movie" ? `/filme/${toSlug(sliderTitle, movie.id)}` : `/serie/${toSlug(sliderTitle, movie.id)}`;
+  const hasVideo = itemsWithVideo.has(movie.id);
 
   return (
     <section className="relative h-[50vh] sm:h-[65vh] lg:h-[75vh] min-h-[320px] sm:min-h-[450px] max-h-[750px] w-full overflow-hidden">
@@ -80,13 +98,15 @@ const HeroSlider = ({ movies }: HeroSliderProps) => {
             </p>
 
             <div className="flex items-center gap-2 sm:gap-3">
-              <Link
-                to={link}
-                className="flex items-center gap-1.5 px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground font-semibold text-xs sm:text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
-              >
-                <Play className="w-3.5 h-3.5 sm:w-5 sm:h-5 fill-current" />
-                Assistir
-              </Link>
+              {hasVideo && (
+                <Link
+                  to={link}
+                  className="flex items-center gap-1.5 px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground font-semibold text-xs sm:text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
+                >
+                  <Play className="w-3.5 h-3.5 sm:w-5 sm:h-5 fill-current" />
+                  Assistir
+                </Link>
+              )}
               <Link
                 to={link}
                 className="flex items-center gap-1.5 px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl glass glass-hover font-semibold text-xs sm:text-sm"

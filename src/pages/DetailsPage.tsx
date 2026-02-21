@@ -80,9 +80,17 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     setShowAudioModal(false);
     setShowTrailer(false);
     setHasVideo(null);
+
+    if (!id || id === 0) {
+      setLoading(false);
+      return;
+    }
+
     const fetcher = type === "movie" ? getMovieDetails : getSeriesDetails;
     fetcher(id).then((data) => {
       if (cancelled) return;
+      // Ensure genres is always an array
+      if (!data.genres) data.genres = [];
       setDetail(data);
       setLoading(false);
       // Track view (non-blocking)
@@ -101,7 +109,10 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         .then(({ data: cacheData }) => {
           if (!cancelled) setHasVideo(!!(cacheData && cacheData.length > 0));
         });
-    }).catch(() => { if (!cancelled) setLoading(false); });
+    }).catch((err) => {
+      console.error("[DetailsPage] fetch error:", err);
+      if (!cancelled) setLoading(false);
+    });
 
     // Check for resolved reports for this visitor
     const vid = localStorage.getItem("_cf_vid");
@@ -148,10 +159,10 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     );
   }
 
-  const imdbId = detail.imdb_id || detail.external_ids?.imdb_id || null;
-  const cast = detail.credits?.cast ?? [];
-  const similar = detail.similar?.results ?? [];
-  const trailer = detail.videos?.results.find((v) => v.type === "Trailer" && v.site === "YouTube");
+  const imdbId = detail?.imdb_id || detail?.external_ids?.imdb_id || null;
+  const cast = detail?.credits?.cast ?? [];
+  const similar = detail?.similar?.results ?? [];
+  const trailer = detail?.videos?.results?.find((v) => v.type === "Trailer" && v.site === "YouTube");
 
   const handleWatchClick = () => {
     // If user has a saved audio preference, skip the modal entirely
@@ -274,7 +285,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
             {/* Genres */}
             <div className="flex flex-wrap justify-center sm:justify-start gap-1.5 sm:gap-2 mb-3 sm:mb-4">
-              {detail.genres.map((g) => (
+              {(detail.genres || []).map((g) => (
                 <span key={g.id} className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-white/5 border border-white/10 text-[10px] sm:text-xs font-medium text-secondary-foreground">
                   {g.name}
                 </span>
