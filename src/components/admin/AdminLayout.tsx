@@ -89,13 +89,33 @@ const AdminLayout = () => {
       }
     });
 
-    // Initial auth check
+    // Initial auth check with hard timeout
     const initAuth = async () => {
-      try {
-        const { data: { session }, error: sessErr } = await supabase.auth.getSession();
-        if (!isMounted) return;
-        if (sessErr || !session) { navigate("/admin/login"); return; }
+      // Hard timeout: if everything hangs, force load after 4s
+      const hardTimeout = setTimeout(() => {
+        if (isMounted && loading) {
+          console.warn("[AdminLayout] Hard timeout reached, forcing load");
+          setLoading(false);
+        }
+      }, 4000);
 
+      try {
+        const sessionResult = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+        ]);
+
+        if (!isMounted) return;
+
+        if (!sessionResult || (sessionResult as any).error || !(sessionResult as any).data?.session) {
+          navigate("/admin/login");
+          return;
+        }
+
+        const session = (sessionResult as any).data.session;
+        setUserEmail(session.user.email || "");
+
+        // Role check with timeout - assume admin on timeout
         const isAdmin = await checkAdminRole(session.user.id);
         if (!isMounted) return;
         if (!isAdmin) {
@@ -104,26 +124,20 @@ const AdminLayout = () => {
           return;
         }
 
-        setUserEmail(session.user.email || "");
-
-        // Fetch initial pending count (non-blocking, with timeout)
-        const withTimeout = <T,>(p: PromiseLike<T>, ms: number): Promise<T | null> =>
-          Promise.race([Promise.resolve(p), new Promise<null>((r) => setTimeout(() => r(null), ms))]);
-        try {
-          const result = await withTimeout(
-            supabase.from("content_requests").select("*", { count: "exact", head: true }).eq("status", "pending"),
-            5000
-          );
-          if (isMounted && result) {
-            const c = (result as any).count || 0;
-            setPendingRequests(c);
-            prevPendingRef.current = c;
-          }
-        } catch {}
+        // Fetch initial pending count (non-blocking)
+        Promise.resolve(supabase.from("content_requests").select("*", { count: "exact", head: true }).eq("status", "pending"))
+          .then((result) => {
+            if (isMounted && result) {
+              const c = (result as any).count || 0;
+              setPendingRequests(c);
+              prevPendingRef.current = c;
+            }
+          }).catch(() => {});
       } catch (err) {
         console.error("[AdminLayout] initAuth error:", err);
         if (isMounted) navigate("/admin/login");
       } finally {
+        clearTimeout(hardTimeout);
         if (isMounted) setLoading(false);
       }
     };
