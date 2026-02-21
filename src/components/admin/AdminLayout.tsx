@@ -91,26 +91,35 @@ const AdminLayout = () => {
     // Initial auth check
     const initAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session }, error: sessErr } = await supabase.auth.getSession();
         if (!isMounted) return;
-        if (!session) { navigate("/admin/login"); return; }
+        if (sessErr || !session) { navigate("/admin/login"); return; }
 
         const isAdmin = await checkAdminRole(session.user.id);
         if (!isMounted) return;
-        if (!isAdmin) { await supabase.auth.signOut(); navigate("/admin/login"); return; }
+        if (!isAdmin) {
+          try { await supabase.auth.signOut(); } catch {}
+          navigate("/admin/login");
+          return;
+        }
 
         setUserEmail(session.user.email || "");
 
-        // Fetch initial pending count
-        const { count } = await supabase
-          .from("content_requests")
-          .select("*", { count: "exact", head: true })
-          .eq("status", "pending");
-        if (isMounted) {
-          const c = count || 0;
-          setPendingRequests(c);
-          prevPendingRef.current = c;
-        }
+        // Fetch initial pending count (non-blocking)
+        try {
+          const { count } = await supabase
+            .from("content_requests")
+            .select("*", { count: "exact", head: true })
+            .eq("status", "pending");
+          if (isMounted) {
+            const c = count || 0;
+            setPendingRequests(c);
+            prevPendingRef.current = c;
+          }
+        } catch {}
+      } catch (err) {
+        console.error("[AdminLayout] initAuth error:", err);
+        if (isMounted) navigate("/admin/login");
       } finally {
         if (isMounted) setLoading(false);
       }

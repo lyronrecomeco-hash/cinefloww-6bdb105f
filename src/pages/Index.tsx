@@ -118,9 +118,12 @@ const Index = () => {
     };
 
     getTrending().then((t) => {
-      setTrending(t.results);
+      if (t?.results) setTrending(t.results);
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch(() => {
+      setLoading(false);
+      setSectionsReady(true);
+    });
 
     Promise.allSettled([
       getNowPlayingMovies(), getAiringTodaySeries(),

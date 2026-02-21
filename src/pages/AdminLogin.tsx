@@ -29,13 +29,14 @@ const AdminLogin = () => {
         .eq("role", "admin");
 
       if (roleError || !roles?.length) {
-        await supabase.auth.signOut();
+        try { await supabase.auth.signOut(); } catch {}
         throw new Error("Acesso negado. Você não tem permissão de administrador.");
       }
 
       navigate("/admin");
     } catch (err: any) {
-      toast({ title: "Erro", description: err.message || "Credenciais inválidas", variant: "destructive" });
+      const msg = err?.message || "Credenciais inválidas";
+      toast({ title: "Erro", description: msg.includes("fetch") ? "Erro de conexão. Tente novamente." : msg, variant: "destructive" });
     } finally {
       setLoading(false);
     }
