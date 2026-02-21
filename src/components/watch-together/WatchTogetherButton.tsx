@@ -23,27 +23,7 @@ const WatchTogetherButton = ({
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-
   const isLoggedIn = !!profileId;
-
-  useEffect(() => {
-    const fetchSetting = async () => {
-      try {
-        const { data } = await supabase
-          .from("site_settings")
-          .select("value")
-          .eq("key", "watch_together_enabled")
-          .maybeSingle();
-        setEnabled((data?.value as any)?.value === true);
-      } catch {
-        setEnabled(false);
-      }
-    };
-    fetchSetting();
-  }, []);
-
-  if (enabled !== true) return null;
 
   const handleButtonClick = () => {
     setShowInfo(true);

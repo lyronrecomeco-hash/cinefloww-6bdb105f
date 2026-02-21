@@ -6,8 +6,8 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const BATCH_SIZE = 150;
-const CONCURRENCY = 20;
+const BATCH_SIZE = 100;
+const CONCURRENCY = 25;
 const FAILURE_RETRY_HOURS = 6; // Retry failed items after 6 hours (was 12)
 
 Deno.serve(async (req) => {
