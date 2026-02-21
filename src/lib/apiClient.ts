@@ -72,13 +72,23 @@ function getVisitorId(): string {
 
 export async function trackVisit(): Promise<void> {
   try {
-    // Use direct supabase insert (anon can insert via RLS)
+    // Only track once per session to avoid deadlocks from concurrent INSERTs
+    const sessionKey = "_cf_tracked";
+    if (sessionStorage.getItem(sessionKey)) return;
+    sessionStorage.setItem(sessionKey, "1");
+
+    // Use AbortController with timeout to prevent blocking the app
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+
     await supabase.from("site_visitors").insert({
       visitor_id: getVisitorId(),
       referrer: document.referrer || null,
       hostname: window.location.hostname,
       pathname: window.location.pathname,
       user_agent: navigator.userAgent.substring(0, 200),
-    });
+    }).abortSignal(controller.signal);
+
+    clearTimeout(timeout);
   } catch { /* silent */ }
 }

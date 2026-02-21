@@ -117,28 +117,26 @@ const Index = () => {
       }
     };
 
-    getTrending().then((t) => {
-      if (t?.results) setTrending(t.results);
-      setLoading(false);
-    }).catch(() => {
-      setLoading(false);
-      setSectionsReady(true);
-    });
-
+    // Load all in parallel — never block UI
     Promise.allSettled([
+      getTrending(),
       getNowPlayingMovies(), getAiringTodaySeries(),
       getPopularMovies(), getPopularSeries(),
       loadDoramas(), loadAnimes(),
     ]).then((results) => {
-      const np = results[0].status === "fulfilled" ? results[0].value : { results: [] };
-      const at = results[1].status === "fulfilled" ? results[1].value : { results: [] };
-      const pm = results[2].status === "fulfilled" ? results[2].value : { results: [] };
-      const ps = results[3].status === "fulfilled" ? results[3].value : { results: [] };
+      const t = results[0].status === "fulfilled" ? results[0].value : { results: [] };
+      const np = results[1].status === "fulfilled" ? results[1].value : { results: [] };
+      const at = results[2].status === "fulfilled" ? results[2].value : { results: [] };
+      const pm = results[3].status === "fulfilled" ? results[3].value : { results: [] };
+      const ps = results[4].status === "fulfilled" ? results[4].value : { results: [] };
+
+      if (t?.results?.length) setTrending(t.results);
       const launches = [...np.results.slice(0, 10), ...at.results.slice(0, 10)];
       setNowPlaying(sortByYear(launches));
       setPopularMovies(sortByYear(pm.results));
       setPopularSeries(sortByYear(ps.results));
       setSectionsReady(true);
+      setLoading(false);
     });
   }, [isKidsMode]);
 
