@@ -7,15 +7,16 @@ import Footer from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
 import {
   TMDBMovie,
+  TMDBList,
   getTrending,
   getPopularMovies,
   getPopularSeries,
   getNowPlayingMovies,
   getAiringTodaySeries,
+  discoverMovies,
+  discoverSeries,
   getYear,
 } from "@/services/tmdb";
-
-const KIDS_GENRE_IDS = [16, 10751, 10762, 10770]; // Animation, Family, Kids, TV Movie
 
 const sortByYear = (items: TMDBMovie[]) =>
   [...items].sort((a, b) => {
@@ -23,9 +24,6 @@ const sortByYear = (items: TMDBMovie[]) =>
     const yb = getYear(b) || 0;
     return Number(yb) - Number(ya);
   });
-
-const filterKids = (items: TMDBMovie[]) =>
-  items.filter((m) => m.genre_ids?.some((g) => KIDS_GENRE_IDS.includes(g)));
 
 const Index = () => {
   const [trending, setTrending] = useState<TMDBMovie[]>([]);
@@ -38,8 +36,13 @@ const Index = () => {
   const [sectionsReady, setSectionsReady] = useState(false);
   const [isKidsMode, setIsKidsMode] = useState(false);
 
+  // Kids-specific state
+  const [kidsAnimatedMovies, setKidsAnimatedMovies] = useState<TMDBMovie[]>([]);
+  const [kidsAnimatedSeries, setKidsAnimatedSeries] = useState<TMDBMovie[]>([]);
+  const [kidsFamilyMovies, setKidsFamilyMovies] = useState<TMDBMovie[]>([]);
+  const [kidsPopular, setKidsPopular] = useState<TMDBMovie[]>([]);
+
   useEffect(() => {
-    // Check if active profile is kids
     try {
       const raw = localStorage.getItem("lyneflix_active_profile");
       if (raw) {
@@ -50,6 +53,40 @@ const Index = () => {
   }, []);
 
   useEffect(() => {
+    if (isKidsMode) {
+      // Kids mode: load kids-specific content from TMDB
+      // Genre 16 = Animation, 10751 = Family
+      Promise.allSettled([
+        discoverMovies(1, { with_genres: "16", sort_by: "popularity.desc", "vote_average.gte": "5" }),
+        discoverSeries(1, { with_genres: "16", sort_by: "popularity.desc", "vote_average.gte": "5" }),
+        discoverMovies(1, { with_genres: "10751", sort_by: "popularity.desc", "vote_average.gte": "6" }),
+        discoverMovies(2, { with_genres: "16", sort_by: "popularity.desc", "vote_average.gte": "5" }),
+        discoverSeries(2, { with_genres: "16", sort_by: "popularity.desc", "vote_average.gte": "5" }),
+        getTrending(),
+      ]).then((results) => {
+        const animMovies = results[0].status === "fulfilled" ? results[0].value.results : [];
+        const animSeries = results[1].status === "fulfilled" ? results[1].value.results : [];
+        const famMovies = results[2].status === "fulfilled" ? results[2].value.results : [];
+        const animMovies2 = results[3].status === "fulfilled" ? results[3].value.results : [];
+        const animSeries2 = results[4].status === "fulfilled" ? results[4].value.results : [];
+        const trendingAll = results[5].status === "fulfilled" ? results[5].value.results : [];
+
+        // Filter trending for kids-friendly (animation/family genres)
+        const kidsGenres = new Set([16, 10751, 10762]);
+        const kidsTrending = trendingAll.filter(m => m.genre_ids?.some(g => kidsGenres.has(g)));
+
+        setKidsAnimatedMovies(sortByYear([...animMovies, ...animMovies2]));
+        setKidsAnimatedSeries(sortByYear([...animSeries, ...animSeries2]));
+        setKidsFamilyMovies(sortByYear(famMovies));
+        setKidsPopular(kidsTrending.length > 0 ? kidsTrending : sortByYear(animMovies.slice(0, 10)));
+        setTrending(kidsTrending.length >= 3 ? kidsTrending : animMovies.slice(0, 6));
+        setSectionsReady(true);
+        setLoading(false);
+      });
+      return;
+    }
+
+    // Normal mode
     const loadDoramas = async () => {
       const { data } = await supabase
         .from("content")
@@ -60,15 +97,9 @@ const Index = () => {
         .limit(20);
       if (data) {
         setDoramas(data.map((d: any) => ({
-          id: d.tmdb_id,
-          name: d.title,
-          poster_path: d.poster_path,
-          backdrop_path: d.backdrop_path,
-          overview: "",
-          vote_average: d.vote_average || 0,
-          first_air_date: d.release_date,
-          genre_ids: [],
-          media_type: "tv",
+          id: d.tmdb_id, name: d.title, poster_path: d.poster_path,
+          backdrop_path: d.backdrop_path, overview: "", vote_average: d.vote_average || 0,
+          first_air_date: d.release_date, genre_ids: [], media_type: "tv",
         })));
       }
     };
@@ -83,33 +114,22 @@ const Index = () => {
         .limit(20);
       if (data) {
         setAnimes(data.map((d: any) => ({
-          id: d.tmdb_id,
-          name: d.title,
-          poster_path: d.poster_path,
-          backdrop_path: d.backdrop_path,
-          overview: "",
-          vote_average: d.vote_average || 0,
-          first_air_date: d.release_date,
-          genre_ids: [],
-          media_type: "tv",
+          id: d.tmdb_id, name: d.title, poster_path: d.poster_path,
+          backdrop_path: d.backdrop_path, overview: "", vote_average: d.vote_average || 0,
+          first_air_date: d.release_date, genre_ids: [], media_type: "tv",
         })));
       }
     };
 
-    // Load hero first for fast perceived load
     getTrending().then((t) => {
       setTrending(t.results);
       setLoading(false);
     }).catch(() => setLoading(false));
 
-    // Load sections in parallel – never block on individual failures
     Promise.allSettled([
-      getNowPlayingMovies(),
-      getAiringTodaySeries(),
-      getPopularMovies(),
-      getPopularSeries(),
-      loadDoramas(),
-      loadAnimes(),
+      getNowPlayingMovies(), getAiringTodaySeries(),
+      getPopularMovies(), getPopularSeries(),
+      loadDoramas(), loadAnimes(),
     ]).then((results) => {
       const np = results[0].status === "fulfilled" ? results[0].value : { results: [] };
       const at = results[1].status === "fulfilled" ? results[1].value : { results: [] };
@@ -121,7 +141,7 @@ const Index = () => {
       setPopularSeries(sortByYear(ps.results));
       setSectionsReady(true);
     });
-  }, []);
+  }, [isKidsMode]);
 
   if (loading) {
     return (
@@ -131,29 +151,35 @@ const Index = () => {
     );
   }
 
-  // Kids mode: filter everything
   if (isKidsMode) {
-    const kidsTrending = filterKids(trending);
-    const kidsNowPlaying = filterKids(nowPlaying);
-    const kidsMovies = filterKids(popularMovies);
-    const kidsSeries = filterKids(popularSeries);
-
     return (
       <div className="min-h-screen bg-background animate-page-enter">
         <Navbar />
-        <HeroSlider movies={kidsTrending.length > 0 ? kidsTrending : trending.slice(0, 3)} />
+        <HeroSlider movies={trending} />
 
         <div className="mt-4 sm:mt-6 lg:mt-8 relative z-10 pb-12 sm:pb-20 space-y-1 sm:space-y-2">
+          {/* Kids mode banner */}
           <div className="flex items-center gap-2 px-4 sm:px-6 lg:px-12 mb-2">
-            <Baby className="w-5 h-5 text-green-400" />
-            <span className="text-sm font-semibold text-green-400">Modo Criança</span>
+            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-green-500/15 border border-green-500/30">
+              <Baby className="w-4 h-4 text-green-400" />
+              <span className="text-xs font-semibold text-green-400">Modo Criança Ativo</span>
+            </div>
           </div>
+
           {sectionsReady ? (
             <>
-              {kidsNowPlaying.length > 0 && <ContentRow title="🌈 Em Alta para Crianças" movies={kidsNowPlaying} icon={<Flame className="w-4 h-4" />} />}
-              {kidsMovies.length > 0 && <ContentRow title="🎬 Filmes Infantis" movies={kidsMovies} icon={<Film className="w-4 h-4" />} />}
-              {kidsSeries.length > 0 && <ContentRow title="📺 Séries Infantis" movies={kidsSeries} icon={<Tv className="w-4 h-4" />} />}
-              {animes.length > 0 && <ContentRow title="⚡ Animes" movies={animes} icon={<Sparkles className="w-4 h-4" />} />}
+              {kidsPopular.length > 0 && (
+                <ContentRow title="🌟 Populares para Crianças" movies={kidsPopular} icon={<Sparkles className="w-4 h-4" />} />
+              )}
+              {kidsAnimatedMovies.length > 0 && (
+                <ContentRow title="🎬 Filmes Animados" movies={kidsAnimatedMovies} icon={<Film className="w-4 h-4" />} />
+              )}
+              {kidsAnimatedSeries.length > 0 && (
+                <ContentRow title="📺 Séries Animadas" movies={kidsAnimatedSeries} icon={<Tv className="w-4 h-4" />} />
+              )}
+              {kidsFamilyMovies.length > 0 && (
+                <ContentRow title="👨‍👩‍👧‍👦 Filmes em Família" movies={kidsFamilyMovies} icon={<Heart className="w-4 h-4" />} />
+              )}
             </>
           ) : (
             <div className="flex justify-center py-12">
