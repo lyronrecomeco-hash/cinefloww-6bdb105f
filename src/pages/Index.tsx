@@ -85,21 +85,25 @@ const Index = () => {
       setLoading(false);
     }).catch(() => setLoading(false));
 
-    // Load sections in parallel after hero
-    Promise.all([
+    // Load sections in parallel – never block on individual failures
+    Promise.allSettled([
       getNowPlayingMovies(),
       getAiringTodaySeries(),
       getPopularMovies(),
       getPopularSeries(),
       loadDoramas(),
       loadAnimes(),
-    ]).then(([np, at, pm, ps]) => {
+    ]).then((results) => {
+      const np = results[0].status === "fulfilled" ? results[0].value : { results: [] };
+      const at = results[1].status === "fulfilled" ? results[1].value : { results: [] };
+      const pm = results[2].status === "fulfilled" ? results[2].value : { results: [] };
+      const ps = results[3].status === "fulfilled" ? results[3].value : { results: [] };
       const launches = [...np.results.slice(0, 10), ...at.results.slice(0, 10)];
       setNowPlaying(sortByYear(launches));
       setPopularMovies(sortByYear(pm.results));
       setPopularSeries(sortByYear(ps.results));
       setSectionsReady(true);
-    }).catch(() => setSectionsReady(true));
+    });
   }, []);
 
   if (loading) {
