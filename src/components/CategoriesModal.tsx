@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 // Combined TMDB genre IDs mapped to Portuguese names
@@ -80,11 +81,11 @@ const CategoriesModal = ({ open, onClose, onSelect, selectedId, contentType = "m
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0 }} onClick={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <div
-        className="relative glass-strong rounded-2xl border border-white/10 w-full max-w-lg max-h-[80vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+        className="relative bg-background/95 backdrop-blur-xl rounded-2xl border border-white/10 w-full max-w-lg max-h-[80vh] overflow-hidden animate-in fade-in zoom-in-95 duration-200 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between p-5 border-b border-white/10">
@@ -122,7 +123,8 @@ const CategoriesModal = ({ open, onClose, onSelect, selectedId, contentType = "m
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

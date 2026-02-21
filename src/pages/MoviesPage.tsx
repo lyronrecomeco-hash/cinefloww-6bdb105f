@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import MovieCard from "@/components/MovieCard";
@@ -7,12 +8,17 @@ import { Film, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react
 import CategoriesModal from "@/components/CategoriesModal";
 
 const MoviesPage = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [movies, setMovies] = useState<TMDBMovie[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [showCategories, setShowCategories] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<{ id: string; name: string } | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<{ id: string; name: string } | null>(() => {
+    const catId = searchParams.get("cat");
+    const catName = searchParams.get("name");
+    return catId && catName ? { id: catId, name: catName } : null;
+  });
 
   const fetchPage = useCallback(async (p: number) => {
     setLoading(true);

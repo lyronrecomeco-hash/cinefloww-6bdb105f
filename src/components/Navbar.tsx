@@ -339,13 +339,15 @@ const Navbar = () => {
       onClose={() => setShowCategories(false)}
       onSelect={(cat) => {
         setShowCategories(false);
+        const isSeriesPage = location.pathname.startsWith("/series") || location.pathname.startsWith("/doramas");
+        const basePath = isSeriesPage ? "/series" : "/filmes";
         if (cat) {
-          navigate(`/filmes?cat=${cat.id}&name=${encodeURIComponent(cat.name)}`);
+          navigate(`${basePath}?cat=${cat.id}&name=${encodeURIComponent(cat.name)}`);
         } else {
-          navigate("/filmes");
+          navigate(basePath);
         }
       }}
-      contentType="movie"
+      contentType={location.pathname.startsWith("/series") || location.pathname.startsWith("/doramas") ? "tv" : "movie"}
     />
     {showRequest && <RequestModal onClose={() => setShowRequest(false)} />}
     </>
