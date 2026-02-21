@@ -3,28 +3,25 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { ArrowLeft, Loader2, AlertTriangle, RefreshCw } from "lucide-react";
 
-type Mode = "loading" | "iframe" | "error";
-
 const TVPlayerPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const [channelName, setChannelName] = useState("");
-  const [mode, setMode] = useState<Mode>("loading");
-  const [errorMsg, setErrorMsg] = useState("");
+  const [streamUrl, setStreamUrl] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [iframeLoaded, setIframeLoaded] = useState(false);
   const [showControls, setShowControls] = useState(true);
-  const [iframeSrcdoc, setIframeSrcdoc] = useState("");
   const controlsTimer = useRef<ReturnType<typeof setTimeout>>();
 
-  // Load embed page via proxy-tv, inject ad-blocking, render as srcdoc
   const loadChannel = useCallback(async () => {
     if (!id) return;
-    setMode("loading");
-    setErrorMsg("");
+    setLoading(true);
+    setError("");
+    setIframeLoaded(false);
 
     try {
-      // Get channel info
       const { data: channel } = await supabase
         .from("tv_channels")
         .select("name, stream_url")
@@ -33,29 +30,17 @@ const TVPlayerPage = () => {
         .single();
 
       if (!channel) {
-        setMode("error");
-        setErrorMsg("Canal não encontrado");
+        setError("Canal não encontrado");
+        setLoading(false);
         return;
       }
 
       setChannelName(channel.name);
-
-      // Fetch proxied HTML with ad-blocking injected
-      const { data, error } = await supabase.functions.invoke("proxy-tv", {
-        body: { url: channel.stream_url },
-      });
-
-      if (error || !data?.html) {
-        setMode("error");
-        setErrorMsg("Falha ao carregar player");
-        return;
-      }
-
-      setIframeSrcdoc(data.html);
-      setMode("iframe");
+      setStreamUrl(channel.stream_url);
+      setLoading(false);
     } catch {
-      setMode("error");
-      setErrorMsg("Erro de conexão");
+      setError("Erro de conexão");
+      setLoading(false);
     }
   }, [id]);
 
@@ -84,20 +69,21 @@ const TVPlayerPage = () => {
 
   return (
     <div className="fixed inset-0 bg-black z-50 flex items-center justify-center">
-      {/* Iframe player — srcdoc from proxy-tv with ads blocked */}
-      {mode === "iframe" && iframeSrcdoc && (
+      {/* Direct iframe to embed URL — no proxy needed, the embed handles its own player */}
+      {streamUrl && !error && (
         <iframe
-          ref={iframeRef}
-          srcDoc={iframeSrcdoc}
+          src={streamUrl}
           className="w-full h-full border-0"
           allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
           allowFullScreen
-          sandbox="allow-scripts allow-same-origin allow-popups"
+          sandbox="allow-scripts allow-same-origin allow-presentation"
+          onLoad={() => setIframeLoaded(true)}
+          style={{ display: iframeLoaded ? "block" : "none" }}
         />
       )}
 
       {/* Loading overlay */}
-      {mode === "loading" && (
+      {(loading || (!iframeLoaded && streamUrl && !error)) && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-10">
           <Loader2 className="w-10 h-10 text-primary animate-spin mb-4" />
           <p className="text-sm text-muted-foreground">Carregando canal...</p>
@@ -106,10 +92,10 @@ const TVPlayerPage = () => {
       )}
 
       {/* Error overlay */}
-      {mode === "error" && (
+      {error && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-10 gap-4">
           <AlertTriangle className="w-10 h-10 text-destructive" />
-          <p className="text-sm text-muted-foreground">{errorMsg || "Erro ao reproduzir"}</p>
+          <p className="text-sm text-muted-foreground">{error}</p>
           <div className="flex gap-3">
             <button
               onClick={loadChannel}
