@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
       .lt("expires_at", new Date().toISOString());
 
     // 3. Fire 20 parallel batch-resolve calls (fire-and-forget)
-    const PARALLEL_CALLS = 20;
+    const PARALLEL_CALLS = 200;
     for (let i = 0; i < PARALLEL_CALLS; i++) {
       fetch(`${supabaseUrl}/functions/v1/batch-resolve`, {
         method: "POST",
