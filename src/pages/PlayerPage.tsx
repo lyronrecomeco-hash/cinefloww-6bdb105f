@@ -147,11 +147,14 @@ const PlayerPage = () => {
     setBankLoading(true);
     setBankSources([]);
 
+    const withTimeout = <T,>(p: PromiseLike<T>, ms: number): Promise<T | null> =>
+      Promise.race([Promise.resolve(p), new Promise<null>((r) => setTimeout(() => r(null), ms))]);
+
     const load = async () => {
       const cType = params.type === "movie" ? "movie" : "series";
       const aType = audioParam || "legendado";
 
-      // 1. Title + cache check in parallel (FAST)
+      // 1. Title + cache check in parallel with 4s timeout
       let cacheQuery = supabase
         .from("video_cache")
         .select("video_url, video_type, provider")
@@ -165,37 +168,43 @@ const PlayerPage = () => {
       else cacheQuery = cacheQuery.is("episode", null);
 
       const [titleResult, cacheResult] = await Promise.all([
-        supabase.from("content").select("title").eq("tmdb_id", tmdbId!).eq("content_type", cType).maybeSingle(),
-        cacheQuery.maybeSingle(),
+        withTimeout(supabase.from("content").select("title").eq("tmdb_id", tmdbId!).eq("content_type", cType).maybeSingle(), 4000),
+        withTimeout(cacheQuery.maybeSingle(), 4000),
       ]);
 
-      if (titleResult.data?.title) setBankTitle(titleResult.data.title);
+      if (titleResult && (titleResult as any).data?.title) setBankTitle((titleResult as any).data.title);
 
       // 2. If cache hit, use instantly
-      if (cacheResult.data?.video_url) {
+      const cached = cacheResult && (cacheResult as any).data;
+      if (cached?.video_url) {
         setBankSources([{
-          url: cacheResult.data.video_url,
+          url: cached.video_url,
           quality: "auto",
-          provider: cacheResult.data.provider || "cache",
-          type: cacheResult.data.video_type === "mp4" ? "mp4" : "m3u8",
+          provider: cached.provider || "cache",
+          type: cached.video_type === "mp4" ? "mp4" : "m3u8",
         }]);
         setBankLoading(false);
         return;
       }
 
-      // 3. No cache, call extract-video
-      const { data } = await supabase.functions.invoke("extract-video", {
-        body: { tmdb_id: tmdbId!, imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
-      });
-
-      if (data?.url) {
-        setBankSources([{
-          url: data.url,
-          quality: "auto",
-          provider: data.provider || "cache",
-          type: data.type === "mp4" ? "mp4" : "m3u8",
-        }]);
-      }
+      // 3. No cache, call extract-video with 25s timeout
+      try {
+        const result = await withTimeout(
+          supabase.functions.invoke("extract-video", {
+            body: { tmdb_id: tmdbId!, imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
+          }),
+          25000
+        );
+        const data = result && (result as any).data;
+        if (data?.url) {
+          setBankSources([{
+            url: data.url,
+            quality: "auto",
+            provider: data.provider || "cache",
+            type: data.type === "mp4" ? "mp4" : "m3u8",
+          }]);
+        }
+      } catch {}
       setBankLoading(false);
     };
     load().catch(() => setBankLoading(false));
