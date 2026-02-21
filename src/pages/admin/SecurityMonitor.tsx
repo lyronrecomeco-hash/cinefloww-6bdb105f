@@ -88,7 +88,7 @@ const SecurityMonitor = () => {
   useEffect(() => {
     fetchData();
     if (liveMode) {
-      intervalRef.current = setInterval(fetchData, 1000);
+      intervalRef.current = setInterval(fetchData, 15000); // Every 15s instead of 1s
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [liveMode, fetchData]);
