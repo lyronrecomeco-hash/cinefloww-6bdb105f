@@ -1,5 +1,6 @@
 import { X, Users, Play, MessageSquare, Share2, LogIn, Zap, Phone } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { createPortal } from "react-dom";
 
 interface WatchTogetherInfoModalProps {
   isLoggedIn: boolean;
@@ -10,10 +11,10 @@ interface WatchTogetherInfoModalProps {
 const WatchTogetherInfoModal = ({ isLoggedIn, onClose, onContinue }: WatchTogetherInfoModalProps) => {
   const navigate = useNavigate();
 
-  return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+  const modal = (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-[420px] max-h-[90vh] overflow-y-auto bg-card/95 backdrop-blur-2xl rounded-3xl border border-white/10 shadow-2xl animate-in fade-in zoom-in-95 duration-300 mx-auto">
+      <div className="relative w-full max-w-[420px] max-h-[90vh] overflow-y-auto bg-card/95 backdrop-blur-2xl rounded-3xl border border-white/10 shadow-2xl animate-in fade-in zoom-in-95 duration-300">
         {/* Header */}
         <div className="relative px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4 bg-gradient-to-b from-primary/10 to-transparent">
           <button
@@ -110,6 +111,8 @@ const WatchTogetherInfoModal = ({ isLoggedIn, onClose, onContinue }: WatchTogeth
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 };
 
 export default WatchTogetherInfoModal;
