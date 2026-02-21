@@ -36,17 +36,19 @@ Filmes, séries e novidades atualizadas com qualidade, organização inteligente
 
   <body>
     <script>
-      // Ultra-fast cache nuke — runs BEFORE React loads
+      // Ultimate Cache Nuke v3 — runs BEFORE React loads
+      // Clears: Service Workers, CacheStorage, IndexedDB, localStorage (selective), sessionStorage, cookies (site-only)
       (function(){
         var K='lyneflix_cache_version';
         var F='lyneflix_nuke_done';
-        // Check if we already nuked this page load (prevent infinite reload)
         if(sessionStorage.getItem(F)) return;
-        // Fetch remote version from API
         var url='https://mfcnkltcdvitxczjwoer.supabase.co/rest/v1/site_settings?key=eq.cache_version&select=value';
         var xhr=new XMLHttpRequest();
         xhr.open('GET',url,true);
+        xhr.timeout=5000;
         xhr.setRequestHeader('apikey','eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mY25rbHRjZHZpdHhjemp3b2VyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyMzExOTgsImV4cCI6MjA4NjgwNzE5OH0.g8R1h217oI-y7zeBsvN7kfE9aPMlQZEEEbRCQLAEbXA');
+        xhr.setRequestHeader('Cache-Control','no-cache, no-store');
+        xhr.setRequestHeader('Pragma','no-cache');
         xhr.onload=function(){
           try{
             var rows=JSON.parse(xhr.responseText);
@@ -56,27 +58,55 @@ Filmes, séries e novidades atualizadas com qualidade, organização inteligente
             rv=String(rv);
             var lv=localStorage.getItem(K);
             if(lv===rv)return;
-            // Version mismatch → nuke everything
-            console.log('[CacheNuke] '+lv+' → '+rv);
+            console.log('[CacheNuke] '+lv+' → '+rv+' | Full purge initiated');
+            // 1. Save version FIRST to prevent loops
             localStorage.setItem(K,rv);
             sessionStorage.setItem(F,'1');
-            // Unregister all service workers
+            // 2. Unregister ALL service workers
             if(navigator.serviceWorker){
               navigator.serviceWorker.getRegistrations().then(function(regs){
-                regs.forEach(function(r){r.unregister()});
-              });
+                return Promise.all(regs.map(function(r){return r.unregister()}));
+              }).catch(function(){});
             }
-            // Clear all CacheStorage
+            // 3. Nuke CacheStorage completely
             if(window.caches){
               caches.keys().then(function(names){
-                names.forEach(function(n){caches.delete(n)});
-              });
+                return Promise.all(names.map(function(n){return caches.delete(n)}));
+              }).catch(function(){});
             }
-            // Hard reload bypassing cache
-            setTimeout(function(){location.reload()},300);
+            // 4. Clear IndexedDB databases
+            if(window.indexedDB&&indexedDB.databases){
+              indexedDB.databases().then(function(dbs){
+                dbs.forEach(function(db){if(db.name)indexedDB.deleteDatabase(db.name)});
+              }).catch(function(){});
+            }
+            // 5. Clear sessionStorage (except our nuke flag)
+            var nukeFlag=sessionStorage.getItem(F);
+            sessionStorage.clear();
+            if(nukeFlag)sessionStorage.setItem(F,nukeFlag);
+            // 6. Selective localStorage clear (keep auth + profile + device_id)
+            var keep=['lyneflix_cache_version','lyneflix_active_profile','sb-mfcnkltcdvitxczjwoer-auth-token','lyneflix_device_id'];
+            var saved={};
+            keep.forEach(function(k){var v=localStorage.getItem(k);if(v!==null)saved[k]=v});
+            localStorage.clear();
+            Object.keys(saved).forEach(function(k){localStorage.setItem(k,saved[k])});
+            // 7. Expire all site cookies
+            document.cookie.split(';').forEach(function(c){
+              var name=c.split('=')[0].trim();
+              if(name)document.cookie=name+'=;expires=Thu,01 Jan 1970 00:00:00 GMT;path=/';
+            });
+            // 8. Hard reload with cache bypass
+            setTimeout(function(){
+              if(location.href.indexOf('?')>-1){
+                location.href=location.href.replace(/[?&]_cb=\d+/,'')+'&_cb='+Date.now();
+              }else{
+                location.href=location.href+'?_cb='+Date.now();
+              }
+            },400);
           }catch(e){console.warn('[CacheNuke]',e)}
         };
         xhr.onerror=function(){};
+        xhr.ontimeout=function(){};
         xhr.send();
       })();
     </script>

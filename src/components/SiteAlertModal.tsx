@@ -42,7 +42,11 @@ const SiteAlertModal = () => {
   }, [fetchAlerts]);
 
   useEffect(() => {
-    if (!alerts.length) return;
+    if (!alerts.length) {
+      setCurrentAlert(null);
+      setVisible(false);
+      return;
+    }
     const checkAlerts = () => {
       for (const alert of alerts) {
         if (!alert.active) continue;

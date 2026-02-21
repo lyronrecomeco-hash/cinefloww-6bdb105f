@@ -41,7 +41,7 @@ const navItems = [
   { label: "Filmes", path: "/filmes" },
   { label: "Séries", path: "/series" },
   { label: "Doramas", path: "/doramas" },
-  { label: "TV Lyne", path: "/tv", disabled: true },
+  { label: "TV Lyne", path: "/tv" },
   { label: "Lançamentos", path: "/lancamentos" },
   { label: "Minha Lista", path: "/minha-lista" },
 ];
@@ -161,16 +161,7 @@ const Navbar = () => {
 
         {/* Desktop Nav */}
         <div className="hidden md:flex items-center gap-1">
-          {navItems.map((item) =>
-            item.disabled ? (
-              <span
-                key={item.path}
-                className="px-4 py-2 rounded-xl text-sm font-medium text-muted-foreground/40 cursor-not-allowed select-none"
-                title="Em breve"
-              >
-                {item.label}
-              </span>
-            ) : (
+          {navItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
@@ -182,8 +173,7 @@ const Navbar = () => {
               >
                 {item.label}
               </Link>
-            )
-          )}
+          ))}
         </div>
 
         {/* Right side */}
@@ -301,15 +291,7 @@ const Navbar = () => {
       {/* Mobile Menu */}
       {menuOpen && (
         <div className="md:hidden glass mx-3 mb-3 p-2 animate-scale-in">
-          {navItems.map((item) =>
-            item.disabled ? (
-              <span
-                key={item.path}
-                className="block px-4 py-3 rounded-xl text-sm font-medium text-muted-foreground/40 cursor-not-allowed select-none"
-              >
-                {item.label}
-              </span>
-            ) : (
+          {navItems.map((item) => (
               <Link
                 key={item.path}
                 to={item.path}
@@ -321,8 +303,7 @@ const Navbar = () => {
               >
                 {item.label}
               </Link>
-            )
-          )}
+          ))}
           {/* Pedidos inside menu */}
           <button
             onClick={() => { setShowRequest(true); setMenuOpen(false); }}
