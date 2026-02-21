@@ -7,7 +7,7 @@ import { toSlug } from "@/lib/slugify";
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Settings, AlertTriangle,
-  RefreshCw, ArrowLeft, PictureInPicture, Subtitles,
+  RefreshCw, ArrowLeft, PictureInPicture,
 } from "lucide-react";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
 import { getSeasonDetails } from "@/services/tmdb";
@@ -25,10 +25,11 @@ interface VideoSource {
 const PLAYBACK_SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
 const formatTime = (s: number) => {
-  if (!isFinite(s)) return "0:00";
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
+  if (!s || !isFinite(s) || isNaN(s) || s < 0) return "0:00";
+  const total = Math.floor(s);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const sec = total % 60;
   if (h > 0) return `${h}:${m.toString().padStart(2, "0")}:${sec.toString().padStart(2, "0")}`;
   return `${m}:${sec.toString().padStart(2, "0")}`;
 };
@@ -258,7 +259,7 @@ const PlayerPage = () => {
     }
   }, [isMobile]);
 
-  // Save progress periodically
+  // Save progress periodically + host sync broadcast
   useEffect(() => {
     if (!tmdbId) return;
     progressSaveTimer.current = setInterval(() => {
@@ -273,9 +274,13 @@ const PlayerPage = () => {
           completed: v.currentTime / v.duration > 0.9,
         });
       }
+      // Host: broadcast position every 10s to keep viewers in sync
+      if (v && watchRoom.isHost && watchRoom.room && !v.paused) {
+        watchRoom.broadcastPlayback({ action: "play", position: v.currentTime, timestamp: Date.now() });
+      }
     }, 10000);
     return () => clearInterval(progressSaveTimer.current);
-  }, [tmdbId, contentType, season, episode]);
+  }, [tmdbId, contentType, season, episode, watchRoom.isHost, watchRoom.room]);
 
   // Check resume on load
   useEffect(() => {
@@ -400,18 +405,22 @@ const PlayerPage = () => {
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
     const onTime = () => {
-      setCurrentTime(video.currentTime);
+      const ct = video.currentTime;
+      const dur = video.duration;
+      if (isFinite(ct)) setCurrentTime(ct);
+      if (isFinite(dur) && dur > 0 && duration === 0) setDuration(dur);
       if (video.buffered.length > 0) setBuffered(video.buffered.end(video.buffered.length - 1));
       
       // Show "Next Episode" popup 10s before end
-      if (nextEpUrl && video.duration > 0) {
-        const remaining = video.duration - video.currentTime;
+      if (nextEpUrl && dur > 0) {
+        const remaining = dur - ct;
         if (remaining <= 10 && remaining > 0 && !showNextEp) {
           setShowNextEp(true);
         }
       }
     };
-    const onDur = () => setDuration(video.duration || 0);
+    const onDur = () => { const d = video.duration; if (isFinite(d) && d > 0) setDuration(d); };
+    const onLoadedMeta = () => { const d = video.duration; if (isFinite(d) && d > 0) setDuration(d); };
     const onWait = () => setLoading(true);
     const onCan = () => setLoading(false);
     const onEnded = () => {
@@ -423,6 +432,7 @@ const PlayerPage = () => {
     video.addEventListener("pause", onPause);
     video.addEventListener("timeupdate", onTime);
     video.addEventListener("durationchange", onDur);
+    video.addEventListener("loadedmetadata", onLoadedMeta);
     video.addEventListener("waiting", onWait);
     video.addEventListener("canplay", onCan);
     video.addEventListener("ended", onEnded);
@@ -431,6 +441,7 @@ const PlayerPage = () => {
       video.removeEventListener("pause", onPause);
       video.removeEventListener("timeupdate", onTime);
       video.removeEventListener("durationchange", onDur);
+      video.removeEventListener("loadedmetadata", onLoadedMeta);
       video.removeEventListener("waiting", onWait);
       video.removeEventListener("canplay", onCan);
       video.removeEventListener("ended", onEnded);
@@ -642,6 +653,7 @@ const PlayerPage = () => {
           roomMode={roomMode || "chat"}
           isHost={watchRoom.isHost}
           participants={watchRoom.participants}
+          participantNames={watchRoom.participantNames}
           messages={watchRoom.messages}
           profileId={activeProfileId}
           profileName={activeProfileName || "Anônimo"}
@@ -839,10 +851,6 @@ const PlayerPage = () => {
             </div>
 
             <div className="flex items-center gap-0.5 sm:gap-1">
-              {/* CC / Subtitles toggle */}
-              <button onClick={toggleCC} className={`p-1.5 sm:p-2 hover:bg-white/10 rounded-xl transition-colors ${ccEnabled ? "text-primary" : "text-white"}`} title={ccEnabled ? "Desativar legendas" : "Ativar legendas"}>
-                <Subtitles className="w-4 h-4 sm:w-5 sm:h-5" />
-              </button>
               {/* Next episode button in controls */}
               {nextEpUrl && (
                 <button onClick={goNextEpisode} className="flex items-center gap-1 px-2 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-white/10 hover:bg-white/20 transition-colors text-[10px] sm:text-xs font-medium text-white">

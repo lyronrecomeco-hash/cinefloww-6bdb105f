@@ -3,7 +3,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { 
   WatchRoom, RoomParticipant, 
   createRoom, joinRoom, leaveRoom, closeRoom, 
-  sendHeartbeat, getActiveRoom, sendChatMessage, getChatMessages 
+  sendHeartbeat, getActiveRoom, sendChatMessage, getChatMessages,
+  getParticipantNames,
 } from "@/lib/watchRoom";
 
 interface PlaybackState {
@@ -29,6 +30,7 @@ interface UseWatchRoomOptions {
 export function useWatchRoom({ profileId, profileName, onPlaybackSync }: UseWatchRoomOptions) {
   const [room, setRoom] = useState<WatchRoom | null>(null);
   const [participants, setParticipants] = useState<RoomParticipant[]>([]);
+  const [participantNames, setParticipantNames] = useState<Record<string, string>>({});
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isHost, setIsHost] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -255,9 +257,19 @@ export function useWatchRoom({ profileId, profileName, onPlaybackSync }: UseWatc
     };
   }, [room?.id, profileId, profileName, isHost, onPlaybackSync]);
 
+  // Resolve participant names whenever participants change
+  useEffect(() => {
+    const ids = participants.map(p => p.profile_id).filter(id => !participantNames[id]);
+    if (ids.length === 0) return;
+    getParticipantNames(ids).then(names => {
+      setParticipantNames(prev => ({ ...prev, ...names }));
+    });
+  }, [participants]);
+
   return {
     room,
     participants,
+    participantNames,
     messages,
     isHost,
     loading,

@@ -163,3 +163,14 @@ export async function getChatMessages(roomId: string, limit = 50) {
 
   return data || [];
 }
+
+export async function getParticipantNames(profileIds: string[]): Promise<Record<string, string>> {
+  if (!profileIds.length) return {};
+  const { data } = await supabase
+    .from("user_profiles")
+    .select("id, name")
+    .in("id", profileIds);
+  const map: Record<string, string> = {};
+  data?.forEach(p => { map[p.id] = p.name; });
+  return map;
+}

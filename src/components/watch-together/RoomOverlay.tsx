@@ -31,6 +31,7 @@ interface Props {
   roomMode: "chat" | "call";
   isHost: boolean;
   participants: Participant[];
+  participantNames: Record<string, string>;
   messages: Message[];
   profileId: string;
   profileName: string;
@@ -50,7 +51,7 @@ interface Props {
 }
 
 const RoomOverlay = ({
-  roomCode, roomMode, isHost, participants, messages, profileId, profileName,
+  roomCode, roomMode, isHost, participants, participantNames, messages, profileId, profileName,
   onLeave, onSendMessage, showControls,
   voiceCallActive, voiceMuted, voicePeers, voiceError,
   onToggleVoiceMute, onEndVoiceCall, onHostMute, onHostUnmute, onHostKick,
@@ -139,17 +140,25 @@ const RoomOverlay = ({
               <p className="text-[10px] text-white/25 uppercase tracking-wider mb-2 font-semibold">
                 Participantes ({participants.length})
               </p>
-              {participants.map(p => (
+              {participants.map(p => {
+                const displayName = p.profile_id === profileId 
+                  ? "Você" 
+                  : (participantNames[p.profile_id] || `Perfil ${p.profile_id.slice(0, 6)}`);
+                const initials = p.profile_id === profileId 
+                  ? profileName.slice(0, 2).toUpperCase()
+                  : (participantNames[p.profile_id] || p.profile_id).slice(0, 2).toUpperCase();
+                return (
                 <div key={p.id} className="flex items-center gap-2.5 py-2">
                   <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-[10px] font-bold text-primary">
-                    {p.profile_id.slice(0, 2).toUpperCase()}
+                    {initials}
                   </div>
                   <span className="text-xs text-white/80 flex-1 truncate font-medium">
-                    {p.profile_id === profileId ? "Você" : `Perfil ${p.profile_id.slice(0, 6)}`}
+                    {displayName}
                   </span>
                   {p.role === "host" && <Crown className="w-3 h-3 text-yellow-400" />}
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             <div className="p-3 border-t border-white/[0.06]">

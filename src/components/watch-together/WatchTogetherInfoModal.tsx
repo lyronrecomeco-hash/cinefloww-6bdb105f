@@ -13,7 +13,7 @@ const WatchTogetherInfoModal = ({ isLoggedIn, onClose, onContinue }: WatchTogeth
 
   const modal = (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/70 backdrop-blur-md" onClick={onClose} />
       <div className="relative w-full max-w-[420px] max-h-[90vh] overflow-y-auto bg-card/95 backdrop-blur-2xl rounded-3xl border border-white/10 shadow-2xl animate-in fade-in zoom-in-95 duration-300">
         {/* Header */}
         <div className="relative px-4 sm:px-6 pt-4 sm:pt-6 pb-3 sm:pb-4 bg-gradient-to-b from-primary/10 to-transparent">
