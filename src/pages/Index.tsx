@@ -82,17 +82,23 @@ const Index = () => {
       return;
     }
 
-    // Normal mode
+    // Normal mode — helper to timeout slow DB queries
+    const withTimeout = (promise: PromiseLike<any>, ms: number): Promise<any> =>
+      Promise.race([Promise.resolve(promise), new Promise((r) => setTimeout(() => r(null), ms))]);
+
     const loadDoramas = async () => {
-      const { data } = await supabase
-        .from("content")
-        .select("tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type")
-        .eq("content_type", "dorama")
-        .eq("status", "published")
-        .order("release_date", { ascending: false, nullsFirst: false })
-        .limit(20);
-      if (data) {
-        setDoramas(data.map((d: any) => ({
+      const result = await withTimeout(
+        supabase
+          .from("content")
+          .select("tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type")
+          .eq("content_type", "dorama")
+          .eq("status", "published")
+          .order("release_date", { ascending: false, nullsFirst: false })
+          .limit(20),
+        5000
+      );
+      if (result?.data) {
+        setDoramas(result.data.map((d: any) => ({
           id: d.tmdb_id, name: d.title, poster_path: d.poster_path,
           backdrop_path: d.backdrop_path, overview: "", vote_average: d.vote_average || 0,
           first_air_date: d.release_date, genre_ids: [], media_type: "tv",
@@ -101,15 +107,18 @@ const Index = () => {
     };
 
     const loadAnimes = async () => {
-      const { data } = await supabase
-        .from("content")
-        .select("tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type")
-        .eq("content_type", "anime")
-        .eq("status", "published")
-        .order("release_date", { ascending: false, nullsFirst: false })
-        .limit(20);
-      if (data) {
-        setAnimes(data.map((d: any) => ({
+      const result = await withTimeout(
+        supabase
+          .from("content")
+          .select("tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type")
+          .eq("content_type", "anime")
+          .eq("status", "published")
+          .order("release_date", { ascending: false, nullsFirst: false })
+          .limit(20),
+        5000
+      );
+      if (result?.data) {
+        setAnimes(result.data.map((d: any) => ({
           id: d.tmdb_id, name: d.title, poster_path: d.poster_path,
           backdrop_path: d.backdrop_path, overview: "", vote_average: d.vote_average || 0,
           first_air_date: d.release_date, genre_ids: [], media_type: "tv",
@@ -123,11 +132,10 @@ const Index = () => {
       setLoading(false);
     }).catch(() => setLoading(false));
 
-    // Load sections in parallel — independent of hero
+    // Load TMDB sections first (fast), DB sections separately (may be slow)
     Promise.allSettled([
       getNowPlayingMovies(), getAiringTodaySeries(),
       getPopularMovies(), getPopularSeries(),
-      loadDoramas(), loadAnimes(),
     ]).then((results) => {
       const np = results[0].status === "fulfilled" ? results[0].value : { results: [] };
       const at = results[1].status === "fulfilled" ? results[1].value : { results: [] };
@@ -140,6 +148,10 @@ const Index = () => {
       setPopularSeries(sortByYear(ps.results));
       setSectionsReady(true);
     }).catch(() => setSectionsReady(true));
+
+    // DB content loads independently — won't block the page
+    loadDoramas().catch(() => {});
+    loadAnimes().catch(() => {});
   }, [isKidsMode]);
 
   if (loading) {
