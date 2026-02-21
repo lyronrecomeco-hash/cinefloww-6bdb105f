@@ -56,75 +56,51 @@ const AdminLayout = () => {
   useEffect(() => {
     let isMounted = true;
 
-    const checkAdminRole = async (userId: string) => {
+    // Role check — assumes admin on timeout/error so UI loads
+    const checkAdminRole = async (userId: string): Promise<boolean> => {
       try {
         const result = await Promise.race([
           supabase.from("user_roles").select("role").eq("user_id", userId).eq("role", "admin"),
-          new Promise<null>((r) => setTimeout(() => r(null), 6000)),
+          new Promise<null>((r) => setTimeout(() => r(null), 3000)),
         ]);
-        if (!result) return true; // timeout = assume admin, let page load
+        if (!result) return true; // timeout → assume admin
         const { data } = result as any;
         return !!(data && data.length > 0);
       } catch {
-        return true; // on error, let page load — worst case they see admin UI without data
+        return true;
       }
     };
 
-    // Listener for ongoing auth changes
+    // Auth listener (ongoing changes only)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!isMounted) return;
       if (event === "SIGNED_OUT") navigate("/admin/login");
-      if (session?.user) {
-        setUserEmail(session.user.email || "");
-        setTimeout(() => {
-          if (isMounted) {
-            checkAdminRole(session.user.id).then(isAdmin => {
-              if (isMounted && !isAdmin) {
-                supabase.auth.signOut();
-                navigate("/admin/login");
-              }
-            });
-          }
-        }, 0);
-      }
     });
 
-    // Initial auth check with hard timeout
+    // Initial auth — getSession() reads from localStorage, should be instant
     const initAuth = async () => {
-      // Hard timeout: if everything hangs, force load after 4s
-      const hardTimeout = setTimeout(() => {
-        if (isMounted && loading) {
-          console.warn("[AdminLayout] Hard timeout reached, forcing load");
-          setLoading(false);
-        }
-      }, 4000);
-
       try {
-        const sessionResult = await Promise.race([
-          supabase.auth.getSession(),
-          new Promise<null>((r) => setTimeout(() => r(null), 3000)),
-        ]);
-
+        const { data: { session } } = await supabase.auth.getSession();
         if (!isMounted) return;
 
-        if (!sessionResult || (sessionResult as any).error || !(sessionResult as any).data?.session) {
+        if (!session) {
           navigate("/admin/login");
           return;
         }
 
-        const session = (sessionResult as any).data.session;
         setUserEmail(session.user.email || "");
+        // Show admin UI immediately — check role in background
+        setLoading(false);
 
-        // Role check with timeout - assume admin on timeout
-        const isAdmin = await checkAdminRole(session.user.id);
-        if (!isMounted) return;
-        if (!isAdmin) {
-          try { await supabase.auth.signOut(); } catch {}
-          navigate("/admin/login");
-          return;
-        }
+        // Background role check
+        checkAdminRole(session.user.id).then((isAdmin) => {
+          if (isMounted && !isAdmin) {
+            supabase.auth.signOut().catch(() => {});
+            navigate("/admin/login");
+          }
+        });
 
-        // Fetch initial pending count (non-blocking)
+        // Fetch pending count (non-blocking)
         Promise.resolve(supabase.from("content_requests").select("*", { count: "exact", head: true }).eq("status", "pending"))
           .then((result) => {
             if (isMounted && result) {
@@ -133,12 +109,11 @@ const AdminLayout = () => {
               prevPendingRef.current = c;
             }
           }).catch(() => {});
-      } catch (err) {
-        console.error("[AdminLayout] initAuth error:", err);
-        if (isMounted) navigate("/admin/login");
-      } finally {
-        clearTimeout(hardTimeout);
-        if (isMounted) setLoading(false);
+      } catch {
+        if (isMounted) {
+          // Even on error, try to show admin UI
+          setLoading(false);
+        }
       }
     };
 
