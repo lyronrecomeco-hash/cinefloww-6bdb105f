@@ -66,8 +66,11 @@ const VoiceCallOverlay = ({
           {expanded && (
             <div className="p-3 border-b border-white/[0.06] max-h-48 overflow-y-auto min-w-[300px]">
               <div className="flex items-center justify-between mb-2 px-1">
-                <p className="text-[10px] text-white/25 uppercase tracking-wider font-semibold">
+    <p className="text-[10px] text-white/25 uppercase tracking-wider font-semibold">
                   Na chamada ({peers.length + 1})
+                </p>
+                <p className="text-[9px] text-white/15 font-mono">
+                  {peers.length} peer{peers.length !== 1 ? "s" : ""} conectado{peers.length !== 1 ? "s" : ""}
                 </p>
                 <div className="flex items-center gap-1.5">
                   <Shield className="w-3 h-3 text-green-400/60" />

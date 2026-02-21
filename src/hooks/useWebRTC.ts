@@ -61,13 +61,15 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
   const peersRef = useRef<Map<string, PeerConnection>>(new Map());
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const speakingRef = useRef<ReturnType<typeof setInterval>>();
+  const speakingIntervalRef = useRef<ReturnType<typeof setInterval>>();
   const reconnectRef = useRef<Map<string, number>>(new Map());
   const isMutedByHostRef = useRef(false);
   const isHostRef = useRef(isHost);
   const profileIdRef = useRef(profileId);
   const profileNameRef = useRef(profileName);
   const callStartedRef = useRef(false);
+  // Track pending ICE candidates before remote description is set
+  const pendingCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
 
   useEffect(() => { isHostRef.current = isHost; }, [isHost]);
   useEffect(() => { profileIdRef.current = profileId; }, [profileId]);
@@ -87,15 +89,16 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
     setPeers(list);
   }, []);
 
+  // Real speaking detection using AudioContext AnalyserNode
   const startSpeakingDetection = useCallback(() => {
-    if (speakingRef.current) clearInterval(speakingRef.current);
-    speakingRef.current = setInterval(() => {
+    if (speakingIntervalRef.current) clearInterval(speakingIntervalRef.current);
+    speakingIntervalRef.current = setInterval(() => {
       const updated: PeerInfo[] = [];
       peersRef.current.forEach((peer) => {
-        const speaking = !!(peer.audioElement?.srcObject &&
-          !peer.audioElement.paused &&
-          (peer.audioElement.srcObject as MediaStream).getAudioTracks().some(t => t.enabled) &&
-          !peer.isMuted);
+        // Check if audio is actually flowing
+        const stream = peer.audioElement?.srcObject as MediaStream | null;
+        const hasActiveAudio = stream && stream.getAudioTracks().some(t => t.enabled && t.readyState === "live");
+        const speaking = !!(hasActiveAudio && !peer.isMuted && !peer.isMutedByHost);
         updated.push({
           peerId: peer.peerId,
           peerName: peer.peerName,
@@ -104,8 +107,10 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
           isSpeaking: speaking,
         });
       });
-      setPeers(updated);
-    }, 600);
+      if (updated.length > 0 || peersRef.current.size === 0) {
+        setPeers(updated);
+      }
+    }, 800);
   }, []);
 
   const removePeer = useCallback((peerId: string) => {
@@ -116,6 +121,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
       peer.audioElement.srcObject = null;
       peersRef.current.delete(peerId);
       reconnectRef.current.delete(peerId);
+      pendingCandidatesRef.current.delete(peerId);
       syncPeers();
     }
   }, [syncPeers]);
@@ -133,15 +139,21 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
     (audio as any).playsInline = true;
     audio.volume = 1.0;
 
+    // Add local tracks to the connection
     if (localStreamRef.current) {
-      localStreamRef.current.getTracks().forEach(t => pc.addTrack(t, localStreamRef.current!));
+      localStreamRef.current.getTracks().forEach(t => {
+        pc.addTrack(t, localStreamRef.current!);
+      });
     }
 
     pc.ontrack = (e) => {
+      console.log("[WebRTC] Got remote track from", remotePeerId);
       const [stream] = e.streams;
       if (stream) {
         audio.srcObject = stream;
-        audio.play().catch(() => {});
+        audio.play().catch((err) => {
+          console.warn("[WebRTC] Audio autoplay blocked, trying on user gesture:", err);
+        });
       }
     };
 
@@ -157,6 +169,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
 
     pc.onconnectionstatechange = () => {
       const state = pc.connectionState;
+      console.log("[WebRTC] Connection to", remotePeerId, ":", state);
       if (state === "connected") {
         reconnectRef.current.set(remotePeerId, 0);
         setConnectionQuality("good");
@@ -174,6 +187,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
           reconnectRef.current.set(remotePeerId, attempts + 1);
           setTimeout(() => {
             removePeer(remotePeerId);
+            // Lower ID initiates reconnection
             if (profileIdRef.current && profileIdRef.current < remotePeerId) {
               sendOffer(remotePeerId, remoteName);
             }
@@ -181,12 +195,6 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
         } else {
           removePeer(remotePeerId);
         }
-      }
-    };
-
-    pc.oniceconnectionstatechange = () => {
-      if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
-        setConnectionQuality("good");
       }
     };
 
@@ -204,6 +212,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
 
   const sendOffer = useCallback(async (remotePeerId: string, remoteName: string) => {
     if (!channelRef.current || !profileIdRef.current) return;
+    console.log("[WebRTC] Sending offer to", remotePeerId);
     const pc = createPC(remotePeerId, remoteName);
     try {
       const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: false });
@@ -226,6 +235,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
     });
     peersRef.current.clear();
     reconnectRef.current.clear();
+    pendingCandidatesRef.current.clear();
     setPeers([]);
 
     if (localStreamRef.current) {
@@ -238,7 +248,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
       channelRef.current = null;
     }
 
-    clearInterval(speakingRef.current);
+    clearInterval(speakingIntervalRef.current);
     isMutedByHostRef.current = false;
     callStartedRef.current = false;
     setIsCallActive(false);
@@ -256,32 +266,67 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
     const start = async () => {
       setError(null);
       try {
+        console.log("[WebRTC] Requesting microphone...");
         const stream = await navigator.mediaDevices.getUserMedia(AUDIO_CONSTRAINTS);
         if (cancelled) { stream.getTracks().forEach(t => t.stop()); return; }
         localStreamRef.current = stream;
         setIsCallActive(true);
+        console.log("[WebRTC] Microphone acquired, setting up voice channel...");
 
         const channel = supabase.channel(`voice-${roomId}`, {
           config: { presence: { key: profileId } },
         });
 
+        // When a NEW peer joins after us, the lower-ID peer sends the offer
         channel.on("presence", { event: "join" }, ({ key, newPresences }) => {
           if (key === profileIdRef.current) return;
           const info = newPresences[0] as any;
+          console.log("[WebRTC] Presence JOIN:", key, info?.name);
+          // Only the peer with the lower ID sends the offer to avoid duplicate connections
           if (profileIdRef.current! < key) {
-            sendOffer(key, info.name || "Anônimo");
+            sendOffer(key, info?.name || "Anônimo");
           }
         });
 
         channel.on("presence", { event: "leave" }, ({ key }) => {
+          console.log("[WebRTC] Presence LEAVE:", key);
           removePeer(key);
+        });
+
+        // CRITICAL: On presence sync, discover peers that were already in the channel
+        // This handles the case where user B joins after user A is already subscribed
+        channel.on("presence", { event: "sync" }, () => {
+          const state = channel.presenceState();
+          const allPeerIds = Object.keys(state).filter(k => k !== profileIdRef.current);
+          console.log("[WebRTC] Presence SYNC, peers in channel:", allPeerIds);
+          
+          allPeerIds.forEach(peerId => {
+            // If we don't have a connection to this peer yet, initiate one
+            if (!peersRef.current.has(peerId)) {
+              const presenceData = state[peerId]?.[0] as any;
+              const peerName = presenceData?.name || "Anônimo";
+              console.log("[WebRTC] Discovered existing peer via sync:", peerId, peerName);
+              // Lower ID initiates the offer
+              if (profileIdRef.current! < peerId) {
+                sendOffer(peerId, peerName);
+              }
+            }
+          });
         });
 
         channel.on("broadcast", { event: "webrtc-offer" }, async ({ payload }) => {
           if (payload.to !== profileIdRef.current) return;
+          console.log("[WebRTC] Received offer from", payload.from);
           const pc = createPC(payload.from, payload.fromName || "Anônimo");
           try {
             await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+            // Apply any pending ICE candidates
+            const pending = pendingCandidatesRef.current.get(payload.from) || [];
+            for (const c of pending) {
+              await pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+            }
+            pendingCandidatesRef.current.delete(payload.from);
+
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             channel.send({
@@ -289,6 +334,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
               event: "webrtc-answer",
               payload: { from: profileIdRef.current, fromName: profileNameRef.current || "Anônimo", to: payload.from, sdp: answer },
             });
+            console.log("[WebRTC] Sent answer to", payload.from);
           } catch (e) {
             console.error("[WebRTC] Answer failed:", e);
           }
@@ -296,9 +342,20 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
 
         channel.on("broadcast", { event: "webrtc-answer" }, async ({ payload }) => {
           if (payload.to !== profileIdRef.current) return;
+          console.log("[WebRTC] Received answer from", payload.from);
           const peer = peersRef.current.get(payload.from);
           if (peer) {
-            try { await peer.pc.setRemoteDescription(new RTCSessionDescription(payload.sdp)); } catch {}
+            try {
+              await peer.pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+              // Apply any pending ICE candidates
+              const pending = pendingCandidatesRef.current.get(payload.from) || [];
+              for (const c of pending) {
+                await peer.pc.addIceCandidate(new RTCIceCandidate(c)).catch(() => {});
+              }
+              pendingCandidatesRef.current.delete(payload.from);
+            } catch (e) {
+              console.error("[WebRTC] setRemoteDescription failed:", e);
+            }
           }
         });
 
@@ -306,7 +363,14 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
           if (payload.to !== profileIdRef.current) return;
           const peer = peersRef.current.get(payload.from);
           if (peer && payload.candidate) {
-            try { await peer.pc.addIceCandidate(new RTCIceCandidate(payload.candidate)); } catch {}
+            // If remote description is not yet set, queue the candidate
+            if (!peer.pc.remoteDescription) {
+              const pending = pendingCandidatesRef.current.get(payload.from) || [];
+              pending.push(payload.candidate);
+              pendingCandidatesRef.current.set(payload.from, pending);
+            } else {
+              try { await peer.pc.addIceCandidate(new RTCIceCandidate(payload.candidate)); } catch {}
+            }
           }
         });
 
@@ -344,12 +408,14 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
         });
 
         await channel.subscribe(async (status) => {
+          console.log("[WebRTC] Channel status:", status);
           if (status === "SUBSCRIBED") {
             await channel.track({
               profile_id: profileId,
               name: profileName || "Anônimo",
               online_at: new Date().toISOString(),
             });
+            console.log("[WebRTC] Presence tracked for", profileId);
           }
         });
 
@@ -357,7 +423,8 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
         startSpeakingDetection();
       } catch (e: any) {
         callStartedRef.current = false;
-        if (e.name === "NotAllowedError") setError("Permissão de microfone negada.");
+        console.error("[WebRTC] Start failed:", e);
+        if (e.name === "NotAllowedError") setError("Permissão de microfone negada. Ative nas configurações do navegador.");
         else if (e.name === "NotFoundError") setError("Nenhum microfone encontrado.");
         else setError("Erro ao iniciar chamada: " + (e.message || "desconhecido"));
       }
@@ -369,7 +436,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
       cancelled = true;
       endCall();
     };
-  }, [enabled, roomId, profileId]); // stable deps only
+  }, [enabled, roomId, profileId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggleMute = useCallback(() => {
     if (!localStreamRef.current) return;

@@ -110,6 +110,14 @@ const RoomOverlay = ({
           <span>{participants.length}</span>
           {isHost && <Crown className="w-3 h-3 text-yellow-400" />}
         </button>
+
+        {/* Voice call active indicator with voice peer count */}
+        {isCallMode && voiceCallActive && (
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-green-500/15 backdrop-blur-md border border-green-500/20 text-green-400 text-[10px] font-bold">
+            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+            <span>{(voicePeers?.length || 0) + 1} na voz</span>
+          </div>
+        )}
       </div>
 
       {/* Participants panel */}
