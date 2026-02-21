@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { 
   WatchRoom, RoomParticipant, 
   createRoom, joinRoom, leaveRoom, closeRoom, 
-  sendHeartbeat, getActiveRoom, sendChatMessage, getChatMessages,
+  sendHeartbeat, sendChatMessage, getChatMessages,
   getParticipantNames,
 } from "@/lib/watchRoom";
 
@@ -38,12 +38,29 @@ export function useWatchRoom({ profileId, profileName, onPlaybackSync }: UseWatc
 
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const heartbeatRef = useRef<ReturnType<typeof setInterval>>();
-  const SYNC_TOLERANCE = 3; // seconds
+  const onPlaybackSyncRef = useRef(onPlaybackSync);
+  const isHostRef = useRef(isHost);
+  const SYNC_TOLERANCE = 3;
+
+  // Keep refs in sync
+  useEffect(() => { onPlaybackSyncRef.current = onPlaybackSync; }, [onPlaybackSync]);
+  useEffect(() => { isHostRef.current = isHost; }, [isHost]);
+
+  // Fetch names for new profile IDs
+  const resolveNames = useCallback(async (ids: string[]) => {
+    const unknown = ids.filter(id => id !== profileId);
+    if (unknown.length === 0) return;
+    try {
+      const names = await getParticipantNames(unknown);
+      setParticipantNames(prev => ({ ...prev, ...names }));
+    } catch {}
+  }, [profileId]);
 
   // Create a room
   const handleCreateRoom = useCallback(async (params: {
     tmdbId: number; contentType: string; title: string;
     posterPath?: string; season?: number; episode?: number;
+    roomMode?: "chat" | "call";
   }) => {
     if (!profileId) return null;
     setLoading(true);
@@ -99,13 +116,13 @@ export function useWatchRoom({ profileId, profileName, onPlaybackSync }: UseWatc
 
   // Broadcast playback state (host only)
   const broadcastPlayback = useCallback((state: PlaybackState) => {
-    if (!channelRef.current || !isHost) return;
+    if (!channelRef.current || !isHostRef.current) return;
     channelRef.current.send({
       type: "broadcast",
       event: "playback",
       payload: state,
     });
-  }, [isHost]);
+  }, []);
 
   // Send chat message
   const handleSendMessage = useCallback(async (message: string) => {
@@ -119,17 +136,14 @@ export function useWatchRoom({ profileId, profileName, onPlaybackSync }: UseWatc
       created_at: new Date().toISOString(),
     };
 
-    // Add to local state immediately (optimistic)
     setMessages(prev => [...prev.slice(-99), msgPayload]);
 
-    // Broadcast to other participants for instant delivery
     channelRef.current?.send({
       type: "broadcast",
       event: "chat_message",
       payload: msgPayload,
     });
 
-    // Persist to database
     try {
       await sendChatMessage(room.id, profileId, message.trim());
     } catch (err) {
@@ -146,54 +160,35 @@ export function useWatchRoom({ profileId, profileName, onPlaybackSync }: UseWatc
       config: { presence: { key: profileId } },
     });
 
-    // Presence tracking
-    channel.on("presence", { event: "sync" }, () => {
-      const state = channel.presenceState();
-      const presenceList = Object.values(state).flat().map((p: any) => ({
-        profile_id: p.profile_id,
-        profile_name: p.profile_name,
-      }));
-      // Update participants from presence
-      setParticipants(prev => {
-        const updated = prev.map(p => ({
-          ...p,
-          _online: presenceList.some(pr => pr.profile_id === p.profile_id),
-        }));
-        return updated as any;
-      });
-    });
-
     // Playback sync via broadcast
     channel.on("broadcast", { event: "playback" }, ({ payload }) => {
-      if (!isHost && payload) {
-        onPlaybackSync?.(payload as PlaybackState);
+      if (!isHostRef.current && payload) {
+        onPlaybackSyncRef.current?.(payload as PlaybackState);
       }
     });
 
-    // Chat messages via broadcast (immediate delivery)
+    // Chat messages via broadcast
     channel.on("broadcast", { event: "chat_message" }, ({ payload }) => {
       if (payload && payload.profile_id !== profileId) {
         setMessages(prev => {
-          // Deduplicate by id
           if (prev.some(m => m.id === payload.id)) return prev;
           return [...prev.slice(-99), payload as ChatMessage];
         });
       }
     });
 
-    // Chat messages via realtime DB changes (backup/persistence)
+    // Chat messages via DB (backup)
     channel.on(
       "postgres_changes",
       { event: "INSERT", schema: "public", table: "watch_room_messages", filter: `room_id=eq.${room.id}` },
       (payload) => {
         const msg = payload.new as any;
+        if (msg.profile_id === profileId) return; // skip own
         setMessages(prev => {
-          // Deduplicate - might already have it from broadcast
           if (prev.some(m => m.id === msg.id)) return prev;
           return [...prev.slice(-99), {
             id: msg.id,
             profile_id: msg.profile_id,
-            profile_name: msg.profile_name,
             message: msg.message,
             created_at: msg.created_at,
           }];
@@ -201,16 +196,27 @@ export function useWatchRoom({ profileId, profileName, onPlaybackSync }: UseWatc
       }
     );
 
-    // Participant changes
+    // Participant changes - real-time
     channel.on(
       "postgres_changes",
-      { event: "*", schema: "public", table: "watch_room_participants", filter: `room_id=eq.${room.id}` },
+      { event: "INSERT", schema: "public", table: "watch_room_participants", filter: `room_id=eq.${room.id}` },
       (payload) => {
-        if (payload.eventType === "INSERT") {
-          setParticipants(prev => [...prev, payload.new as RoomParticipant]);
-        } else if (payload.eventType === "DELETE") {
-          setParticipants(prev => prev.filter(p => p.id !== (payload.old as any).id));
-        }
+        const newP = payload.new as RoomParticipant;
+        setParticipants(prev => {
+          if (prev.some(p => p.id === newP.id)) return prev;
+          return [...prev, newP];
+        });
+        // Resolve name for new participant
+        resolveNames([newP.profile_id]);
+      }
+    );
+
+    channel.on(
+      "postgres_changes",
+      { event: "DELETE", schema: "public", table: "watch_room_participants", filter: `room_id=eq.${room.id}` },
+      (payload) => {
+        const oldP = payload.old as any;
+        setParticipants(prev => prev.filter(p => p.id !== oldP.id));
       }
     );
 
@@ -220,13 +226,20 @@ export function useWatchRoom({ profileId, profileName, onPlaybackSync }: UseWatc
       { event: "UPDATE", schema: "public", table: "watch_rooms", filter: `id=eq.${room.id}` },
       (payload) => {
         const updated = payload.new as any;
-        setRoom(prev => prev ? { ...prev, ...updated } : null);
         if (updated.status === "closed") {
           setRoom(null);
           setIsHost(false);
+          setParticipants([]);
+        } else {
+          setRoom(prev => prev ? { ...prev, ...updated } : null);
         }
       }
     );
+
+    // Presence sync for online status
+    channel.on("presence", { event: "sync" }, () => {
+      // Just keep track - participants come from DB
+    });
 
     channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
@@ -242,7 +255,12 @@ export function useWatchRoom({ profileId, profileName, onPlaybackSync }: UseWatc
 
     // Load initial participants & messages
     supabase.from("watch_room_participants").select("*").eq("room_id", room.id)
-      .then(({ data }) => { if (data) setParticipants(data as RoomParticipant[]); });
+      .then(({ data }) => {
+        if (data) {
+          setParticipants(data as RoomParticipant[]);
+          resolveNames(data.map((p: any) => p.profile_id));
+        }
+      });
     getChatMessages(room.id).then(msgs => setMessages(msgs as ChatMessage[]));
 
     // Heartbeat every 30s
@@ -255,16 +273,7 @@ export function useWatchRoom({ profileId, profileName, onPlaybackSync }: UseWatc
       channel.unsubscribe();
       channelRef.current = null;
     };
-  }, [room?.id, profileId, profileName, isHost, onPlaybackSync]);
-
-  // Resolve participant names whenever participants change
-  useEffect(() => {
-    const ids = participants.map(p => p.profile_id).filter(id => !participantNames[id]);
-    if (ids.length === 0) return;
-    getParticipantNames(ids).then(names => {
-      setParticipantNames(prev => ({ ...prev, ...names }));
-    });
-  }, [participants]);
+  }, [room?.id, profileId, profileName, resolveNames]);
 
   return {
     room,

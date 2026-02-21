@@ -75,15 +75,18 @@ const PlayerPage = () => {
     }
   }, []);
 
-  const handlePlaybackSync = useCallback((state: { action: "play" | "pause" | "seek"; position: number }) => {
+  const handlePlaybackSync = useCallback((state: { action: "play" | "pause" | "seek"; position: number; timestamp: number }) => {
     const v = videoRef.current;
     if (!v) return;
+    const drift = Math.abs(v.currentTime - state.position);
     if (state.action === "seek") {
       v.currentTime = state.position;
     } else if (state.action === "play") {
-      if (Math.abs(v.currentTime - state.position) > 3) v.currentTime = state.position;
+      // Force sync if drift > 2s
+      if (drift > 2) v.currentTime = state.position;
       v.play().catch(() => {});
     } else if (state.action === "pause") {
+      v.currentTime = state.position;
       v.pause();
     }
   }, []);
@@ -259,7 +262,7 @@ const PlayerPage = () => {
     }
   }, [isMobile]);
 
-  // Save progress periodically + host sync broadcast
+  // Save progress periodically
   useEffect(() => {
     if (!tmdbId) return;
     progressSaveTimer.current = setInterval(() => {
@@ -274,13 +277,21 @@ const PlayerPage = () => {
           completed: v.currentTime / v.duration > 0.9,
         });
       }
-      // Host: broadcast position every 10s to keep viewers in sync
-      if (v && watchRoom.isHost && watchRoom.room && !v.paused) {
+    }, 15000);
+    return () => clearInterval(progressSaveTimer.current);
+  }, [tmdbId, contentType, season, episode]);
+
+  // Host: broadcast playback position every 3s for tight sync
+  useEffect(() => {
+    if (!watchRoom.isHost || !watchRoom.room) return;
+    const syncInterval = setInterval(() => {
+      const v = videoRef.current;
+      if (v && !v.paused && v.duration > 0) {
         watchRoom.broadcastPlayback({ action: "play", position: v.currentTime, timestamp: Date.now() });
       }
-    }, 10000);
-    return () => clearInterval(progressSaveTimer.current);
-  }, [tmdbId, contentType, season, episode, watchRoom.isHost, watchRoom.room]);
+    }, 3000);
+    return () => clearInterval(syncInterval);
+  }, [watchRoom.isHost, watchRoom.room, watchRoom.broadcastPlayback]);
 
   // Check resume on load
   useEffect(() => {
