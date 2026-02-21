@@ -815,6 +815,7 @@ export type Database = {
           created_at: string
           id: string
           is_default: boolean | null
+          is_kids: boolean
           name: string
           share_code: string | null
           updated_at: string
@@ -825,6 +826,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_default?: boolean | null
+          is_kids?: boolean
           name: string
           share_code?: string | null
           updated_at?: string
@@ -835,6 +837,7 @@ export type Database = {
           created_at?: string
           id?: string
           is_default?: boolean | null
+          is_kids?: boolean
           name?: string
           share_code?: string | null
           updated_at?: string

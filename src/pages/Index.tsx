@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Flame, Film, Tv, Heart, Sparkles } from "lucide-react";
+import { Flame, Film, Tv, Heart, Sparkles, Baby } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import HeroSlider from "@/components/HeroSlider";
 import ContentRow from "@/components/ContentRow";
@@ -15,12 +15,17 @@ import {
   getYear,
 } from "@/services/tmdb";
 
+const KIDS_GENRE_IDS = [16, 10751, 10762, 10770]; // Animation, Family, Kids, TV Movie
+
 const sortByYear = (items: TMDBMovie[]) =>
   [...items].sort((a, b) => {
     const ya = getYear(a) || 0;
     const yb = getYear(b) || 0;
     return Number(yb) - Number(ya);
   });
+
+const filterKids = (items: TMDBMovie[]) =>
+  items.filter((m) => m.genre_ids?.some((g) => KIDS_GENRE_IDS.includes(g)));
 
 const Index = () => {
   const [trending, setTrending] = useState<TMDBMovie[]>([]);
@@ -31,6 +36,18 @@ const Index = () => {
   const [animes, setAnimes] = useState<TMDBMovie[]>([]);
   const [loading, setLoading] = useState(true);
   const [sectionsReady, setSectionsReady] = useState(false);
+  const [isKidsMode, setIsKidsMode] = useState(false);
+
+  useEffect(() => {
+    // Check if active profile is kids
+    try {
+      const raw = localStorage.getItem("lyneflix_active_profile");
+      if (raw) {
+        const profile = JSON.parse(raw);
+        if (profile.is_kids) setIsKidsMode(true);
+      }
+    } catch {}
+  }, []);
 
   useEffect(() => {
     const loadDoramas = async () => {
@@ -110,6 +127,42 @@ const Index = () => {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // Kids mode: filter everything
+  if (isKidsMode) {
+    const kidsTrending = filterKids(trending);
+    const kidsNowPlaying = filterKids(nowPlaying);
+    const kidsMovies = filterKids(popularMovies);
+    const kidsSeries = filterKids(popularSeries);
+
+    return (
+      <div className="min-h-screen bg-background animate-page-enter">
+        <Navbar />
+        <HeroSlider movies={kidsTrending.length > 0 ? kidsTrending : trending.slice(0, 3)} />
+
+        <div className="mt-4 sm:mt-6 lg:mt-8 relative z-10 pb-12 sm:pb-20 space-y-1 sm:space-y-2">
+          <div className="flex items-center gap-2 px-4 sm:px-6 lg:px-12 mb-2">
+            <Baby className="w-5 h-5 text-green-400" />
+            <span className="text-sm font-semibold text-green-400">Modo Criança</span>
+          </div>
+          {sectionsReady ? (
+            <>
+              {kidsNowPlaying.length > 0 && <ContentRow title="🌈 Em Alta para Crianças" movies={kidsNowPlaying} icon={<Flame className="w-4 h-4" />} />}
+              {kidsMovies.length > 0 && <ContentRow title="🎬 Filmes Infantis" movies={kidsMovies} icon={<Film className="w-4 h-4" />} />}
+              {kidsSeries.length > 0 && <ContentRow title="📺 Séries Infantis" movies={kidsSeries} icon={<Tv className="w-4 h-4" />} />}
+              {animes.length > 0 && <ContentRow title="⚡ Animes" movies={animes} icon={<Sparkles className="w-4 h-4" />} />}
+            </>
+          ) : (
+            <div className="flex justify-center py-12">
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+        </div>
+
+        <Footer />
       </div>
     );
   }
