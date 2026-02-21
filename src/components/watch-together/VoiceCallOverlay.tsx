@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   Mic, MicOff, PhoneOff, Users, Crown, UserX,
   Volume2, VolumeX, X, ChevronUp, ChevronDown,
+  Signal, SignalLow, SignalZero, Shield,
 } from "lucide-react";
 
 interface PeerInfo {
@@ -21,6 +22,7 @@ interface Props {
   isCallActive: boolean;
   error: string | null;
   showControls: boolean;
+  connectionQuality?: "good" | "fair" | "poor";
   onToggleMute: () => void;
   onEndCall: () => void;
   onHostMute: (peerId: string) => void;
@@ -30,11 +32,15 @@ interface Props {
 
 const VoiceCallOverlay = ({
   isHost, isMuted, peers, profileId, profileName, isCallActive, error,
-  showControls, onToggleMute, onEndCall, onHostMute, onHostUnmute, onHostKick,
+  showControls, connectionQuality = "good",
+  onToggleMute, onEndCall, onHostMute, onHostUnmute, onHostKick,
 }: Props) => {
   const [expanded, setExpanded] = useState(false);
 
   if (!isCallActive && !error) return null;
+
+  const QualityIcon = connectionQuality === "good" ? Signal : connectionQuality === "fair" ? SignalLow : SignalZero;
+  const qualityColor = connectionQuality === "good" ? "text-green-400" : connectionQuality === "fair" ? "text-yellow-400" : "text-destructive";
 
   return (
     <>
@@ -47,7 +53,7 @@ const VoiceCallOverlay = ({
         </div>
       )}
 
-      {/* Floating call bar - bottom center */}
+      {/* Floating call bar */}
       <div
         className={`absolute bottom-20 sm:bottom-24 left-1/2 -translate-x-1/2 z-30 transition-all duration-300 ${
           showControls ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none"
@@ -58,43 +64,57 @@ const VoiceCallOverlay = ({
         <div className="bg-[#0d0d0d]/95 backdrop-blur-2xl border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden">
           {/* Expanded peer list */}
           {expanded && (
-            <div className="p-3 border-b border-white/[0.06] max-h-48 overflow-y-auto min-w-[280px]">
-              <p className="text-[10px] text-white/25 uppercase tracking-wider mb-2 font-semibold px-1">
-                Na chamada ({peers.length + 1})
-              </p>
+            <div className="p-3 border-b border-white/[0.06] max-h-48 overflow-y-auto min-w-[300px]">
+              <div className="flex items-center justify-between mb-2 px-1">
+                <p className="text-[10px] text-white/25 uppercase tracking-wider font-semibold">
+                  Na chamada ({peers.length + 1})
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <Shield className="w-3 h-3 text-green-400/60" />
+                  <span className="text-[9px] text-green-400/60 font-medium">P2P Criptografado</span>
+                </div>
+              </div>
 
               {/* Self */}
-              <div className="flex items-center gap-2.5 py-1.5 px-1">
-                <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center">
+              <div className="flex items-center gap-2.5 py-1.5 px-1 rounded-lg bg-white/[0.02]">
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
+                  !isMuted ? "bg-green-500/15 ring-1 ring-green-500/30" : "bg-primary/15"
+                }`}>
                   <span className="text-[10px] font-bold text-primary">Eu</span>
                 </div>
                 <span className="text-xs text-white/80 flex-1 truncate font-medium">
                   {profileName} {isHost && "(Host)"}
                 </span>
-                {isMuted ? (
-                  <MicOff className="w-3.5 h-3.5 text-destructive" />
-                ) : (
-                  <Mic className="w-3.5 h-3.5 text-green-400" />
-                )}
+                <div className="flex items-center gap-1">
+                  <QualityIcon className={`w-3 h-3 ${qualityColor}`} />
+                  {isMuted ? (
+                    <MicOff className="w-3.5 h-3.5 text-destructive" />
+                  ) : (
+                    <Mic className="w-3.5 h-3.5 text-green-400" />
+                  )}
+                </div>
               </div>
 
               {/* Peers */}
               {peers.map((peer) => (
-                <div key={peer.peerId} className="flex items-center gap-2.5 py-1.5 px-1 group">
-                  <div className="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center">
+                <div key={peer.peerId} className="flex items-center gap-2.5 py-1.5 px-1 group hover:bg-white/[0.02] rounded-lg transition-colors">
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center ${
+                    peer.isSpeaking ? "bg-green-500/15 ring-1 ring-green-500/30 animate-pulse" : "bg-white/10"
+                  }`}>
                     <span className="text-[10px] font-bold text-white/60">
                       {peer.peerName.slice(0, 2).toUpperCase()}
                     </span>
                   </div>
                   <span className="text-xs text-white/80 flex-1 truncate font-medium">
                     {peer.peerName}
+                    {peer.isMutedByHost && <span className="text-[9px] text-destructive/60 ml-1">(silenciado)</span>}
                   </span>
 
                   <div className="flex items-center gap-1">
                     {peer.isMuted || peer.isMutedByHost ? (
                       <MicOff className="w-3.5 h-3.5 text-destructive" />
                     ) : (
-                      <Mic className="w-3.5 h-3.5 text-green-400" />
+                      <Mic className={`w-3.5 h-3.5 ${peer.isSpeaking ? "text-green-400 animate-pulse" : "text-green-400"}`} />
                     )}
 
                     {isHost && (
@@ -166,6 +186,12 @@ const VoiceCallOverlay = ({
                 <span className="text-[10px] text-yellow-400 font-semibold">HOST</span>
               </div>
             )}
+
+            <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${
+              connectionQuality === "good" ? "bg-green-500/10" : connectionQuality === "fair" ? "bg-yellow-500/10" : "bg-destructive/10"
+            }`}>
+              <QualityIcon className={`w-3 h-3 ${qualityColor}`} />
+            </div>
           </div>
         </div>
       </div>

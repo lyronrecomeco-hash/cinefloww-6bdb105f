@@ -31,8 +31,13 @@ const ICE_SERVERS: RTCConfiguration = {
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun2.l.google.com:19302" },
+    { urls: "stun:stun3.l.google.com:19302" },
+    { urls: "stun:stun4.l.google.com:19302" },
   ],
-  iceCandidatePoolSize: 5,
+  iceCandidatePoolSize: 10,
+  iceTransportPolicy: "all",
+  bundlePolicy: "max-bundle",
+  rtcpMuxPolicy: "require",
 };
 
 const AUDIO_CONSTRAINTS: MediaStreamConstraints = {
@@ -42,9 +47,13 @@ const AUDIO_CONSTRAINTS: MediaStreamConstraints = {
     autoGainControl: true,
     sampleRate: 48000,
     channelCount: 1,
+    
   },
   video: false,
 };
+
+const MAX_RECONNECT_ATTEMPTS = 3;
+const RECONNECT_DELAY = 2000;
 
 export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: UseWebRTCOptions) {
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -52,13 +61,16 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
   const [isCallActive, setIsCallActive] = useState(false);
   const [peers, setPeers] = useState<PeerInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [connectionQuality, setConnectionQuality] = useState<"good" | "fair" | "poor">("good");
 
   const peersRef = useRef<Map<string, PeerConnection>>(new Map());
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const analyserIntervalRef = useRef<ReturnType<typeof setInterval>>();
+  const speakingIntervalRef = useRef<ReturnType<typeof setInterval>>();
+  const reconnectAttemptsRef = useRef<Map<string, number>>(new Map());
+  const isMutedByHostRef = useRef(false);
 
-  // Update peers state from ref
+  // Sync peers state from ref
   const syncPeersState = useCallback(() => {
     const peerList: PeerInfo[] = [];
     peersRef.current.forEach((peer) => {
@@ -73,12 +85,50 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
     setPeers(peerList);
   }, []);
 
-  // Create peer connection for a remote user
+  // Monitor speaking activity via audio analysis
+  const startSpeakingDetection = useCallback(() => {
+    if (speakingIntervalRef.current) clearInterval(speakingIntervalRef.current);
+
+    speakingIntervalRef.current = setInterval(() => {
+      const updatedPeers: PeerInfo[] = [];
+      let changed = false;
+
+      peersRef.current.forEach((peer) => {
+        const info: PeerInfo = {
+          peerId: peer.peerId,
+          peerName: peer.peerName,
+          isMuted: peer.isMuted,
+          isMutedByHost: peer.isMutedByHost,
+          isSpeaking: false,
+        };
+
+        // Check if peer audio is playing
+        if (peer.audioElement && !peer.audioElement.paused && peer.audioElement.srcObject) {
+          const tracks = (peer.audioElement.srcObject as MediaStream).getAudioTracks();
+          info.isSpeaking = tracks.length > 0 && tracks[0].enabled && !peer.isMuted;
+        }
+
+        updatedPeers.push(info);
+      });
+
+      setPeers(updatedPeers);
+    }, 500);
+  }, []);
+
+  // Create peer connection with retry logic
   const createPeerConnection = useCallback((remotePeerId: string, remotePeerName: string): RTCPeerConnection => {
+    // Close existing connection if any
+    const existing = peersRef.current.get(remotePeerId);
+    if (existing) {
+      existing.pc.close();
+      existing.audioElement.srcObject = null;
+    }
+
     const pc = new RTCPeerConnection(ICE_SERVERS);
     const audioElement = new Audio();
     audioElement.autoplay = true;
     (audioElement as any).playsInline = true;
+    audioElement.volume = 1.0;
 
     // Add local tracks
     if (localStreamRef.current) {
@@ -92,7 +142,9 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
       const [stream] = event.streams;
       if (stream) {
         audioElement.srcObject = stream;
-        audioElement.play().catch(() => {});
+        audioElement.play().catch((e) => {
+          console.warn("[WebRTC] Audio autoplay blocked, will retry on interaction:", e.message);
+        });
       }
     };
 
@@ -111,9 +163,51 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
       }
     };
 
+    // Connection state monitoring with auto-reconnect
     pc.onconnectionstatechange = () => {
-      if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-        removePeer(remotePeerId);
+      const state = pc.connectionState;
+      console.log(`[WebRTC] Peer ${remotePeerId.slice(0, 6)} state: ${state}`);
+
+      if (state === "connected") {
+        reconnectAttemptsRef.current.set(remotePeerId, 0);
+        setConnectionQuality("good");
+      } else if (state === "disconnected") {
+        setConnectionQuality("fair");
+        // Auto-reconnect after brief disconnection
+        const attempts = reconnectAttemptsRef.current.get(remotePeerId) || 0;
+        if (attempts < MAX_RECONNECT_ATTEMPTS) {
+          reconnectAttemptsRef.current.set(remotePeerId, attempts + 1);
+          setTimeout(() => {
+            if (pc.connectionState === "disconnected" && channelRef.current) {
+              console.log(`[WebRTC] Reconnecting to ${remotePeerId.slice(0, 6)}... attempt ${attempts + 1}`);
+              pc.restartIce();
+            }
+          }, RECONNECT_DELAY);
+        }
+      } else if (state === "failed") {
+        setConnectionQuality("poor");
+        const attempts = reconnectAttemptsRef.current.get(remotePeerId) || 0;
+        if (attempts < MAX_RECONNECT_ATTEMPTS) {
+          reconnectAttemptsRef.current.set(remotePeerId, attempts + 1);
+          setTimeout(() => {
+            removePeer(remotePeerId);
+            // Re-initiate if we are the lower ID
+            if (profileId && profileId < remotePeerId) {
+              initiateCallToPeer(remotePeerId, remotePeerName);
+            }
+          }, RECONNECT_DELAY);
+        } else {
+          removePeer(remotePeerId);
+        }
+      }
+    };
+
+    // ICE connection state for quality monitoring
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === "checking") {
+        setConnectionQuality("fair");
+      } else if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+        setConnectionQuality("good");
       }
     };
 
@@ -131,16 +225,39 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
     return pc;
   }, [profileId, syncPeersState]);
 
-  // Remove peer
+  // Remove peer cleanly
   const removePeer = useCallback((peerId: string) => {
     const peer = peersRef.current.get(peerId);
     if (peer) {
       peer.pc.close();
+      peer.audioElement.pause();
       peer.audioElement.srcObject = null;
+      peer.audioElement.remove();
       peersRef.current.delete(peerId);
+      reconnectAttemptsRef.current.delete(peerId);
       syncPeersState();
     }
   }, [syncPeersState]);
+
+  // Initiate call to a specific peer
+  const initiateCallToPeer = useCallback(async (remotePeerId: string, remoteName: string) => {
+    if (!channelRef.current || !profileId) return;
+    const pc = createPeerConnection(remotePeerId, remoteName);
+    try {
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: false,
+      });
+      await pc.setLocalDescription(offer);
+      channelRef.current.send({
+        type: "broadcast",
+        event: "webrtc-offer",
+        payload: { from: profileId, fromName: profileName || "Anônimo", to: remotePeerId, sdp: offer },
+      });
+    } catch (e) {
+      console.error("[WebRTC] Failed to create offer:", e);
+    }
+  }, [profileId, profileName, createPeerConnection]);
 
   // Start call - acquire mic and join signaling
   const startCall = useCallback(async () => {
@@ -165,7 +282,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
         const info = newPresences[0] as any;
         // Initiator: only the peer with "lower" ID sends offer
         if (profileId! < key) {
-          initiateCall(key, info.name || "Anônimo");
+          initiateCallToPeer(key, info.name || "Anônimo");
         }
       });
 
@@ -177,14 +294,18 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
       channel.on("broadcast", { event: "webrtc-offer" }, async ({ payload }) => {
         if (payload.to !== profileId) return;
         const pc = createPeerConnection(payload.from, payload.fromName || "Anônimo");
-        await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-        channel.send({
-          type: "broadcast",
-          event: "webrtc-answer",
-          payload: { from: profileId, fromName: profileName || "Anônimo", to: payload.from, sdp: answer },
-        });
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          channel.send({
+            type: "broadcast",
+            event: "webrtc-answer",
+            payload: { from: profileId, fromName: profileName || "Anônimo", to: payload.from, sdp: answer },
+          });
+        } catch (e) {
+          console.error("[WebRTC] Failed to handle offer:", e);
+        }
       });
 
       // SDP answer
@@ -192,7 +313,11 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
         if (payload.to !== profileId) return;
         const peer = peersRef.current.get(payload.from);
         if (peer) {
-          await peer.pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          try {
+            await peer.pc.setRemoteDescription(new RTCSessionDescription(payload.sdp));
+          } catch (e) {
+            console.error("[WebRTC] Failed to set answer:", e);
+          }
         }
       });
 
@@ -203,20 +328,21 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
         if (peer && payload.candidate) {
           try {
             await peer.pc.addIceCandidate(new RTCIceCandidate(payload.candidate));
-          } catch {}
+          } catch (e) {
+            // Ignore late ICE candidates
+          }
         }
       });
 
       // Host mute command
       channel.on("broadcast", { event: "host-mute" }, ({ payload }) => {
         if (payload.targetId === profileId) {
-          // I was muted by host
+          isMutedByHostRef.current = true;
           if (localStreamRef.current) {
             localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = false));
           }
           setIsMuted(true);
         }
-        // Update peer state for UI
         const peer = peersRef.current.get(payload.targetId);
         if (peer) {
           peer.isMutedByHost = payload.muted;
@@ -228,7 +354,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
       // Host unmute command
       channel.on("broadcast", { event: "host-unmute" }, ({ payload }) => {
         if (payload.targetId === profileId) {
-          // Host unmuted me, re-enable
+          isMutedByHostRef.current = false;
           if (localStreamRef.current) {
             localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = true));
           }
@@ -245,6 +371,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
       // Host kick command
       channel.on("broadcast", { event: "host-kick" }, ({ payload }) => {
         if (payload.targetId === profileId) {
+          setError("Você foi removido da chamada pelo host.");
           endCall();
         }
       });
@@ -271,34 +398,33 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
 
       channelRef.current = channel;
 
-      // Initiate call to a discovered peer
-      async function initiateCall(remotePeerId: string, remoteName: string) {
-        const pc = createPeerConnection(remotePeerId, remoteName);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        channel.send({
-          type: "broadcast",
-          event: "webrtc-offer",
-          payload: { from: profileId, fromName: profileName || "Anônimo", to: remotePeerId, sdp: offer },
-        });
-      }
+      // Start speaking detection
+      startSpeakingDetection();
+
     } catch (e: any) {
       if (e.name === "NotAllowedError") {
         setError("Permissão de microfone negada. Ative nas configurações do navegador.");
+      } else if (e.name === "NotFoundError") {
+        setError("Nenhum microfone encontrado. Conecte um dispositivo de áudio.");
+      } else if (e.name === "NotReadableError") {
+        setError("Microfone em uso por outro aplicativo. Feche outros apps e tente novamente.");
       } else {
         setError("Erro ao iniciar chamada: " + (e.message || "desconhecido"));
       }
     }
-  }, [roomId, profileId, profileName, enabled, createPeerConnection, removePeer, syncPeersState]);
+  }, [roomId, profileId, profileName, enabled, createPeerConnection, removePeer, syncPeersState, initiateCallToPeer, startSpeakingDetection]);
 
-  // End call
+  // End call - full cleanup
   const endCall = useCallback(() => {
     // Close all peer connections
     peersRef.current.forEach((peer) => {
       peer.pc.close();
+      peer.audioElement.pause();
       peer.audioElement.srcObject = null;
+      peer.audioElement.remove();
     });
     peersRef.current.clear();
+    reconnectAttemptsRef.current.clear();
     setPeers([]);
 
     // Stop local stream
@@ -314,19 +440,24 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
       channelRef.current = null;
     }
 
-    clearInterval(analyserIntervalRef.current);
+    clearInterval(speakingIntervalRef.current);
+    isMutedByHostRef.current = false;
     setIsCallActive(false);
     setIsMuted(false);
+    setConnectionQuality("good");
   }, []);
 
-  // Toggle self mute
+  // Toggle self mute (blocked if muted by host)
   const toggleMute = useCallback(() => {
     if (!localStreamRef.current) return;
+    if (isMutedByHostRef.current) {
+      setError("O host silenciou você. Apenas o host pode reativar seu áudio.");
+      return;
+    }
     const newMuted = !isMuted;
     localStreamRef.current.getAudioTracks().forEach((t) => (t.enabled = !newMuted));
     setIsMuted(newMuted);
 
-    // Notify peers
     channelRef.current?.send({
       type: "broadcast",
       event: "peer-mute-state",
@@ -334,7 +465,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
     });
   }, [isMuted, profileId]);
 
-  // Host: mute a participant (they can't unmute themselves)
+  // Host: mute a participant
   const hostMute = useCallback((targetId: string) => {
     if (!isHost || !channelRef.current) return;
     channelRef.current.send({
@@ -342,14 +473,12 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
       event: "host-mute",
       payload: { targetId, muted: true },
     });
-    // Update local state
     const peer = peersRef.current.get(targetId);
     if (peer) {
       peer.isMutedByHost = true;
       peer.isMuted = true;
       syncPeersState();
     }
-    // Update DB
     supabase.from("watch_room_participants")
       .update({ muted_by_host: true })
       .eq("profile_id", targetId)
@@ -387,7 +516,6 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
       payload: { targetId },
     });
     removePeer(targetId);
-    // Remove from DB
     supabase.from("watch_room_participants")
       .delete()
       .eq("profile_id", targetId)
@@ -415,6 +543,7 @@ export function useWebRTC({ roomId, profileId, profileName, isHost, enabled }: U
     peers,
     error,
     localStream,
+    connectionQuality,
     startCall,
     endCall,
     toggleMute,
