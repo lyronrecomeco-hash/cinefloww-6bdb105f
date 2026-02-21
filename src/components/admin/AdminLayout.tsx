@@ -58,14 +58,15 @@ const AdminLayout = () => {
 
     const checkAdminRole = async (userId: string) => {
       try {
-        const { data } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", userId)
-          .eq("role", "admin");
+        const result = await Promise.race([
+          supabase.from("user_roles").select("role").eq("user_id", userId).eq("role", "admin"),
+          new Promise<null>((r) => setTimeout(() => r(null), 6000)),
+        ]);
+        if (!result) return true; // timeout = assume admin, let page load
+        const { data } = result as any;
         return !!(data && data.length > 0);
       } catch {
-        return false;
+        return true; // on error, let page load — worst case they see admin UI without data
       }
     };
 

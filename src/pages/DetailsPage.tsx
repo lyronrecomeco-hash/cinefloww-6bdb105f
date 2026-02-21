@@ -52,7 +52,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [adsEnabled, setAdsEnabled] = useState(false);
   const [isTestUser, setIsTestUser] = useState(false);
   const [inMyList, setInMyList] = useState(false);
-  const [hasVideo, setHasVideo] = useState<boolean | null>(true); // default to true so button works even if DB is slow
+  const [hasVideo, setHasVideo] = useState<boolean | null>(true); // always true — player extracts on-demand
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
 
   // Load active profile + check ads config + test user
@@ -100,7 +100,6 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     setShowCast(false);
     setShowAudioModal(false);
     setShowTrailer(false);
-    setHasVideo(null);
 
     if (!id || id === 0) {
       setLoading(false);
@@ -336,20 +335,13 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
             {/* Actions */}
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 sm:gap-3 mb-4 sm:mb-6">
-              {hasVideo === false ? (
-                <div className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-semibold text-xs sm:text-sm cursor-not-allowed select-none">
-                  <TimerIcon className="w-4 h-4 sm:w-5 sm:h-5" />
-                  Disponível em breve
-                </div>
-              ) : (
-                <button
-                  onClick={handleWatchClick}
-                  className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground font-semibold text-xs sm:text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
-                >
-                  <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
-                  Assistir Agora
-                </button>
-              )}
+              <button
+                onClick={handleWatchClick}
+                className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground font-semibold text-xs sm:text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
+              >
+                <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
+                Assistir Agora
+              </button>
               {trailer && (
                 <button
                   onClick={() => setShowTrailer(true)}
