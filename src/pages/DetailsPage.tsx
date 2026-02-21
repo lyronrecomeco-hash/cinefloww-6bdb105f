@@ -52,7 +52,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [adsEnabled, setAdsEnabled] = useState(false);
   const [isTestUser, setIsTestUser] = useState(false);
   const [inMyList, setInMyList] = useState(false);
-  const [hasVideo, setHasVideo] = useState<boolean | null>(null); // null = loading
+  const [hasVideo, setHasVideo] = useState<boolean | null>(true); // default to true so button works even if DB is slow
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
 
   // Load active profile + check ads config + test user
@@ -61,10 +61,18 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     if (stored) {
       try { setActiveProfileId(JSON.parse(stored).id); } catch {}
     }
-    // Check if ads enabled
-    supabase.from("site_settings").select("value").eq("key", "ads_enabled").maybeSingle().then(({ data }) => {
-      if (data?.value === true || data?.value === "true") setAdsEnabled(true);
-    });
+    const withTimeout = <T,>(p: PromiseLike<T>, ms: number): Promise<T | null> =>
+      Promise.race([Promise.resolve(p), new Promise<null>((r) => setTimeout(() => r(null), ms))]);
+    // Check if ads enabled (with timeout)
+    withTimeout(
+      supabase.from("site_settings").select("value").eq("key", "ads_enabled").maybeSingle(),
+      3000
+    ).then((result) => {
+      if (result) {
+        const val = (result as any).data?.value;
+        if (val === true || val === "true") setAdsEnabled(true);
+      }
+    }).catch(() => {});
     // Check if test user
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user?.email === "admin-st@gmail.com") setIsTestUser(true);
@@ -106,22 +114,24 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
       if (!data.genres) data.genres = [];
       setDetail(data);
       setLoading(false);
-      // Track view (non-blocking)
-      supabase.from("content_views").insert({
+      // Track view (non-blocking, fire-and-forget with timeout)
+      const withTimeout2 = <T,>(p: PromiseLike<T>, ms: number): Promise<T | null> =>
+        Promise.race([Promise.resolve(p), new Promise<null>((r) => setTimeout(() => r(null), ms))]);
+      withTimeout2(supabase.from("content_views").insert({
         tmdb_id: id,
         content_type: type === "movie" ? "movie" : "tv",
-      }).then(() => {});
-      // Check if video exists in cache
+      }), 3000).catch(() => {});
+      // Check if video exists in cache (with timeout, default stays true)
       const cType = type === "movie" ? "movie" : "series";
-      supabase
-        .from("video_cache_safe")
-        .select("id")
-        .eq("tmdb_id", id)
-        .eq("content_type", cType)
-        .limit(1)
-        .then(({ data: cacheData }) => {
-          if (!cancelled) setHasVideo(!!(cacheData && cacheData.length > 0));
-        });
+      withTimeout2(
+        supabase.from("video_cache_safe").select("id").eq("tmdb_id", id).eq("content_type", cType).limit(1),
+        4000
+      ).then((result) => {
+        if (!cancelled && result) {
+          const cacheData = (result as any).data;
+          setHasVideo(!!(cacheData && cacheData.length > 0));
+        }
+      }).catch(() => { /* keep hasVideo as true (default) */ });
     }).catch((err) => {
       console.error("[DetailsPage] fetch error:", err);
       if (!cancelled) setLoading(false);
@@ -334,8 +344,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
               ) : (
                 <button
                   onClick={handleWatchClick}
-                  disabled={hasVideo === null}
-                  className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground font-semibold text-xs sm:text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25 disabled:opacity-50 disabled:pointer-events-none"
+                  className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground font-semibold text-xs sm:text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
                 >
                   <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
                   Assistir Agora

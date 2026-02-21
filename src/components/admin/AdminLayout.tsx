@@ -105,14 +105,16 @@ const AdminLayout = () => {
 
         setUserEmail(session.user.email || "");
 
-        // Fetch initial pending count (non-blocking)
+        // Fetch initial pending count (non-blocking, with timeout)
+        const withTimeout = <T,>(p: PromiseLike<T>, ms: number): Promise<T | null> =>
+          Promise.race([Promise.resolve(p), new Promise<null>((r) => setTimeout(() => r(null), ms))]);
         try {
-          const { count } = await supabase
-            .from("content_requests")
-            .select("*", { count: "exact", head: true })
-            .eq("status", "pending");
-          if (isMounted) {
-            const c = count || 0;
+          const result = await withTimeout(
+            supabase.from("content_requests").select("*", { count: "exact", head: true }).eq("status", "pending"),
+            5000
+          );
+          if (isMounted && result) {
+            const c = (result as any).count || 0;
             setPendingRequests(c);
             prevPendingRef.current = c;
           }

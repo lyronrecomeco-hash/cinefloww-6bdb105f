@@ -17,30 +17,34 @@ const MovieCard = ({ movie }: MovieCardProps) => {
   const [audioTypes, setAudioTypes] = useState<string[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
     const cType = type === "movie" ? "movie" : "series";
-    // Check content status
-    supabase
-      .from("content")
-      .select("status")
-      .eq("tmdb_id", movie.id)
-      .eq("content_type", cType)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.status === "inactive") setInactive(true);
-      });
+    const withTimeout = <T,>(p: PromiseLike<T>, ms: number): Promise<T | null> =>
+      Promise.race([Promise.resolve(p), new Promise<null>((r) => setTimeout(() => r(null), ms))]);
 
-    // Get audio types from indexed sources (video_cache)
-    supabase
-      .from("video_cache")
-      .select("audio_type")
-      .eq("tmdb_id", movie.id)
-      .eq("content_type", cType)
-      .then(({ data }) => {
+    // Check content status (non-blocking, 4s timeout)
+    withTimeout(
+      supabase.from("content").select("status").eq("tmdb_id", movie.id).eq("content_type", cType).maybeSingle(),
+      4000
+    ).then((result) => {
+      if (!cancelled && result && (result as any).data?.status === "inactive") setInactive(true);
+    }).catch(() => {});
+
+    // Get audio types (non-blocking, 4s timeout)
+    withTimeout(
+      supabase.from("video_cache").select("audio_type").eq("tmdb_id", movie.id).eq("content_type", cType),
+      4000
+    ).then((result) => {
+      if (!cancelled && result) {
+        const data = (result as any).data;
         if (data && data.length > 0) {
-          const types = [...new Set(data.map((r) => r.audio_type))];
+          const types = [...new Set(data.map((r: any) => r.audio_type))] as string[];
           setAudioTypes(types);
         }
-      });
+      }
+    }).catch(() => {});
+
+    return () => { cancelled = true; };
   }, [movie.id, type]);
 
   // Determine badge: CAM takes priority warning, then DUB, then LEG
