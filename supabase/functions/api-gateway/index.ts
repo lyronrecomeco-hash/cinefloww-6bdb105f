@@ -228,6 +228,123 @@ Deno.serve(async (req) => {
         });
       }
 
+      // === PUBLIC API ENDPOINTS ===
+
+      case "catalog": {
+        // List catalog with optional filters
+        // data: { type?: "movie"|"series"|"dorama"|"anime", page?: number, limit?: number, featured?: boolean }
+        const page = Math.max(1, data.page || 1);
+        const limit = Math.min(100, Math.max(1, data.limit || 50));
+        const offset = (page - 1) * limit;
+
+        let q = supabase.from("content")
+          .select("tmdb_id, title, original_title, content_type, poster_path, backdrop_path, overview, vote_average, release_date, imdb_id, number_of_seasons, number_of_episodes, runtime, status, audio_type, featured", { count: "exact" })
+          .eq("status", "published")
+          .order("created_at", { ascending: false })
+          .range(offset, offset + limit - 1);
+
+        if (data.type) q = q.eq("content_type", data.type);
+        if (data.featured) q = q.eq("featured", true);
+
+        const { data: items, count, error } = await q;
+        if (error) return jsonResponse({ error: error.message }, 500);
+
+        return jsonResponse({
+          results: items,
+          total: count,
+          page,
+          limit,
+          total_pages: Math.ceil((count || 0) / limit),
+        });
+      }
+
+      case "catalog-detail": {
+        // Get single content + all indexed video links
+        // data: { tmdb_id: number, type?: "movie"|"series" }
+        if (!data.tmdb_id) return jsonResponse({ error: "tmdb_id required" }, 400);
+
+        const contentType = data.type || "movie";
+        const [contentRes, videosRes] = await Promise.all([
+          supabase.from("content")
+            .select("*")
+            .eq("tmdb_id", data.tmdb_id)
+            .eq("content_type", contentType)
+            .maybeSingle(),
+          supabase.from("video_cache")
+            .select("tmdb_id, content_type, video_url, video_type, provider, audio_type, season, episode, expires_at, created_at")
+            .eq("tmdb_id", data.tmdb_id)
+            .gt("expires_at", new Date().toISOString())
+            .order("season", { ascending: true })
+            .order("episode", { ascending: true }),
+        ]);
+
+        return jsonResponse({
+          content: contentRes.data || null,
+          videos: videosRes.data || [],
+          has_video: (videosRes.data?.length || 0) > 0,
+        });
+      }
+
+      case "catalog-search": {
+        // Search catalog by title
+        // data: { query: string, limit?: number }
+        if (!data.query || data.query.length < 2) return jsonResponse({ error: "query required (min 2 chars)" }, 400);
+        const searchLimit = Math.min(50, data.limit || 20);
+
+        const { data: items, error } = await supabase.from("content")
+          .select("tmdb_id, title, original_title, content_type, poster_path, backdrop_path, vote_average, release_date, imdb_id, runtime, number_of_seasons")
+          .eq("status", "published")
+          .ilike("title", `%${data.query}%`)
+          .limit(searchLimit);
+
+        if (error) return jsonResponse({ error: error.message }, 500);
+        return jsonResponse({ results: items, total: items?.length || 0 });
+      }
+
+      case "catalog-videos": {
+        // Get all indexed videos (bulk) with pagination
+        // data: { type?: "movie"|"tv", page?: number, limit?: number }
+        const page = Math.max(1, data.page || 1);
+        const limit = Math.min(200, Math.max(1, data.limit || 100));
+        const offset = (page - 1) * limit;
+
+        let q = supabase.from("video_cache")
+          .select("tmdb_id, content_type, video_url, video_type, provider, audio_type, season, episode, expires_at, created_at", { count: "exact" })
+          .gt("expires_at", new Date().toISOString())
+          .order("created_at", { ascending: false })
+          .range(offset, offset + limit - 1);
+
+        if (data.type) q = q.eq("content_type", data.type);
+
+        const { data: videos, count, error } = await q;
+        if (error) return jsonResponse({ error: error.message }, 500);
+
+        return jsonResponse({
+          results: videos,
+          total: count,
+          page,
+          limit,
+          total_pages: Math.ceil((count || 0) / limit),
+        });
+      }
+
+      case "catalog-stats": {
+        // Get overall stats
+        const [moviesRes, seriesRes, videosRes] = await Promise.all([
+          supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "movie").eq("status", "published"),
+          supabase.from("content").select("id", { count: "exact", head: true }).in("content_type", ["series", "dorama", "anime"]).eq("status", "published"),
+          supabase.from("video_cache").select("id", { count: "exact", head: true }).gt("expires_at", new Date().toISOString()),
+        ]);
+
+        return jsonResponse({
+          movies: moviesRes.count || 0,
+          series: seriesRes.count || 0,
+          indexed_videos: videosRes.count || 0,
+          api_version: "1.0",
+          status: "online",
+        });
+      }
+
       default:
         return reject();
     }
@@ -241,6 +358,13 @@ function reject() {
   return new Response(JSON.stringify({ error: REJECTION_MSG }), {
     status: 403,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
+function jsonResponse(data: any, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json", "Cache-Control": "public, max-age=60" },
   });
 }
 
