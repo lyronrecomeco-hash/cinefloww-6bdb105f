@@ -14,7 +14,7 @@ import { getSeasonDetails } from "@/services/tmdb";
 import { useWatchRoom } from "@/hooks/useWatchRoom";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import RoomOverlay from "@/components/watch-together/RoomOverlay";
-import IframeInterceptor from "@/components/IframeInterceptor";
+
 interface VideoSource {
   url: string;
   quality: string;
@@ -53,7 +53,7 @@ const PlayerPage = () => {
   const [bankSources, setBankSources] = useState<VideoSource[]>([]);
   const [bankLoading, setBankLoading] = useState(false);
   const [bankTitle, setBankTitle] = useState(title);
-  const [iframeProxyUrl, setIframeProxyUrl] = useState<string | null>(null);
+
   // Next episode state
   const [nextEpUrl, setNextEpUrl] = useState<string | null>(null);
   const [showNextEp, setShowNextEp] = useState(false);
@@ -139,25 +139,23 @@ const PlayerPage = () => {
 
   // Resolve video via extract-video edge function
   const extractionRef = useRef<string | null>(null);
-
-  const loadVideo = useCallback(async () => {
-    if (!params.id || !params.type || !tmdbId) return;
+  useEffect(() => {
+    if (!params.id || !params.type) return;
+    const key = `${params.type}-${params.id}-${audioParam}-${season}-${episode}`;
+    if (extractionRef.current === key) return; // Prevent double extraction
+    extractionRef.current = key;
     setBankLoading(true);
     setBankSources([]);
-    setIframeProxyUrl(null);
 
-    const withTimeout = <T,>(p: PromiseLike<T>, ms: number): Promise<T | null> =>
-      Promise.race([Promise.resolve(p), new Promise<null>((r) => setTimeout(() => r(null), ms))]);
-
-    try {
+    const load = async () => {
       const cType = params.type === "movie" ? "movie" : "series";
       const aType = audioParam || "legendado";
 
-      // 1. Title + cache check in parallel with 4s timeout
+      // 1. Title + cache check in parallel (FAST)
       let cacheQuery = supabase
         .from("video_cache")
         .select("video_url, video_type, provider")
-        .eq("tmdb_id", tmdbId)
+        .eq("tmdb_id", tmdbId!)
         .eq("content_type", cType)
         .eq("audio_type", aType)
         .gt("expires_at", new Date().toISOString());
@@ -167,65 +165,41 @@ const PlayerPage = () => {
       else cacheQuery = cacheQuery.is("episode", null);
 
       const [titleResult, cacheResult] = await Promise.all([
-        withTimeout(supabase.from("content").select("title").eq("tmdb_id", tmdbId).eq("content_type", cType).maybeSingle(), 4000),
-        withTimeout(cacheQuery.maybeSingle(), 4000),
+        supabase.from("content").select("title").eq("tmdb_id", tmdbId!).eq("content_type", cType).maybeSingle(),
+        cacheQuery.maybeSingle(),
       ]);
 
-      if (titleResult && (titleResult as any).data?.title) setBankTitle((titleResult as any).data.title);
+      if (titleResult.data?.title) setBankTitle(titleResult.data.title);
 
       // 2. If cache hit, use instantly
-      const cached = cacheResult && (cacheResult as any).data;
-      if (cached?.video_url) {
-        const cachedType = cached.video_type || "";
-        if (cachedType === "iframe-proxy") {
-          // Build proxy URL for iframe interception
-          const proxyBase = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(cached.video_url)}`;
-          setIframeProxyUrl(proxyBase);
-          setBankLoading(false);
-          return;
-        }
+      if (cacheResult.data?.video_url) {
         setBankSources([{
-          url: cached.video_url,
+          url: cacheResult.data.video_url,
           quality: "auto",
-          provider: cached.provider || "cache",
-          type: cachedType === "mp4" ? "mp4" : "m3u8",
+          provider: cacheResult.data.provider || "cache",
+          type: cacheResult.data.video_type === "mp4" ? "mp4" : "m3u8",
         }]);
         setBankLoading(false);
         return;
       }
 
-      // 3. No cache, call extract-video with 25s timeout
-      const result = await withTimeout(
-        supabase.functions.invoke("extract-video", {
-          body: { tmdb_id: tmdbId, imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
-        }),
-        25000
-      );
-      const data = result && (result as any).data;
-      if (data?.url) {
-        if (data.type === "iframe-proxy") {
-          const proxyBase = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(data.url)}`;
-          setIframeProxyUrl(proxyBase);
-        } else {
-          setBankSources([{
-            url: data.url,
-            quality: "auto",
-            provider: data.provider || "cache",
-            type: data.type === "mp4" ? "mp4" : "m3u8",
-          }]);
-        }
-      }
-    } catch {}
-    setBankLoading(false);
-  }, [params.id, params.type, audioParam, imdbId, season, episode, tmdbId]);
+      // 3. No cache, call extract-video
+      const { data } = await supabase.functions.invoke("extract-video", {
+        body: { tmdb_id: tmdbId!, imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
+      });
 
-  useEffect(() => {
-    if (!params.id || !params.type) return;
-    const key = `${params.type}-${params.id}-${audioParam}-${season}-${episode}`;
-    if (extractionRef.current === key) return;
-    extractionRef.current = key;
-    loadVideo();
-  }, [params.id, params.type, audioParam, imdbId, season, episode, tmdbId, loadVideo]);
+      if (data?.url) {
+        setBankSources([{
+          url: data.url,
+          quality: "auto",
+          provider: data.provider || "cache",
+          type: data.type === "mp4" ? "mp4" : "m3u8",
+        }]);
+      }
+      setBankLoading(false);
+    };
+    load().catch(() => setBankLoading(false));
+  }, [params.id, params.type, audioParam, imdbId, season, episode, tmdbId]);
 
   const sources: VideoSource[] = useMemo(() => {
     if (bankSources.length > 0) return bankSources;
@@ -632,17 +606,6 @@ const PlayerPage = () => {
     navigate(nextEpUrl, { replace: true });
   };
 
-  const handleIframeVideoFound = useCallback((url: string, type: "mp4" | "m3u8") => {
-    setIframeProxyUrl(null);
-    setBankSources([{ url, quality: "auto", provider: "intercepted", type }]);
-  }, []);
-
-  const handleIframeError = useCallback(() => {
-    setIframeProxyUrl(null);
-    setError(true);
-    setBankLoading(false);
-  }, []);
-
   // Force landscape on mobile
   useEffect(() => {
     if (isMobile) {
@@ -660,21 +623,6 @@ const PlayerPage = () => {
       clearTimeout(nextEpTimerRef.current);
     };
   }, []);
-
-  // If iframe proxy mode, render the interceptor fullscreen
-  if (iframeProxyUrl) {
-    return (
-      <div className="fixed inset-0 z-[100] bg-black">
-        <IframeInterceptor
-          proxyUrl={iframeProxyUrl}
-          onVideoFound={handleIframeVideoFound}
-          onError={handleIframeError}
-          onClose={goBack}
-          title={bankTitle}
-        />
-      </div>
-    );
-  }
 
   return (
     <div ref={containerRef} className="fixed inset-0 z-[100] bg-black group"
@@ -829,9 +777,11 @@ const PlayerPage = () => {
                 <AlertTriangle className="w-4 h-4" /> Avisar a equipe
               </button>
               <div className="flex gap-2">
-                <button onClick={() => { extractionRef.current = null; setError(false); setIframeProxyUrl(null); loadVideo(); }} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
-                  <RefreshCw className="w-4 h-4" /> Tentar de novo
-                </button>
+                {error && source && (
+                  <button onClick={() => attachSource(source, true)} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
+                    <RefreshCw className="w-4 h-4" /> Tentar de novo
+                  </button>
+                )}
                 <button onClick={goBack} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 text-white/70 text-sm font-medium hover:bg-white/10 transition-colors">
                   <ArrowLeft className="w-4 h-4" /> Voltar
                 </button>

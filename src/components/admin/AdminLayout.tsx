@@ -56,66 +56,74 @@ const AdminLayout = () => {
   useEffect(() => {
     let isMounted = true;
 
-    // Role check — assumes admin on timeout/error so UI loads
-    const checkAdminRole = async (userId: string): Promise<boolean> => {
+    const checkAdminRole = async (userId: string) => {
       try {
-        const result = await Promise.race([
-          supabase.from("user_roles").select("role").eq("user_id", userId).eq("role", "admin"),
-          new Promise<null>((r) => setTimeout(() => r(null), 3000)),
-        ]);
-        if (!result) return true; // timeout → assume admin
-        const { data } = result as any;
+        const { data } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", userId)
+          .eq("role", "admin");
         return !!(data && data.length > 0);
       } catch {
-        return true;
+        return false;
       }
     };
 
-    // Auth listener (ongoing changes only)
+    // Listener for ongoing auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (!isMounted) return;
       if (event === "SIGNED_OUT") navigate("/admin/login");
+      if (session?.user) {
+        setUserEmail(session.user.email || "");
+        setTimeout(() => {
+          if (isMounted) {
+            checkAdminRole(session.user.id).then(isAdmin => {
+              if (isMounted && !isAdmin) {
+                supabase.auth.signOut();
+                navigate("/admin/login");
+              }
+            });
+          }
+        }, 0);
+      }
     });
 
-    // Initial auth — getSession() reads from localStorage, should be instant
+    // Initial auth check
     const initAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session }, error: sessErr } = await supabase.auth.getSession();
         if (!isMounted) return;
+        if (sessErr || !session) { navigate("/admin/login"); return; }
 
-        if (!session) {
+        const isAdmin = await checkAdminRole(session.user.id);
+        if (!isMounted) return;
+        if (!isAdmin) {
+          try { await supabase.auth.signOut(); } catch {}
           navigate("/admin/login");
           return;
         }
 
         setUserEmail(session.user.email || "");
-        // Show admin UI immediately — check role in background
-        setLoading(false);
 
-        // Background role check
-        checkAdminRole(session.user.id).then((isAdmin) => {
-          if (isMounted && !isAdmin) {
-            supabase.auth.signOut().catch(() => {});
-            navigate("/admin/login");
+        // Fetch initial pending count (non-blocking, with timeout)
+        const withTimeout = <T,>(p: PromiseLike<T>, ms: number): Promise<T | null> =>
+          Promise.race([Promise.resolve(p), new Promise<null>((r) => setTimeout(() => r(null), ms))]);
+        try {
+          const result = await withTimeout(
+            supabase.from("content_requests").select("*", { count: "exact", head: true }).eq("status", "pending"),
+            5000
+          );
+          if (isMounted && result) {
+            const c = (result as any).count || 0;
+            setPendingRequests(c);
+            prevPendingRef.current = c;
           }
-        });
-
-        // Fetch pending count (non-blocking, 3s timeout)
-        Promise.race([
-          supabase.from("content_requests").select("*", { count: "exact", head: true }).eq("status", "pending"),
-          new Promise<null>((r) => setTimeout(() => r(null), 3000)),
-        ]).then((result) => {
-            if (isMounted && result) {
-              const c = (result as any).count || 0;
-              setPendingRequests(c);
-              prevPendingRef.current = c;
-            }
-          }).catch(() => {});
-      } catch {
-        if (isMounted) {
-          // Even on error, try to show admin UI
-          setLoading(false);
-        }
+        } catch {}
+      } catch (err) {
+        console.error("[AdminLayout] initAuth error:", err);
+        if (isMounted) navigate("/admin/login");
+      } finally {
+        if (isMounted) setLoading(false);
       }
     };
 

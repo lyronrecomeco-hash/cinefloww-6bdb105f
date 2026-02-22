@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Mic, Subtitles, Video, Globe, ChevronRight, AlertTriangle, RefreshCw } from "lucide-react";
+import { ArrowLeft, Mic, Subtitles, Video, Globe, ChevronRight, AlertTriangle } from "lucide-react";
 import CustomPlayer from "@/components/CustomPlayer";
 import LyneflixIntro from "@/components/LyneflixIntro";
 import IframeInterceptor from "@/components/IframeInterceptor";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
-import { fromSlug } from "@/lib/slugify";
 
 interface VideoSource {
   url: string;
@@ -67,7 +66,7 @@ const WatchPage = () => {
   const extractionResult = useRef<{ url: string; type: string; provider: string } | null>(null);
   const [introComplete, setIntroComplete] = useState(false);
 
-  const tmdbId = id ? fromSlug(id) : 0;
+  const tmdbId = Number(id);
   const isMovie = type === "movie";
   const ct = isMovie ? "movie" : "tv";
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -122,10 +121,7 @@ const WatchPage = () => {
     const cType = isMovie ? "movie" : "series";
     const aType = selectedAudio || "legendado";
 
-    const withTimeout = <T,>(p: PromiseLike<T>, ms: number): Promise<T | null> =>
-      Promise.race([Promise.resolve(p), new Promise<null>((r) => setTimeout(() => r(null), ms))]);
-
-    // 1. FAST: Check client-side cache first (with 5s timeout)
+    // 1. FAST: Check client-side cache first (direct DB query)
     try {
       let query = supabase
         .from("video_cache")
@@ -140,17 +136,36 @@ const WatchPage = () => {
       if (episode) query = query.eq("episode", episode);
       else query = query.is("episode", null);
 
-      const cacheResult = await withTimeout(query.maybeSingle(), 5000);
-      const cached = cacheResult && (cacheResult as any).data;
+      const { data: cached } = await query.maybeSingle();
       if (cached?.video_url) {
         console.log("[WatchPage] Cache hit - instant play!");
-        if (cached.video_type === "iframe-proxy") {
-          const proxyBase = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(cached.video_url)}`;
-          setIframeProxyUrl(proxyBase);
+        const result = { url: cached.video_url, type: cached.video_type || "m3u8", provider: cached.provider || "cache" };
+        extractionResult.current = result;
+        // If intro already done, go straight to playing
+        if (introComplete) {
+          setSources([{ url: result.url, quality: "auto", provider: result.provider, type: result.type === "mp4" ? "mp4" : "m3u8" }]);
+          setPhase("playing");
+        }
+        return;
+      }
+    } catch { /* cache miss, continue */ }
+
+    // 2. Call extract-video edge function
+    try {
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 25000));
+      const extractPromise = supabase.functions.invoke("extract-video", {
+        body: { tmdb_id: Number(id), imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
+      });
+
+      const { data, error: fnError } = await Promise.race([extractPromise, timeoutPromise]) as any;
+
+      if (!fnError && data?.url) {
+        if (data.type === "iframe-proxy") {
+          setIframeProxyUrl(data.url);
           setPhase("iframe-intercept");
           return;
         }
-        const result = { url: cached.video_url, type: cached.video_type || "m3u8", provider: cached.provider || "cache" };
+        const result = { url: data.url, type: data.type || "m3u8", provider: data.provider || "banco" };
         extractionResult.current = result;
         if (introComplete) {
           setSources([{ url: result.url, quality: "auto", provider: result.provider, type: result.type === "mp4" ? "mp4" : "m3u8" }]);
@@ -158,36 +173,8 @@ const WatchPage = () => {
         }
         return;
       }
-    } catch { /* cache miss or timeout, continue */ }
-
-    // 2. Call extract-video edge function (with 25s timeout)
-    try {
-      const result = await withTimeout(
-        supabase.functions.invoke("extract-video", {
-          body: { tmdb_id: Number(id), imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
-        }),
-        25000
-      );
-      const data = result && (result as any).data;
-
-      if (data?.url) {
-        if (data.type === "iframe-proxy") {
-          const proxyBase = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/proxy-player?url=${encodeURIComponent(data.url)}`;
-          setIframeProxyUrl(proxyBase);
-          setPhase("iframe-intercept");
-          return;
-        }
-        const r = { url: data.url, type: data.type || "m3u8", provider: data.provider || "banco" };
-        extractionResult.current = r;
-        if (introComplete) {
-          setSources([{ url: r.url, quality: "auto", provider: r.provider, type: r.type === "mp4" ? "mp4" : "m3u8" }]);
-          setPhase("playing");
-        }
-        return;
-      }
     } catch { /* timeout or error */ }
 
-    // Both failed
     if (introComplete) setPhase("unavailable");
     else extractionResult.current = null; // mark as failed
   }, [id, imdbId, isMovie, selectedAudio, season, episode, introComplete]);
@@ -382,22 +369,11 @@ const WatchPage = () => {
         <div className="flex flex-col gap-3">
           <button
             onClick={() => {
-              extractionStarted.current = false;
-              extractionResult.current = undefined as any;
-              setPhase("loading");
-              setIntroComplete(false);
-            }}
-            className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all duration-200"
-          >
-            <RefreshCw className="w-4 h-4" /> Tentar novamente
-          </button>
-          <button
-            onClick={() => {
               const btn = document.getElementById("watch-report-btn");
               if (btn) { btn.textContent = "✓ Equipe avisada!"; btn.classList.add("bg-green-600"); }
             }}
             id="watch-report-btn"
-            className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-white/10 text-white text-sm font-semibold hover:bg-white/20 transition-all duration-200"
+            className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all duration-200"
           >
             <AlertTriangle className="w-4 h-4" /> Avisar a equipe
           </button>

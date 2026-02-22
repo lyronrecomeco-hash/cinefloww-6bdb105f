@@ -13,13 +13,11 @@ const LOCAL_KEY = "lyneflix_cache_version";
 
 export async function checkCacheVersion(): Promise<void> {
   try {
-    const result = await Promise.race([
-      supabase.from("site_settings").select("value").eq("key", "cache_version").maybeSingle(),
-      new Promise<null>((r) => setTimeout(() => r(null), 3000)),
-    ]);
-
-    if (!result) return; // timeout
-    const { data } = result as any;
+    const { data } = await supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "cache_version")
+      .maybeSingle();
 
     if (!data?.value) return;
 

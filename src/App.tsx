@@ -7,7 +7,6 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import SiteAlertModal from "./components/SiteAlertModal";
 import OneTimeUpdateModal from "./components/OneTimeUpdateModal";
-import MaintenanceModal from "./components/MaintenanceModal";
 import Index from "./pages/Index";
 
 // Lazy load ALL non-index pages for faster initial load
@@ -17,7 +16,7 @@ const SeriesPage = lazy(() => import("./pages/SeriesPage"));
 const DoramasPage = lazy(() => import("./pages/DoramasPage"));
 const ReleasesPage = lazy(() => import("./pages/ReleasesPage"));
 const ComingSoonPage = lazy(() => import("./pages/ComingSoonPage"));
-const WatchPage = lazy(() => import("./pages/WatchPage"));
+const PlayerPage = lazy(() => import("./pages/PlayerPage"));
 const ApiRedirect = lazy(() => import("./pages/ApiRedirect"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const DmcaPage = lazy(() => import("./pages/DmcaPage"));
@@ -77,7 +76,6 @@ const App = () => (
       <Sonner />
       <SiteAlertModal />
       <OneTimeUpdateModal />
-      <MaintenanceModal />
       <BrowserRouter>
         <Suspense fallback={<PageLoader />}>
           <Routes>
@@ -92,8 +90,8 @@ const App = () => (
             <Route path="/filme/:id" element={<DetailsPage type="movie" />} />
             <Route path="/serie/:id" element={<DetailsPage type="tv" />} />
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />
-            <Route path="/player" element={<WatchPage />} />
-            <Route path="/player/:type/:id" element={<WatchPage />} />
+            <Route path="/player" element={<PlayerPage />} />
+            <Route path="/player/:type/:id" element={<PlayerPage />} />
             <Route path="/tv" element={<TVPage />} />
             <Route path="/tv/:id" element={<TVPlayerPage />} />
             <Route path="/dmca" element={<DmcaPage />} />

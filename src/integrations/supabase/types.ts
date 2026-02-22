@@ -938,6 +938,45 @@ export type Database = {
         }
         Relationships: []
       }
+      video_cache_backup: {
+        Row: {
+          audio_type: string
+          backed_up_at: string
+          content_type: string
+          episode: number | null
+          id: string
+          provider: string
+          season: number | null
+          tmdb_id: number
+          video_type: string
+          video_url: string
+        }
+        Insert: {
+          audio_type?: string
+          backed_up_at?: string
+          content_type: string
+          episode?: number | null
+          id?: string
+          provider?: string
+          season?: number | null
+          tmdb_id: number
+          video_type?: string
+          video_url: string
+        }
+        Update: {
+          audio_type?: string
+          backed_up_at?: string
+          content_type?: string
+          episode?: number | null
+          id?: string
+          provider?: string
+          season?: number | null
+          tmdb_id?: number
+          video_type?: string
+          video_url?: string
+        }
+        Relationships: []
+      }
       watch_progress: {
         Row: {
           completed: boolean
