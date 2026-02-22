@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Wrench, Search, Film, Tv, Loader2, CheckCircle, XCircle, Play, RefreshCw,
-  Plus, Link2, ChevronDown, ChevronRight, Star, X, ExternalLink, Save
+  Plus, Link2, ChevronDown, ChevronRight, Star, X, ExternalLink, Save, Pencil, Trash2
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { searchMulti, getMovieDetails, getSeriesDetails, getSeasonDetails, posterUrl, TMDBMovie, TMDBMovieDetail } from "@/services/tmdb";
@@ -44,14 +44,75 @@ const ContentSourcesPage = () => {
   const [contentInDb, setContentInDb] = useState(false);
   const [contentDbId, setContentDbId] = useState<string | null>(null);
 
-  const handleSearch = async () => {
-    if (query.length < 2) return;
+  // Catalog status cache for search results
+  const [catalogStatus, setCatalogStatus] = useState<Map<number, boolean>>(new Map());
+
+  // Debounce timer ref
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleSearch = async (searchQuery?: string) => {
+    const q = searchQuery ?? query;
+    if (q.length < 2) { setResults([]); return; }
     setSearching(true);
     try {
-      const data = await searchMulti(query);
-      setResults(data.results.filter(r => r.media_type === "movie" || r.media_type === "tv").slice(0, 20));
+      const data = await searchMulti(q);
+      const filtered = data.results.filter(r => r.media_type === "movie" || r.media_type === "tv").slice(0, 20);
+      setResults(filtered);
+      
+      // Check catalog status for all results
+      if (filtered.length > 0) {
+        const tmdbIds = filtered.map(r => r.id);
+        const { data: contentRows } = await supabase
+          .from("content")
+          .select("tmdb_id")
+          .in("tmdb_id", tmdbIds);
+        const statusMap = new Map<number, boolean>();
+        contentRows?.forEach(row => statusMap.set(row.tmdb_id, true));
+        setCatalogStatus(statusMap);
+      }
     } catch { toast({ title: "Erro na busca", variant: "destructive" }); }
     setSearching(false);
+  };
+
+  // Live search with debounce
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    if (selectedItem) return; // Don't search while viewing detail
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (value.length < 2) { setResults([]); return; }
+    debounceRef.current = setTimeout(() => handleSearch(value), 400);
+  };
+
+  const addResultToContent = async (item: TMDBMovie) => {
+    const type = item.media_type === "tv" ? "tv" : "movie";
+    const contentType = type === "tv" ? "series" : "movie";
+    try {
+      const detail = type === "movie" ? await getMovieDetails(item.id) : await getSeriesDetails(item.id);
+      const { error } = await supabase.from("content").upsert({
+        tmdb_id: detail.id,
+        title: detail.title || detail.name || "",
+        original_title: detail.title || detail.name,
+        content_type: contentType,
+        poster_path: detail.poster_path,
+        backdrop_path: detail.backdrop_path,
+        overview: detail.overview,
+        vote_average: detail.vote_average,
+        release_date: detail.release_date || detail.first_air_date,
+        imdb_id: detail.imdb_id || detail.external_ids?.imdb_id,
+        number_of_seasons: detail.number_of_seasons,
+        number_of_episodes: detail.number_of_episodes,
+        runtime: detail.runtime,
+        status: "published",
+      }, { onConflict: "tmdb_id,content_type" });
+      if (error) {
+        toast({ title: "Erro", description: error.message, variant: "destructive" });
+      } else {
+        setCatalogStatus(prev => new Map(prev).set(item.id, true));
+        toast({ title: "✅ Adicionado ao catálogo!" });
+      }
+    } catch {
+      toast({ title: "Erro ao adicionar", variant: "destructive" });
+    }
   };
 
   const selectResult = async (item: TMDBMovie) => {
@@ -192,6 +253,37 @@ const ContentSourcesPage = () => {
     toast({ title: "✅ Link salvo!", description: "Vídeo indexado com sucesso" });
   };
 
+  const deleteVideoCache = async (key: string) => {
+    if (!selectedItem) return;
+    const isMovie = key === "movie";
+    const contentType = selectedType === "tv" ? "tv" : "movie";
+
+    let q = supabase.from("video_cache").delete()
+      .eq("tmdb_id", selectedItem.id)
+      .eq("content_type", contentType)
+      .eq("audio_type", "legendado");
+
+    if (isMovie) {
+      q = q.is("season", null).is("episode", null);
+    } else {
+      const [s, e] = key.split("-").map(Number);
+      q = q.eq("season", s).eq("episode", e);
+    }
+
+    const { error } = await q;
+    if (error) {
+      toast({ title: "Erro ao remover", description: error.message, variant: "destructive" });
+      return;
+    }
+
+    setVideoStatuses(prev => {
+      const next = new Map(prev);
+      next.delete(key);
+      return next;
+    });
+    toast({ title: "🗑️ Link removido" });
+  };
+
   const addToContent = async () => {
     if (!selectedItem) return;
     const contentType = selectedType === "tv" ? "series" : "movie";
@@ -247,7 +339,7 @@ const ContentSourcesPage = () => {
     const isManualOpen = manualInput?.key === key;
 
     return (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         {status ? (
           <>
             <span className="flex items-center gap-1 text-[10px] text-emerald-400">
@@ -262,9 +354,29 @@ const ContentSourcesPage = () => {
               <Play className="w-3 h-3" />
             </button>
             <a href={status.url} target="_blank" rel="noopener noreferrer"
-              className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10">
+              className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10"
+              title="Abrir link"
+            >
               <ExternalLink className="w-3 h-3" />
             </a>
+            {/* Edit/swap link */}
+            <button
+              onClick={() => setManualInput(isManualOpen ? null : { key, url: status.url.includes("proxy-player") ? decodeURIComponent(status.url.split("url=")[1] || "") : status.url, type: status.type as any })}
+              className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                isManualOpen ? "bg-amber-500/20 text-amber-400" : "bg-white/5 text-muted-foreground hover:bg-white/10"
+              }`}
+              title="Trocar link"
+            >
+              <Pencil className="w-3 h-3" />
+            </button>
+            {/* Delete link */}
+            <button
+              onClick={() => deleteVideoCache(key)}
+              className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-destructive/20 hover:text-destructive"
+              title="Remover link"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
           </>
         ) : (
           <XCircle className="w-3.5 h-3.5 text-muted-foreground/40" />
@@ -277,15 +389,17 @@ const ContentSourcesPage = () => {
         >
           {isExtracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
         </button>
-        <button
-          onClick={() => setManualInput(isManualOpen ? null : { key, url: "", type: "m3u8" })}
-          className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-            isManualOpen ? "bg-primary/20 text-primary" : "bg-white/5 text-muted-foreground hover:bg-white/10"
-          }`}
-          title="Adicionar manualmente"
-        >
-          <Link2 className="w-3.5 h-3.5" />
-        </button>
+        {!status && (
+          <button
+            onClick={() => setManualInput(isManualOpen ? null : { key, url: "", type: "m3u8" })}
+            className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+              isManualOpen ? "bg-primary/20 text-primary" : "bg-white/5 text-muted-foreground hover:bg-white/10"
+            }`}
+            title="Adicionar manualmente"
+          >
+            <Link2 className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
     );
   };
@@ -303,61 +417,74 @@ const ContentSourcesPage = () => {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="flex gap-2">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => e.key === "Enter" && handleSearch()}
-            placeholder="Pesquisar filme ou série no TMDB..."
-            className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50"
-          />
-        </div>
-        <button
-          onClick={handleSearch}
-          disabled={searching || query.length < 2}
-          className="px-4 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
-        >
-          {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : "Buscar"}
-        </button>
+      {/* Search - live search, no button */}
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <input
+          value={query}
+          onChange={e => handleQueryChange(e.target.value)}
+          placeholder="Pesquisar filme ou série no TMDB..."
+          className="w-full h-10 pl-10 pr-10 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50"
+        />
+        {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-primary" />}
       </div>
 
       {/* Search results */}
       {results.length > 0 && !selectedItem && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-          {results.map(item => (
-            <button
-              key={`${item.media_type}-${item.id}`}
-              onClick={() => selectResult(item)}
-              className="glass rounded-xl overflow-hidden hover:border-primary/30 border border-transparent transition-all text-left group"
-            >
-              <div className="aspect-[2/3] bg-muted/30 overflow-hidden">
-                {item.poster_path ? (
-                  <img src={posterUrl(item.poster_path, "w342")} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    {item.media_type === "movie" ? <Film className="w-8 h-8 text-muted-foreground/30" /> : <Tv className="w-8 h-8 text-muted-foreground/30" />}
+          {results.map(item => {
+            const inCatalog = catalogStatus.get(item.id);
+            return (
+              <div
+                key={`${item.media_type}-${item.id}`}
+                className="glass rounded-xl overflow-hidden border border-transparent hover:border-primary/30 transition-all group relative"
+              >
+                <button
+                  onClick={() => selectResult(item)}
+                  className="w-full text-left"
+                >
+                  <div className="aspect-[2/3] bg-muted/30 overflow-hidden">
+                    {item.poster_path ? (
+                      <img src={posterUrl(item.poster_path, "w342")} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center">
+                        {item.media_type === "movie" ? <Film className="w-8 h-8 text-muted-foreground/30" /> : <Tv className="w-8 h-8 text-muted-foreground/30" />}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              <div className="p-2">
-                <p className="text-xs font-medium line-clamp-2">{item.title || item.name}</p>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full border ${
-                    item.media_type === "movie" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-purple-500/10 text-purple-400 border-purple-500/20"
-                  }`}>{item.media_type === "movie" ? "Filme" : "Série"}</span>
-                  {item.vote_average > 0 && (
-                    <span className="flex items-center gap-0.5 text-[9px] text-muted-foreground">
-                      <Star className="w-2.5 h-2.5 text-primary fill-primary" />
-                      {item.vote_average.toFixed(1)}
+                  <div className="p-2">
+                    <p className="text-xs font-medium line-clamp-2">{item.title || item.name}</p>
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full border ${
+                        item.media_type === "movie" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-purple-500/10 text-purple-400 border-purple-500/20"
+                      }`}>{item.media_type === "movie" ? "Filme" : "Série"}</span>
+                      {item.vote_average > 0 && (
+                        <span className="flex items-center gap-0.5 text-[9px] text-muted-foreground">
+                          <Star className="w-2.5 h-2.5 text-primary fill-primary" />
+                          {item.vote_average.toFixed(1)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </button>
+                {/* Catalog badge / add button */}
+                <div className="absolute top-1.5 right-1.5">
+                  {inCatalog ? (
+                    <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-emerald-500/90 text-white font-medium shadow-sm">
+                      No catálogo
                     </span>
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); addResultToContent(item); }}
+                      className="text-[8px] px-1.5 py-0.5 rounded-full bg-amber-500/90 text-white font-medium shadow-sm hover:bg-amber-600 flex items-center gap-0.5"
+                    >
+                      <Plus className="w-2.5 h-2.5" /> Adicionar
+                    </button>
                   )}
                 </div>
               </div>
-            </button>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -416,7 +543,9 @@ const ContentSourcesPage = () => {
           {manualInput && (
             <div className="glass rounded-2xl p-4 border-2 border-primary/20 space-y-3">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold">Adicionar link manualmente — {manualInput.key === "movie" ? "Filme" : `T${manualInput.key.split("-")[0]} E${manualInput.key.split("-")[1]}`}</h3>
+                <h3 className="text-sm font-bold">
+                  {videoStatuses.has(manualInput.key) ? "Trocar link" : "Adicionar link"} — {manualInput.key === "movie" ? "Filme" : `T${manualInput.key.split("-")[0]} E${manualInput.key.split("-")[1]}`}
+                </h3>
                 <button onClick={() => setManualInput(null)} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
               </div>
               <input
