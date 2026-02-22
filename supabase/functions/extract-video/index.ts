@@ -326,7 +326,7 @@ async function tryMegaEmbed(
       headers: { "User-Agent": UA, "Referer": "https://megaembed.com/", "Accept": "text/html,*/*" },
       redirect: "follow",
     });
-    if (!megaRes.ok) return null;
+    if (!megaRes.ok) continue;
 
     const html = await megaRes.text();
 
