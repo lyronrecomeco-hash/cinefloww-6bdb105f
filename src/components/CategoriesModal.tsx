@@ -69,8 +69,8 @@ const CategoriesModal = ({ open, onClose, onSelect, selectedId, contentType = "m
           </button>
         </div>
 
-        <div className="p-4 overflow-y-auto max-h-[60vh] scrollbar-hide">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="p-4 overflow-y-auto max-h-[70vh] scrollbar-hide">
+          <div className="grid grid-cols-3 gap-2">
             <button
               onClick={() => { onSelect(null); onClose(); }}
               className={`px-4 py-3 rounded-xl text-sm font-medium transition-all text-center ${
