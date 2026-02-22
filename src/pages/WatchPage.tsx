@@ -6,6 +6,7 @@ import CustomPlayer from "@/components/CustomPlayer";
 import LyneflixIntro from "@/components/LyneflixIntro";
 import IframeInterceptor from "@/components/IframeInterceptor";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
+import { fromSlug } from "@/lib/slugify";
 
 interface VideoSource {
   url: string;
@@ -66,7 +67,7 @@ const WatchPage = () => {
   const extractionResult = useRef<{ url: string; type: string; provider: string } | null>(null);
   const [introComplete, setIntroComplete] = useState(false);
 
-  const tmdbId = Number(id);
+  const tmdbId = id ? fromSlug(id) : 0;
   const isMovie = type === "movie";
   const ct = isMovie ? "movie" : "tv";
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
