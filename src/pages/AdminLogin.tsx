@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import lyneflixLogo from "@/assets/lyneflix-logo.png";
 
 const AdminLogin = () => {
   const [email, setEmail] = useState("");
@@ -20,12 +21,12 @@ const AdminLogin = () => {
       const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (error) throw error;
 
-      // Check admin role
+      // Check admin or moderator role
       const { data: roles, error: roleError } = await supabase
         .from("user_roles")
         .select("role")
         .eq("user_id", data.user.id)
-        .eq("role", "admin");
+        .in("role", ["admin", "moderator"]);
 
       if (roleError || !roles?.length) {
         await supabase.auth.signOut();
@@ -58,7 +59,7 @@ const AdminLogin = () => {
           </div>
 
           <div className="relative z-10">
-            <p className="text-xs font-medium tracking-[0.2em] text-primary/80 mb-4 uppercase">Cineflow Admin v1.0</p>
+            <p className="text-xs font-medium tracking-[0.2em] text-primary/80 mb-4 uppercase">LyneFlix Admin v2.0</p>
             <h1 className="font-display text-3xl md:text-4xl font-bold leading-tight mb-3">
               Gerencie seu<br />
               <span className="text-gradient">Catálogo.</span>
@@ -72,9 +73,7 @@ const AdminLogin = () => {
         {/* Right side - Login form */}
         <div className="p-8 md:p-12 flex flex-col justify-center bg-white/[0.02]">
           <div className="flex justify-center mb-8">
-            <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-              <span className="text-primary font-display font-bold text-xl">C</span>
-            </div>
+            <img src={lyneflixLogo} alt="LyneFlix" className="h-10 object-contain" />
           </div>
 
           <h2 className="font-display text-xl font-bold text-center mb-1">Acesse sua conta</h2>
