@@ -20,4 +20,4 @@ Disallow: /extrator
 Disallow: /perfis
 Disallow: /importar-lista
 
-Sitemap: https://cinefloww.lovable.app/sitemap.xml
+Sitemap: https://lyneflix.online/sitemap.xml
