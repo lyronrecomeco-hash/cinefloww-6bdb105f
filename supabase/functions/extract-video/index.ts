@@ -303,10 +303,24 @@ async function tryMegaEmbed(
   s: number,
   e: number,
 ): Promise<{ url: string; type: "mp4" | "m3u8" } | null> {
-  const megaUrl = isMovie
-    ? `https://megaembed.com/embed/${tmdbId}`
-    : `https://megaembed.com/embed/${tmdbId}/${s}/${e}`;
-  console.log(`[src-b] Trying MegaEmbed: ${megaUrl}`);
+  // Try multiple MegaEmbed domains and URL formats
+  const domains = ["https://megaembed.xyz", "https://megaembed.com"];
+  const urlVariants = (domain: string) => {
+    if (isMovie) {
+      return [
+        `${domain}/embed/movie?tmdb=${tmdbId}`,
+        `${domain}/embed/${tmdbId}`,
+      ];
+    }
+    return [
+      `${domain}/embed/tv?tmdb=${tmdbId}&season=${s}&episode=${e}`,
+      `${domain}/embed/${tmdbId}/${s}/${e}`,
+    ];
+  };
+
+  for (const domain of domains) {
+    for (const megaUrl of urlVariants(domain)) {
+      console.log(`[src-b] Trying MegaEmbed: ${megaUrl}`);
 
   try {
     const megaRes = await fetch(megaUrl, {
@@ -343,7 +357,7 @@ async function tryMegaEmbed(
       try {
         const sfRes = await fetchWithTimeout(sfUrl, {
           timeout: 12000,
-          headers: { "User-Agent": UA, "Referer": "https://megaembed.com/", "Accept": "text/html,*/*" },
+          headers: { "User-Agent": UA, "Referer": domain + "/", "Accept": "text/html,*/*" },
           redirect: "follow",
         });
         if (sfRes.ok) {
@@ -365,6 +379,12 @@ async function tryMegaEmbed(
           }
         }
       } catch {}
+      
+      // If we found SuperFlix but couldn't extract direct video, use it as iframe-proxy
+      console.log(`[src-b] SuperFlix found but no direct link, using iframe-proxy`);
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      const proxyUrl = `${supabaseUrl}/functions/v1/proxy-player?url=${encodeURIComponent(sfUrl)}`;
+      return { url: proxyUrl, type: "iframe-proxy" as any };
     }
 
     // 3. Direct URL patterns in HTML
@@ -381,8 +401,10 @@ async function tryMegaEmbed(
       }
     }
   } catch (err) {
-    console.log(`[src-b] Error: ${err}`);
+    console.log(`[src-b] Error for ${megaUrl}: ${err}`);
   }
+    } // end urlVariants loop
+  } // end domains loop
   return null;
 }
 
@@ -1026,11 +1048,31 @@ Deno.serve(async (req) => {
       } catch (err) { console.log(`[extract] Provider A error: ${err}`); }
     }
 
-    // ── Fonte B (MegaEmbed) - 5s timeout ──
+    // ── Fonte B (MegaEmbed) - 15s timeout ──
     if (shouldTry("megaembed") && !videoUrl) {
       try {
         const me = await withTimeout(tryMegaEmbed(tmdb_id, isMovie, s, e), 15000, "src-b");
-        if (me) { videoUrl = me.url; videoType = me.type; provider = "megaembed"; }
+        if (me) {
+          if ((me.type as string) === "iframe-proxy") {
+            // MegaEmbed returned iframe-proxy (SuperFlix), cache and return it
+            const supabase2 = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+            await supabase2.from("video_cache").upsert({
+              tmdb_id, content_type: cType, audio_type: aType,
+              season: season || null, episode: episode || null,
+              video_url: me.url, video_type: "iframe-proxy", provider: "megaembed",
+              expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+            }, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
+            await supabase2.from("resolve_logs").insert({
+              tmdb_id, title: reqTitle || `TMDB ${tmdb_id}`, content_type: cType,
+              season: season || null, episode: episode || null,
+              provider: "megaembed", video_url: me.url, video_type: "iframe-proxy", success: true,
+            });
+            return new Response(JSON.stringify({
+              url: me.url, type: "iframe-proxy", provider: "megaembed", cached: false,
+            }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+          }
+          videoUrl = me.url; videoType = me.type; provider = "megaembed";
+        }
       } catch (err) { console.log(`[extract] Provider B error: ${err}`); }
     }
 
