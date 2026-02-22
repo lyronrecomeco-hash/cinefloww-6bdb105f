@@ -47,6 +47,8 @@ const ReportsPage = lazy(() => import("./pages/admin/ReportsPage"));
 const AdsManagerPage = lazy(() => import("./pages/admin/AdsManagerPage"));
 const UsersPage = lazy(() => import("./pages/admin/UsersPage"));
 const WatchRoomsPage = lazy(() => import("./pages/admin/WatchRoomsPage"));
+const IntegrationsPage = lazy(() => import("./pages/admin/IntegrationsPage"));
+const ContentSourcesPage = lazy(() => import("./pages/admin/ContentSourcesPage"));
 
 
 
@@ -121,6 +123,8 @@ const App = () => (
               <Route path="seguranca" element={<SecurityMonitor />} />
               <Route path="avisos" element={<AlertsPage />} />
               <Route path="telegram" element={<TelegramPage />} />
+              <Route path="integracoes" element={<IntegrationsPage />} />
+              <Route path="fontes" element={<ContentSourcesPage />} />
               <Route path="usuarios" element={<UsersPage />} />
               <Route path="config" element={<SettingsPage />} />
               <Route path="watch-rooms" element={<WatchRoomsPage />} />
