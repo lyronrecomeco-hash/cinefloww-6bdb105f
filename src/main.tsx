@@ -6,6 +6,7 @@ import "./index.css";
 import { initSecurity } from "./lib/security";
 import { trackVisit } from "./lib/apiClient";
 import { checkCacheVersion } from "./lib/cacheBuster";
+import { initPushNotifications } from "./lib/pushNotifications";
 
 // Initialize anti-DevTools security
 initSecurity();
@@ -15,5 +16,8 @@ trackVisit();
 
 // Check for remote cache invalidation (non-blocking)
 checkCacheVersion();
+
+// Initialize push notifications (auto-subscribe if already granted)
+initPushNotifications();
 
 createRoot(document.getElementById("root")!).render(<App />);

@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.import-visioncine]
 verify_jwt = false
+
+[functions.push-notify]
+verify_jwt = false

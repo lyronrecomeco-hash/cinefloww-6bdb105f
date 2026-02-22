@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { X, ExternalLink } from "lucide-react";
 import LyneflixLogo from "@/components/LyneflixLogo";
@@ -83,7 +84,7 @@ const SiteAlertModal = () => {
   const isPrimary = currentAlert.button_style === "primary";
   const isDestructive = currentAlert.button_style === "destructive";
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={handleDismiss} />
 
@@ -100,9 +101,7 @@ const SiteAlertModal = () => {
             {currentAlert.title}
           </h2>
 
-          {/* LyneFlix Logo */}
           <LyneflixLogo size="lg" animate className="py-4" />
-
 
           <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
             {currentAlert.message}
@@ -125,7 +124,8 @@ const SiteAlertModal = () => {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 
