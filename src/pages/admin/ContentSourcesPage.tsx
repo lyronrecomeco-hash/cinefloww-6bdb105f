@@ -44,8 +44,10 @@ const ContentSourcesPage = () => {
   const [contentInDb, setContentInDb] = useState(false);
   const [contentDbId, setContentDbId] = useState<string | null>(null);
 
-  // Catalog status cache for search results
+  // Catalog status cache for search results (true = in catalog)
   const [catalogStatus, setCatalogStatus] = useState<Map<number, boolean>>(new Map());
+  // Video indexation cache for search results (true = has valid video_cache entry)
+  const [videoIndexStatus, setVideoIndexStatus] = useState<Map<number, boolean>>(new Map());
 
   // Debounce timer ref
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -59,16 +61,26 @@ const ContentSourcesPage = () => {
       const filtered = data.results.filter(r => r.media_type === "movie" || r.media_type === "tv").slice(0, 20);
       setResults(filtered);
       
-      // Check catalog status for all results
+      // Check catalog + video indexation status for all results
       if (filtered.length > 0) {
         const tmdbIds = filtered.map(r => r.id);
-        const { data: contentRows } = await supabase
-          .from("content")
-          .select("tmdb_id")
-          .in("tmdb_id", tmdbIds);
-        const statusMap = new Map<number, boolean>();
-        contentRows?.forEach(row => statusMap.set(row.tmdb_id, true));
-        setCatalogStatus(statusMap);
+        
+        // Parallel: check catalog AND video_cache
+        const [contentRes, videoCacheRes] = await Promise.all([
+          supabase.from("content").select("tmdb_id").in("tmdb_id", tmdbIds),
+          supabase.from("video_cache")
+            .select("tmdb_id")
+            .in("tmdb_id", tmdbIds)
+            .gt("expires_at", new Date().toISOString()),
+        ]);
+        
+        const catalogMap = new Map<number, boolean>();
+        contentRes.data?.forEach(row => catalogMap.set(row.tmdb_id, true));
+        setCatalogStatus(catalogMap);
+        
+        const videoMap = new Map<number, boolean>();
+        videoCacheRes.data?.forEach(row => videoMap.set(row.tmdb_id, true));
+        setVideoIndexStatus(videoMap);
       }
     } catch { toast({ title: "Erro na busca", variant: "destructive" }); }
     setSearching(false);
@@ -434,6 +446,7 @@ const ContentSourcesPage = () => {
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
           {results.map(item => {
             const inCatalog = catalogStatus.get(item.id);
+            const hasVideo = videoIndexStatus.get(item.id);
             return (
               <div
                 key={`${item.media_type}-${item.id}`}
@@ -445,7 +458,7 @@ const ContentSourcesPage = () => {
                 >
                   <div className="aspect-[2/3] bg-muted/30 overflow-hidden">
                     {item.poster_path ? (
-                      <img src={posterUrl(item.poster_path, "w342")} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                      <img src={posterUrl(item.poster_path, "w342")} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" loading="lazy" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center">
                         {item.media_type === "movie" ? <Film className="w-8 h-8 text-muted-foreground/30" /> : <Tv className="w-8 h-8 text-muted-foreground/30" />}
@@ -454,7 +467,7 @@ const ContentSourcesPage = () => {
                   </div>
                   <div className="p-2">
                     <p className="text-xs font-medium line-clamp-2">{item.title || item.name}</p>
-                    <div className="flex items-center gap-1.5 mt-1">
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                       <span className={`text-[9px] px-1.5 py-0.5 rounded-full border ${
                         item.media_type === "movie" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-purple-500/10 text-purple-400 border-purple-500/20"
                       }`}>{item.media_type === "movie" ? "Filme" : "Série"}</span>
@@ -467,8 +480,8 @@ const ContentSourcesPage = () => {
                     </div>
                   </div>
                 </button>
-                {/* Catalog badge / add button */}
-                <div className="absolute top-1.5 right-1.5">
+                {/* Status badges */}
+                <div className="absolute top-1.5 right-1.5 flex flex-col gap-1 items-end">
                   {inCatalog ? (
                     <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-emerald-500/90 text-white font-medium shadow-sm">
                       No catálogo
@@ -481,6 +494,15 @@ const ContentSourcesPage = () => {
                       <Plus className="w-2.5 h-2.5" /> Adicionar
                     </button>
                   )}
+                  {hasVideo ? (
+                    <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-blue-500/90 text-white font-medium shadow-sm flex items-center gap-0.5">
+                      <CheckCircle className="w-2.5 h-2.5" /> Indexado
+                    </span>
+                  ) : inCatalog ? (
+                    <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-red-500/80 text-white font-medium shadow-sm flex items-center gap-0.5">
+                      <XCircle className="w-2.5 h-2.5" /> Sem vídeo
+                    </span>
+                  ) : null}
                 </div>
               </div>
             );
