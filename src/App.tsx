@@ -17,7 +17,7 @@ const SeriesPage = lazy(() => import("./pages/SeriesPage"));
 const DoramasPage = lazy(() => import("./pages/DoramasPage"));
 const ReleasesPage = lazy(() => import("./pages/ReleasesPage"));
 const ComingSoonPage = lazy(() => import("./pages/ComingSoonPage"));
-const PlayerPage = lazy(() => import("./pages/PlayerPage"));
+const WatchPage = lazy(() => import("./pages/WatchPage"));
 const ApiRedirect = lazy(() => import("./pages/ApiRedirect"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const DmcaPage = lazy(() => import("./pages/DmcaPage"));
@@ -92,8 +92,8 @@ const App = () => (
             <Route path="/filme/:id" element={<DetailsPage type="movie" />} />
             <Route path="/serie/:id" element={<DetailsPage type="tv" />} />
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />
-            <Route path="/player" element={<PlayerPage />} />
-            <Route path="/player/:type/:id" element={<PlayerPage />} />
+            <Route path="/player" element={<WatchPage />} />
+            <Route path="/player/:type/:id" element={<WatchPage />} />
             <Route path="/tv" element={<TVPage />} />
             <Route path="/tv/:id" element={<TVPlayerPage />} />
             <Route path="/dmca" element={<DmcaPage />} />
