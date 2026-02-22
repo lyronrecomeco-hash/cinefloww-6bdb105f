@@ -65,11 +65,11 @@ const ContentSourcesPage = () => {
       if (filtered.length > 0) {
         const tmdbIds = filtered.map(r => r.id);
         
-        // Parallel: check catalog AND video_cache
+        // Parallel: check catalog AND video_cache (query ALL content_types, no filter)
         const [contentRes, videoCacheRes] = await Promise.all([
-          supabase.from("content").select("tmdb_id").in("tmdb_id", tmdbIds),
+          supabase.from("content").select("tmdb_id, content_type").in("tmdb_id", tmdbIds),
           supabase.from("video_cache")
-            .select("tmdb_id, provider")
+            .select("tmdb_id, provider, content_type")
             .in("tmdb_id", tmdbIds)
             .gt("expires_at", new Date().toISOString()),
         ]);
@@ -78,11 +78,15 @@ const ContentSourcesPage = () => {
         contentRes.data?.forEach(row => catalogMap.set(row.tmdb_id, true));
         setCatalogStatus(catalogMap);
         
+        // Collect ALL providers per tmdb_id (may have multiple content_types)
         const videoMap = new Map<number, string | false>();
         videoCacheRes.data?.forEach(row => {
-          // Keep first provider found (or accumulate)
-          if (!videoMap.has(row.tmdb_id)) {
-            videoMap.set(row.tmdb_id, row.provider || "unknown");
+          const existing = videoMap.get(row.tmdb_id);
+          const provider = row.provider || "unknown";
+          if (!existing) {
+            videoMap.set(row.tmdb_id, provider);
+          } else if (typeof existing === "string" && !existing.includes(provider)) {
+            videoMap.set(row.tmdb_id, `${existing}, ${provider}`);
           }
         });
         setVideoIndexStatus(videoMap);
