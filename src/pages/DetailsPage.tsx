@@ -204,7 +204,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         .gt("expires_at", new Date().toISOString())
         .maybeSingle();
       if (data) {
-        return { url: "__cached__", type: data.video_type, provider: data.provider };
+        return { cached: true, type: data.video_type, provider: data.provider };
       }
     } catch {}
     return null;
@@ -218,9 +218,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     // Try to prefetch cached source for instant playback
     const cached = await prefetchSource(audio);
     const playerSlug = toSlug(getDisplayTitle(detail), detail.id);
-    navigate(`/player/${type === "tv" ? "series" : "movie"}/${playerSlug}?${params.toString()}`, {
-      state: cached ? { prefetchedSource: cached } : undefined,
-    });
+    navigate(`/player/${type === "tv" ? "series" : "movie"}/${playerSlug}?${params.toString()}`);
   };
 
   return (
