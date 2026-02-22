@@ -139,18 +139,16 @@ const PlayerPage = () => {
 
   // Resolve video via extract-video edge function
   const extractionRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!params.id || !params.type) return;
-    const key = `${params.type}-${params.id}-${audioParam}-${season}-${episode}`;
-    if (extractionRef.current === key) return; // Prevent double extraction
-    extractionRef.current = key;
+
+  const loadVideo = useCallback(async () => {
+    if (!params.id || !params.type || !tmdbId) return;
     setBankLoading(true);
     setBankSources([]);
 
     const withTimeout = <T,>(p: PromiseLike<T>, ms: number): Promise<T | null> =>
       Promise.race([Promise.resolve(p), new Promise<null>((r) => setTimeout(() => r(null), ms))]);
 
-    const load = async () => {
+    try {
       const cType = params.type === "movie" ? "movie" : "series";
       const aType = audioParam || "legendado";
 
@@ -158,7 +156,7 @@ const PlayerPage = () => {
       let cacheQuery = supabase
         .from("video_cache")
         .select("video_url, video_type, provider")
-        .eq("tmdb_id", tmdbId!)
+        .eq("tmdb_id", tmdbId)
         .eq("content_type", cType)
         .eq("audio_type", aType)
         .gt("expires_at", new Date().toISOString());
@@ -168,7 +166,7 @@ const PlayerPage = () => {
       else cacheQuery = cacheQuery.is("episode", null);
 
       const [titleResult, cacheResult] = await Promise.all([
-        withTimeout(supabase.from("content").select("title").eq("tmdb_id", tmdbId!).eq("content_type", cType).maybeSingle(), 4000),
+        withTimeout(supabase.from("content").select("title").eq("tmdb_id", tmdbId).eq("content_type", cType).maybeSingle(), 4000),
         withTimeout(cacheQuery.maybeSingle(), 4000),
       ]);
 
@@ -188,27 +186,32 @@ const PlayerPage = () => {
       }
 
       // 3. No cache, call extract-video with 25s timeout
-      try {
-        const result = await withTimeout(
-          supabase.functions.invoke("extract-video", {
-            body: { tmdb_id: tmdbId!, imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
-          }),
-          25000
-        );
-        const data = result && (result as any).data;
-        if (data?.url) {
-          setBankSources([{
-            url: data.url,
-            quality: "auto",
-            provider: data.provider || "cache",
-            type: data.type === "mp4" ? "mp4" : "m3u8",
-          }]);
-        }
-      } catch {}
-      setBankLoading(false);
-    };
-    load().catch(() => setBankLoading(false));
+      const result = await withTimeout(
+        supabase.functions.invoke("extract-video", {
+          body: { tmdb_id: tmdbId, imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
+        }),
+        25000
+      );
+      const data = result && (result as any).data;
+      if (data?.url) {
+        setBankSources([{
+          url: data.url,
+          quality: "auto",
+          provider: data.provider || "cache",
+          type: data.type === "mp4" ? "mp4" : "m3u8",
+        }]);
+      }
+    } catch {}
+    setBankLoading(false);
   }, [params.id, params.type, audioParam, imdbId, season, episode, tmdbId]);
+
+  useEffect(() => {
+    if (!params.id || !params.type) return;
+    const key = `${params.type}-${params.id}-${audioParam}-${season}-${episode}`;
+    if (extractionRef.current === key) return;
+    extractionRef.current = key;
+    loadVideo();
+  }, [params.id, params.type, audioParam, imdbId, season, episode, tmdbId, loadVideo]);
 
   const sources: VideoSource[] = useMemo(() => {
     if (bankSources.length > 0) return bankSources;
@@ -786,11 +789,9 @@ const PlayerPage = () => {
                 <AlertTriangle className="w-4 h-4" /> Avisar a equipe
               </button>
               <div className="flex gap-2">
-                {error && source && (
-                  <button onClick={() => attachSource(source, true)} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
-                    <RefreshCw className="w-4 h-4" /> Tentar de novo
-                  </button>
-                )}
+                <button onClick={() => { extractionRef.current = null; error ? (source ? attachSource(source, true) : loadVideo()) : loadVideo(); }} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
+                  <RefreshCw className="w-4 h-4" /> Tentar de novo
+                </button>
                 <button onClick={goBack} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 text-white/70 text-sm font-medium hover:bg-white/10 transition-colors">
                   <ArrowLeft className="w-4 h-4" /> Voltar
                 </button>
