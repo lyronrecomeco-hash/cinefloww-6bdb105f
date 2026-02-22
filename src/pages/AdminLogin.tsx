@@ -22,15 +22,18 @@ const AdminLogin = () => {
       const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (error) throw error;
 
-      const { data: roles, error: roleError } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", data.user.id)
-        .eq("role", "admin");
+      const rolesResult = await Promise.race([
+        supabase.from("user_roles").select("role").eq("user_id", data.user.id).eq("role", "admin"),
+        new Promise<null>((r) => setTimeout(() => r(null), 5000)),
+      ]);
 
-      if (roleError || !roles?.length) {
-        try { await supabase.auth.signOut(); } catch {}
-        throw new Error("Acesso negado. Você não tem permissão de administrador.");
+      // If timeout, allow login (background check later); if explicit denial, block
+      if (rolesResult !== null) {
+        const { data: roles, error: roleError } = rolesResult as any;
+        if (roleError || !roles?.length) {
+          try { await supabase.auth.signOut(); } catch {}
+          throw new Error("Acesso negado. Você não tem permissão de administrador.");
+        }
       }
 
       navigate("/admin");

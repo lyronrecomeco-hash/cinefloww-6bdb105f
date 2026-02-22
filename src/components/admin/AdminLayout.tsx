@@ -100,9 +100,11 @@ const AdminLayout = () => {
           }
         });
 
-        // Fetch pending count (non-blocking)
-        Promise.resolve(supabase.from("content_requests").select("*", { count: "exact", head: true }).eq("status", "pending"))
-          .then((result) => {
+        // Fetch pending count (non-blocking, 3s timeout)
+        Promise.race([
+          supabase.from("content_requests").select("*", { count: "exact", head: true }).eq("status", "pending"),
+          new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+        ]).then((result) => {
             if (isMounted && result) {
               const c = (result as any).count || 0;
               setPendingRequests(c);

@@ -77,13 +77,14 @@ const ProfileSelector = () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { navigate("/conta"); return; }
 
-    const { data } = await supabase
-      .from("user_profiles")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .order("created_at");
+    const result = await Promise.race([
+      supabase.from("user_profiles").select("*").eq("user_id", session.user.id).order("created_at"),
+      new Promise<null>((r) => setTimeout(() => r(null), 4000)),
+    ]);
 
-    setProfiles((data as UserProfile[]) || []);
+    if (result && (result as any).data) {
+      setProfiles(((result as any).data as UserProfile[]) || []);
+    }
     setLoading(false);
   };
 

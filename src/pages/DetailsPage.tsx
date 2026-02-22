@@ -136,17 +136,15 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
       if (!cancelled) setLoading(false);
     });
 
-    // Check for resolved reports for this visitor
+    // Check for resolved reports (with 3s timeout)
     const vid = localStorage.getItem("_cf_vid");
     if (vid) {
-      supabase
-        .from("content_reports" as any)
-        .select("id, title")
-        .eq("tmdb_id", id)
-        .eq("visitor_id", vid)
-        .eq("status", "resolved")
-        .then(({ data: resolvedReports }: any) => {
-          if (cancelled) return;
+      Promise.race([
+        supabase.from("content_reports" as any).select("id, title").eq("tmdb_id", id).eq("visitor_id", vid).eq("status", "resolved"),
+        new Promise<null>((r) => setTimeout(() => r(null), 3000)),
+      ]).then((result: any) => {
+          if (cancelled || !result) return;
+          const resolvedReports = result.data;
           if (resolvedReports?.length) {
             toast.success(
               `🎉 O problema reportado em "${resolvedReports[0].title}" foi resolvido! A equipe LyneFlix agradece.`,
@@ -156,7 +154,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
               supabase.from("content_reports" as any).update({ status: "notified" } as any).eq("id", r.id).then(() => {});
             });
           }
-        });
+        }).catch(() => {});
     }
     return () => { cancelled = true; };
   }, [slug, type]);
