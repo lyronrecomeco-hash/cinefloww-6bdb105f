@@ -259,11 +259,12 @@ Deno.serve(async (req) => {
       }
 
       case "catalog-detail": {
-        // Get single content + all indexed video links
+        // Get single content + all indexed video links with provider info
         // data: { tmdb_id: number, type?: "movie"|"series" }
         if (!data.tmdb_id) return jsonResponse({ error: "tmdb_id required" }, 400);
 
         const contentType = data.type || "movie";
+        // Query video_cache for ALL content_types matching this tmdb_id (movie, series, tv, anime, dorama)
         const [contentRes, videosRes] = await Promise.all([
           supabase.from("content")
             .select("*")
@@ -278,10 +279,15 @@ Deno.serve(async (req) => {
             .order("episode", { ascending: true }),
         ]);
 
+        // Collect unique providers
+        const providers = [...new Set((videosRes.data || []).map(v => v.provider).filter(Boolean))];
+
         return jsonResponse({
           content: contentRes.data || null,
           videos: videosRes.data || [],
           has_video: (videosRes.data?.length || 0) > 0,
+          providers,
+          indexed_count: videosRes.data?.length || 0,
         });
       }
 
