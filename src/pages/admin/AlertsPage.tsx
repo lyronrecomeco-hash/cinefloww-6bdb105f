@@ -295,7 +295,7 @@ const TEMPLATES = [
     bg: "bg-orange-500/10 border-orange-500/20",
     data: {
       title: "📡 Não consegue acessar o site?",
-      message: "Algumas operadoras de internet (Vivo, Claro, TIM, Oi) podem bloquear o acesso a determinados sites. Isso NÃO é um problema do site.\n\n✅ Solução rápida: Baixe o app gratuito 1.1.1.1 da Cloudflare, abra e toque em Conectar. Pronto, acesso liberado!\n\n📲 O app está disponível na Play Store e App Store.",
+      message: "Algumas operadoras de internet (Vivo, Claro, TIM, Oi) podem bloquear o acesso a determinados sites. Isso NÃO é um problema do site.\n\n✅ Solução rápida:\nBaixe o app gratuito 1.1.1.1 da Cloudflare, abra e toque em \"Conectar\". Pronto, acesso liberado!\n\n📲 Disponível na Play Store e App Store.",
       button_text: "Baixar 1.1.1.1",
       button_link: "https://1.1.1.1",
       button_style: "primary",
