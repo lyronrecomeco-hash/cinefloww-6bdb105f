@@ -46,8 +46,8 @@ const ContentSourcesPage = () => {
 
   // Catalog status cache for search results (true = in catalog)
   const [catalogStatus, setCatalogStatus] = useState<Map<number, boolean>>(new Map());
-  // Video indexation cache for search results (true = has valid video_cache entry)
-  const [videoIndexStatus, setVideoIndexStatus] = useState<Map<number, boolean>>(new Map());
+  // Video indexation cache for search results (provider name or false)
+  const [videoIndexStatus, setVideoIndexStatus] = useState<Map<number, string | false>>(new Map());
 
   // Debounce timer ref
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -69,7 +69,7 @@ const ContentSourcesPage = () => {
         const [contentRes, videoCacheRes] = await Promise.all([
           supabase.from("content").select("tmdb_id").in("tmdb_id", tmdbIds),
           supabase.from("video_cache")
-            .select("tmdb_id")
+            .select("tmdb_id, provider")
             .in("tmdb_id", tmdbIds)
             .gt("expires_at", new Date().toISOString()),
         ]);
@@ -78,8 +78,13 @@ const ContentSourcesPage = () => {
         contentRes.data?.forEach(row => catalogMap.set(row.tmdb_id, true));
         setCatalogStatus(catalogMap);
         
-        const videoMap = new Map<number, boolean>();
-        videoCacheRes.data?.forEach(row => videoMap.set(row.tmdb_id, true));
+        const videoMap = new Map<number, string | false>();
+        videoCacheRes.data?.forEach(row => {
+          // Keep first provider found (or accumulate)
+          if (!videoMap.has(row.tmdb_id)) {
+            videoMap.set(row.tmdb_id, row.provider || "unknown");
+          }
+        });
         setVideoIndexStatus(videoMap);
       }
     } catch { toast({ title: "Erro na busca", variant: "destructive" }); }
@@ -496,7 +501,7 @@ const ContentSourcesPage = () => {
                   )}
                   {hasVideo ? (
                     <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-blue-500/90 text-white font-medium shadow-sm flex items-center gap-0.5">
-                      <CheckCircle className="w-2.5 h-2.5" /> Indexado
+                      <CheckCircle className="w-2.5 h-2.5" /> {hasVideo}
                     </span>
                   ) : inCatalog ? (
                     <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-red-500/80 text-white font-medium shadow-sm flex items-center gap-0.5">
