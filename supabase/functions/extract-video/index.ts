@@ -306,7 +306,7 @@ async function tryMegaEmbed(
   const megaUrl = isMovie
     ? `https://megaembed.com/embed/${tmdbId}`
     : `https://megaembed.com/embed/${tmdbId}/${s}/${e}`;
-  console.log(`[src-b] Trying fallback`);
+  console.log(`[src-b] Trying MegaEmbed: ${megaUrl}`);
 
   try {
     const megaRes = await fetch(megaUrl, {
@@ -317,6 +317,7 @@ async function tryMegaEmbed(
 
     const html = await megaRes.text();
 
+    // 1. Check for var sources pattern
     const sourcesMatch = html.match(/var\s+sources\s*=\s*(\[[\s\S]*?\]);/);
     if (sourcesMatch?.[1]) {
       try {
@@ -332,6 +333,41 @@ async function tryMegaEmbed(
       } catch { /* skip */ }
     }
 
+    // 2. Check for superflixapi iframe (may appear as data-original-tag="iframe" or real <iframe>)
+    const sfMatch = html.match(/(?:src|data-src)=["'](https?:\/\/superflixapi[^"'\s]+)["']/i)
+      || html.match(/["'](https?:\/\/superflixapi\.help\/(?:serie|filme)\/[^"'\s#]+)/i);
+    if (sfMatch?.[1]) {
+      let sfUrl = sfMatch[1].split("#")[0]; // remove hash params
+      console.log(`[src-b] Found SuperFlix embed: ${sfUrl}`);
+      
+      try {
+        const sfRes = await fetchWithTimeout(sfUrl, {
+          timeout: 12000,
+          headers: { "User-Agent": UA, "Referer": "https://megaembed.com/", "Accept": "text/html,*/*" },
+          redirect: "follow",
+        });
+        if (sfRes.ok) {
+          const sfHtml = await sfRes.text();
+          const sfVideo = findVideoUrl(sfHtml);
+          if (sfVideo) {
+            console.log(`[src-b] Found video via SuperFlix iframe`);
+            return sfVideo;
+          }
+          // Try nested iframes inside SuperFlix
+          const iframeMatches = sfHtml.matchAll(/<iframe[^>]+src=["']([^"']+)["']/gi);
+          for (const m of iframeMatches) {
+            let iframeSrc = m[1];
+            if (iframeSrc.startsWith("//")) iframeSrc = "https:" + iframeSrc;
+            if (!iframeSrc.startsWith("http") || iframeSrc.includes("superflixapi")) continue;
+            console.log(`[src-b] Following nested iframe: ${iframeSrc.substring(0, 80)}`);
+            const deep = await deepExtractFromIframe(iframeSrc, sfUrl, 0);
+            if (deep) return deep;
+          }
+        }
+      } catch {}
+    }
+
+    // 3. Direct URL patterns in HTML
     const patterns = [
       /["'](https?:\/\/[^"'\s]+(?:master|playlist)[^"'\s]*)/gi,
       /["'](https?:\/\/[^"'\s]+\.m3u8[^"'\s]*)/gi,
@@ -993,7 +1029,7 @@ Deno.serve(async (req) => {
     // ── Fonte B (MegaEmbed) - 5s timeout ──
     if (shouldTry("megaembed") && !videoUrl) {
       try {
-        const me = await withTimeout(tryMegaEmbed(tmdb_id, isMovie, s, e), 6000, "src-b");
+        const me = await withTimeout(tryMegaEmbed(tmdb_id, isMovie, s, e), 15000, "src-b");
         if (me) { videoUrl = me.url; videoType = me.type; provider = "megaembed"; }
       } catch (err) { console.log(`[extract] Provider B error: ${err}`); }
     }
