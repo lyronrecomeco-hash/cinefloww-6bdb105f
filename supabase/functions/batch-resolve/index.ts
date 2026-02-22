@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
       .from("resolve_failures")
       .delete()
       .lt("attempted_at", retryThreshold)
-      .select("*", { count: "exact", head: true });
+      .select("*", { count: "exact" });
     
     if (clearedCount && clearedCount > 0) {
       console.log(`[batch-resolve] Cleared ${clearedCount} old failures for retry`);

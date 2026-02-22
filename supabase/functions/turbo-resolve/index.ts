@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
       .from("resolve_failures")
       .delete()
       .gte("tmdb_id", 0)
-      .select("*", { count: "exact", head: true });
+      .select("*", { count: "exact" });
 
     console.log(`[turbo-resolve] Cleared ${count} failures`);
 

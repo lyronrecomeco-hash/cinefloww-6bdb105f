@@ -54,28 +54,41 @@ const AdminLayout = () => {
   const location = useLocation();
 
   useEffect(() => {
+    let isMounted = true;
+
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) { navigate("/admin/login"); return; }
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!isMounted) return;
+        if (!session) { navigate("/admin/login"); return; }
 
-      const { data: roles } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", session.user.id)
-        .eq("role", "admin");
+        const { data: roles } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", session.user.id)
+          .eq("role", "admin");
 
-      if (!roles?.length) { await supabase.auth.signOut(); navigate("/admin/login"); return; }
-      setUserEmail(session.user.email || "");
-      setLoading(false);
+        if (!isMounted) return;
+        if (!roles?.length) { await supabase.auth.signOut(); navigate("/admin/login"); return; }
+        setUserEmail(session.user.email || "");
 
-      // Fetch initial pending count
-      const { count } = await supabase
-        .from("content_requests")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "pending");
-      const c = count || 0;
-      setPendingRequests(c);
-      prevPendingRef.current = c;
+        // Fetch initial pending count (non-blocking)
+        supabase
+          .from("content_requests")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "pending")
+          .then(({ count }) => {
+            if (!isMounted) return;
+            const c = count || 0;
+            setPendingRequests(c);
+            prevPendingRef.current = c;
+          });
+      } catch (err) {
+        console.error("[AdminLayout] Auth check failed:", err);
+        if (isMounted) navigate("/admin/login");
+      } finally {
+        if (isMounted) setLoading(false);
+      }
     };
 
     checkAuth();
@@ -84,7 +97,10 @@ const AdminLayout = () => {
       if (event === "SIGNED_OUT") navigate("/admin/login");
     });
 
-    return () => subscription.unsubscribe();
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, [navigate]);
 
   // Real-time subscription for new requests

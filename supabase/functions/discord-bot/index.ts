@@ -37,8 +37,10 @@ async function verifyDiscordSignature(req: Request, body: string): Promise<boole
   const timestamp = req.headers.get("x-signature-timestamp");
   if (!signature || !timestamp) return false;
   try {
-    const key = await crypto.subtle.importKey("raw", hexToUint8Array(PUBLIC_KEY), { name: "Ed25519" }, false, ["verify"]);
-    return await crypto.subtle.verify({ name: "Ed25519" }, key, hexToUint8Array(signature), new TextEncoder().encode(timestamp + body));
+    const keyData = hexToUint8Array(PUBLIC_KEY) as unknown as BufferSource;
+    const key = await crypto.subtle.importKey("raw", keyData, { name: "Ed25519" }, false, ["verify"]);
+    const sigData = hexToUint8Array(signature) as unknown as BufferSource;
+    return await crypto.subtle.verify({ name: "Ed25519" }, key, sigData, new TextEncoder().encode(timestamp + body));
   } catch { return false; }
 }
 
@@ -375,10 +377,10 @@ Deno.serve(async (req) => {
         await logEvent("command_lyne", query, { user_tag: userTag, guild_id: interaction.guild_id });
       } else if (commandName === "lancamentos") {
         response = await handleLancamentos(siteUrl);
-        await logEvent("command_lancamentos", null, { user_tag: userTag, guild_id: interaction.guild_id });
+        await logEvent("command_lancamentos", undefined, { user_tag: userTag, guild_id: interaction.guild_id });
       } else if (commandName === "stats") {
         response = await handleStats();
-        await logEvent("command_stats", null, { user_tag: userTag, guild_id: interaction.guild_id });
+        await logEvent("command_stats", undefined, { user_tag: userTag, guild_id: interaction.guild_id });
       } else {
         response = { type: 4, data: { content: "Comando não reconhecido." } };
       }
