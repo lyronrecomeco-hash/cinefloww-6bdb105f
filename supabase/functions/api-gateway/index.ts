@@ -109,7 +109,7 @@ function isBot(ua: string): boolean {
 function isValidOrigin(req: Request): boolean {
   const origin = req.headers.get("origin") || req.headers.get("referer") || "";
   if (!origin) return true; // Allow no-origin (server-to-server)
-  return origin.includes(ALLOWED_ORIGIN) || origin.includes("localhost") || origin.includes("lovable.app") || origin.includes("lovable.dev");
+  return origin.includes(ALLOWED_ORIGIN) || origin.includes("localhost") || origin.includes("lvbl.app") || origin.includes("lvbl.dev");
 }
 
 // Periodic cleanup of maps to prevent memory leaks

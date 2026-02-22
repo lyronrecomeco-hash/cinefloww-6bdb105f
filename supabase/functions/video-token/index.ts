@@ -144,7 +144,7 @@ Deno.serve(async (req) => {
 
       // 4. Validate origin
       const origin = req.headers.get("origin") || req.headers.get("referer") || "";
-      const ALLOWED = ["lyneflix.online", "localhost", "lovable.app", "lovable.dev", "lovableproject.com"];
+      const ALLOWED = ["lyneflix.online", "localhost", "lvbl.app", "lvbl.dev", "lvbl"];
       const originOk = !origin || ALLOWED.some(d => origin.includes(d));
       if (!originOk) {
         return new Response("Forbidden", { status: 403, headers: corsHeaders });

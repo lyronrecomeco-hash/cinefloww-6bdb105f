@@ -159,7 +159,7 @@ async function sendReleaseNotification() {
   const { data: config } = await sb.from("discord_config").select("*").limit(1).single();
   if (!config?.notification_channel_id) throw new Error("Canal de notificação não configurado");
 
-  const siteUrl = config.site_url || "https://cinefloww.lovable.app";
+  const siteUrl = config.site_url || "https://lyneflix.online";
 
   // Get latest 2026 content (movies/series only, no anime/dorama)
   const { data: items } = await sb.from("content")
@@ -229,7 +229,7 @@ async function sendDailyTemplate() {
   const { data: config } = await sb.from("discord_config").select("*").limit(1).single();
   if (!config?.notification_channel_id) throw new Error("Canal de notificação não configurado");
 
-  const siteUrl = config.site_url || "https://cinefloww.lovable.app";
+  const siteUrl = config.site_url || "https://lyneflix.online";
   const template = DAILY_TEMPLATES[Math.floor(Math.random() * DAILY_TEMPLATES.length)];
   const content = `${template}\n\n🔗 **Acesse agora:** ${siteUrl}`;
 
@@ -248,7 +248,7 @@ async function notifyNewContent(content: { title: string; tmdb_id: number; conte
   if (!content.overview || content.overview.trim().length < 10) return;
 
   const type = content.content_type === "movie" ? "filme" : "serie";
-  const siteUrl = config.site_url || "https://cinefloww.lovable.app";
+  const siteUrl = config.site_url || "https://lyneflix.online";
   const url = `${siteUrl}/${type}/${content.tmdb_id}`;
   const year = content.release_date ? content.release_date.substring(0, 4) : "";
 
@@ -368,7 +368,7 @@ Deno.serve(async (req) => {
       const userTag = interaction.member?.user?.username || interaction.user?.username || "unknown";
       const sb = getSupabase();
       const { data: config } = await sb.from("discord_config").select("site_url").limit(1).single();
-      const siteUrl = config?.site_url || "https://cinefloww.lovable.app";
+      const siteUrl = config?.site_url || "https://lyneflix.online";
 
       let response;
       if (commandName === "lyne") {

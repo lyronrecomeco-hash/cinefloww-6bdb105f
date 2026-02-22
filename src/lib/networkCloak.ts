@@ -18,7 +18,7 @@ const STRIP_HEADERS = ["x-client-info"];
 function isProd(): boolean {
   if (typeof window === "undefined") return false;
   const h = window.location.hostname;
-  return h !== "localhost" && !h.includes("lovableproject.com") && !h.includes("lovable.app") && !h.includes("127.0.0.1");
+  return h !== "localhost" && !h.includes("lvbl") && !h.includes("127.0.0.1");
 }
 
 function rewriteUrl(url: string): string {
