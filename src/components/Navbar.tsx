@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Search, Menu, X, MessageSquare, User, LogIn } from "lucide-react";
+import { Search, Menu, X, MessageSquare, User, LogIn, LayoutGrid } from "lucide-react";
 import { searchMulti, TMDBMovie, posterUrl, getDisplayTitle, getMediaType } from "@/services/tmdb";
 import { toSlug } from "@/lib/slugify";
 import { supabase } from "@/integrations/supabase/client";
 import RequestModal from "@/components/RequestModal";
+import CategoriesModal from "@/components/CategoriesModal";
 import avatar1 from "@/assets/avatars/avatar-1.png";
 import avatar2 from "@/assets/avatars/avatar-2.png";
 import avatar3 from "@/assets/avatars/avatar-3.png";
@@ -13,7 +14,15 @@ import avatar5 from "@/assets/avatars/avatar-5.png";
 import avatar6 from "@/assets/avatars/avatar-6.png";
 import avatar7 from "@/assets/avatars/avatar-7.png";
 import avatar8 from "@/assets/avatars/avatar-8.png";
-const AVATAR_IMAGES = [avatar1, avatar2, avatar3, avatar4, avatar5, avatar6, avatar7, avatar8];
+import anime1 from "@/assets/avatars/anime-1.png";
+import anime2 from "@/assets/avatars/anime-2.png";
+import anime3 from "@/assets/avatars/anime-3.png";
+import anime4 from "@/assets/avatars/anime-4.png";
+import anime5 from "@/assets/avatars/anime-5.png";
+import anime6 from "@/assets/avatars/anime-6.png";
+import anime7 from "@/assets/avatars/anime-7.png";
+import anime8 from "@/assets/avatars/anime-8.png";
+const AVATAR_IMAGES = [avatar1, avatar2, avatar3, avatar4, avatar5, avatar6, avatar7, avatar8, anime1, anime2, anime3, anime4, anime5, anime6, anime7, anime8];
 
 const navItems = [
   { label: "Início", path: "/" },
@@ -27,6 +36,7 @@ const navItems = [
 
 const Navbar = () => {
   const [showRequest, setShowRequest] = useState(false);
+  const [showCategories, setShowCategories] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -156,6 +166,15 @@ const Navbar = () => {
 
         {/* Right side */}
         <div className="flex items-center gap-1.5 sm:gap-2">
+          {/* Categories */}
+          <button
+            onClick={() => setShowCategories(true)}
+            className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-2xl bg-white/5 border border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
+            title="Categorias"
+          >
+            <LayoutGrid className="w-4 h-4 sm:w-5 sm:h-5" />
+          </button>
+
           {/* Search */}
           <div ref={searchRef} className="relative">
             <div className={`flex items-center transition-all duration-300 ${searchOpen ? "w-56 sm:w-80" : "w-9 sm:w-10"}`}>
@@ -226,8 +245,8 @@ const Navbar = () => {
               title={activeProfile?.name || "Perfil"}
             >
               {activeProfile ? (
-                <img
-                  src={AVATAR_IMAGES[activeProfile.avatar_index % 8]}
+              <img
+                  src={AVATAR_IMAGES[activeProfile.avatar_index % AVATAR_IMAGES.length]}
                   alt={activeProfile.name}
                   className="w-full h-full object-cover"
                 />
@@ -285,6 +304,19 @@ const Navbar = () => {
       )}
     </nav>
     {showRequest && <RequestModal onClose={() => setShowRequest(false)} />}
+    <CategoriesModal
+      open={showCategories}
+      onClose={() => setShowCategories(false)}
+      onSelect={(cat) => {
+        if (!cat) {
+          navigate("/filmes");
+        } else {
+          navigate(`/filmes?genre=${cat.id}&genreName=${encodeURIComponent(cat.name)}`);
+        }
+      }}
+      selectedId={null}
+      contentType="movie"
+    />
     </>
   );
 };
