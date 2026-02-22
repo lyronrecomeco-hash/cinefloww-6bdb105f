@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { X, FolderOpen } from "lucide-react";
+import { createPortal } from "react-dom";
+import { X } from "lucide-react";
 
 // TMDB genre IDs mapped to Portuguese names
 const TMDB_MOVIE_GENRES = [
@@ -55,8 +56,8 @@ const CategoriesModal = ({ open, onClose, onSelect, selectedId, contentType = "m
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={onClose}>
+  return createPortal(
+    <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <div
         className="relative glass-strong rounded-2xl border border-white/10 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200"
@@ -97,7 +98,8 @@ const CategoriesModal = ({ open, onClose, onSelect, selectedId, contentType = "m
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
 

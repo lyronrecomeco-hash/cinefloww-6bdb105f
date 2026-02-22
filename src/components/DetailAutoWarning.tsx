@@ -13,10 +13,10 @@ const WARNINGS = [
   },
   {
     id: "site_new",
-    title: "🆕 Site em construção",
-    message: "A LyneFlix está adicionando conteúdos diariamente.\n\nSe este título não carregar, pode reportar — nossa equipe resolve rápido!",
-    button_text: "Entendi",
-    intervalHours: 1,
+    title: "🔄 Atualização em Andamento",
+    message: "A LyneFlix está funcionando normalmente! 🎬\n\nEstamos realizando uma grande atualização que pode levar alguns dias para ser concluída. Durante esse período, você pode aproveitar todo o conteúdo disponível.\n\n⚠️ Alguns títulos podem apresentar falhas temporárias de carregamento. Se encontrar algum problema, basta reportar que resolvemos rapidamente!",
+    button_text: "Entendi, vou aproveitar!",
+    intervalHours: 2,
   },
   {
     id: "report_help",
