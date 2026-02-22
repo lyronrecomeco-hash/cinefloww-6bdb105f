@@ -8,6 +8,8 @@
     { "source": "/b/functions/:path*", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/functions/:path*" },
     { "source": "/b/realtime/:path*", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/realtime/:path*" },
     { "source": "/b/auth/:path*", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/auth/:path*" },
+    { "source": "/sitemap.xml", "destination": "/sitemap.xml" },
+    { "source": "/robots.txt", "destination": "/robots.txt" },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
