@@ -13,7 +13,7 @@ const menuItems = [
   { label: "Doramas", path: "/admin/doramas", icon: Drama },
   { label: "Animes", path: "/admin/animes", icon: Sparkles },
   { label: "Pedidos", path: "/admin/pedidos", icon: MessageSquare, badge: true },
-  { label: "Reports", path: "/admin/reports", icon: Flag },
+  { label: "ADS Manager", path: "/admin/ads", icon: Flag },
   { label: "Categorias", path: "/admin/categorias", icon: FolderOpen },
   { label: "Banco", path: "/admin/banco", icon: Database },
   { label: "Bot Discord", path: "/admin/discord", icon: Bot },

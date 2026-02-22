@@ -43,6 +43,7 @@ const LogsPage = lazy(() => import("./pages/admin/LogsPage"));
 const SecurityMonitor = lazy(() => import("./pages/admin/SecurityMonitor"));
 const TelegramPage = lazy(() => import("./pages/admin/TelegramPage"));
 const ReportsPage = lazy(() => import("./pages/admin/ReportsPage"));
+const AdsManagerPage = lazy(() => import("./pages/admin/AdsManagerPage"));
 const UsersPage = lazy(() => import("./pages/admin/UsersPage"));
 const WatchRoomsPage = lazy(() => import("./pages/admin/WatchRoomsPage"));
 
@@ -111,7 +112,7 @@ const App = () => (
               <Route path="categorias" element={<CategoriesManager />} />
               <Route path="pedidos" element={<RequestsPage />} />
               <Route path="banco" element={<BancoPage />} />
-              <Route path="reports" element={<ReportsPage />} />
+              <Route path="ads" element={<AdsManagerPage />} />
               {/* TV manager removed */}
               <Route path="discord" element={<DiscordBotPage />} />
               <Route path="logs" element={<LogsPage />} />

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-
+import AdGateModal from "@/components/AdGateModal";
 import { toast } from "sonner";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -47,15 +47,23 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [showReport, setShowReport] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [inMyList, setInMyList] = useState(false);
-  const [hasVideo, setHasVideo] = useState<boolean | null>(null); // null = loading
+  const [hasVideo, setHasVideo] = useState<boolean | null>(null);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [showAdGate, setShowAdGate] = useState(false);
+  const [adGateCallback, setAdGateCallback] = useState<(() => void) | null>(null);
+  const [isAdUser, setIsAdUser] = useState(false);
 
-  // Load active profile
+  // Load active profile + check if ad user
   useEffect(() => {
     const stored = localStorage.getItem("lyneflix_active_profile");
     if (stored) {
       try { setActiveProfileId(JSON.parse(stored).id); } catch {}
     }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.email === "admin-st@gmail.com") {
+        setIsAdUser(true);
+      }
+    });
   }, []);
 
   useEffect(() => {
@@ -153,14 +161,31 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const similar = detail.similar?.results ?? [];
   const trailer = detail.videos?.results.find((v) => v.type === "Trailer" && v.site === "YouTube");
 
-  const handleWatchClick = () => {
-    // If user has a saved audio preference, skip the modal entirely
+  const proceedToWatch = () => {
     const savedPref = localStorage.getItem("cineflow_audio_pref");
     if (savedPref) {
       handleAudioSelect(savedPref);
       return;
     }
     setShowAudioModal(true);
+  };
+
+  const handleWatchClick = () => {
+    if (isAdUser) {
+      // Check if ad was already viewed this session for this content
+      const adKey = `ad_viewed_${type}_${id}`;
+      if (sessionStorage.getItem(adKey)) {
+        proceedToWatch();
+        return;
+      }
+      setAdGateCallback(() => () => {
+        sessionStorage.setItem(adKey, "1");
+        proceedToWatch();
+      });
+      setShowAdGate(true);
+      return;
+    }
+    proceedToWatch();
   };
 
   // Prefetch: check if video is cached (existence only, no URL exposed)
@@ -465,6 +490,17 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         />
       )}
       {showLoginModal && <LoginRequiredModal onClose={() => setShowLoginModal(false)} />}
+      {showAdGate && (
+        <AdGateModal
+          contentTitle={getDisplayTitle(detail)}
+          tmdbId={detail.id}
+          onContinue={() => {
+            setShowAdGate(false);
+            adGateCallback?.();
+          }}
+          onClose={() => setShowAdGate(false)}
+        />
+      )}
     </div>
   );
 };
