@@ -308,13 +308,12 @@ async function tryMegaEmbed(
   const urlVariants = (domain: string) => {
     if (isMovie) {
       return [
-        `${domain}/embed/movie?tmdb=${tmdbId}`,
         `${domain}/embed/${tmdbId}`,
       ];
     }
     return [
-      `${domain}/embed/tv?tmdb=${tmdbId}&season=${s}&episode=${e}`,
       `${domain}/embed/${tmdbId}/${s}/${e}`,
+      `${domain}/embed/${tmdbId}-${s}-${e}`,
     ];
   };
 
