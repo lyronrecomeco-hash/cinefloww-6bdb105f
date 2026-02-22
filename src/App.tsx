@@ -77,6 +77,7 @@ const App = () => (
       <Sonner />
       <SiteAlertModal />
       <OneTimeUpdateModal />
+      <MaintenanceModal />
       <BrowserRouter>
         <Suspense fallback={<PageLoader />}>
           <Routes>

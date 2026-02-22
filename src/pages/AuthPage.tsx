@@ -69,86 +69,106 @@ const AuthPage = () => {
     }
     setLoading(true);
 
+    // Helper: race a promise against a timeout
+    const withTimeout = <T,>(p: Promise<T>, ms: number, label: string): Promise<T> =>
+      Promise.race([
+        p,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${label} demorou demais. Tente novamente.`)), ms)),
+      ]);
+
     try {
       if (mode === "signup") {
-        const { data, error } = await supabase.auth.signUp({
-          email: email.trim(),
-          password,
-          options: {
-            data: { name: name.trim() },
-            emailRedirectTo: "https://lyneflix.online",
-          },
-        });
+        const { data, error } = await withTimeout(
+          supabase.auth.signUp({
+            email: email.trim(),
+            password,
+            options: {
+              data: { name: name.trim() },
+              emailRedirectTo: "https://lyneflix.online",
+            },
+          }),
+          15000,
+          "Cadastro"
+        );
         if (error) throw error;
-        await logAuthEvent("signup", data.user?.id, { email: email.trim() });
+        // Fire-and-forget audit
+        logAuthEvent("signup", data.user?.id, { email: email.trim() }).catch(() => {});
 
         if (data.session) {
-          await supabase.from("user_profiles").insert({
+          Promise.resolve(supabase.from("user_profiles").insert({
             user_id: data.user!.id,
             name: name.trim(),
             is_default: true,
             avatar_index: Math.floor(Math.random() * 8),
-          });
+          })).catch(() => {});
           navigate("/perfis");
         }
       } else {
-        const { data, error } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password,
-        });
+        const { data, error } = await withTimeout(
+          supabase.auth.signInWithPassword({
+            email: email.trim(),
+            password,
+          }),
+          15000,
+          "Login"
+        );
         if (error) {
-          await logAuthEvent("login_failed", undefined, { email: email.trim(), error: error.message });
+          logAuthEvent("login_failed", undefined, { email: email.trim(), error: error.message }).catch(() => {});
           throw error;
         }
 
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("banned, ban_reason")
-          .eq("user_id", data.user.id)
-          .single();
+        // Fire-and-forget: audit + profile check (don't block navigation)
+        logAuthEvent("login_success", data.user.id).catch(() => {});
 
-        if (profile?.banned) {
-          await supabase.auth.signOut();
-          await logAuthEvent("login_banned", data.user.id);
-          toast({
-            title: "Conta suspensa",
-            description: profile.ban_reason || "Sua conta foi suspensa. Contate o suporte.",
-            variant: "destructive",
-          });
-          return;
-        }
+        // Background profile/ban check — don't block login
+        (async () => {
+          try {
+            const { data: profile } = await Promise.race([
+              supabase.from("profiles").select("banned, ban_reason, login_count").eq("user_id", data.user.id).single(),
+              new Promise<null>((r) => setTimeout(() => r(null), 4000)),
+            ]) as any;
 
-        const ipHash = await getIpHash();
-        await supabase
-          .from("profiles")
-          .update({
-            last_login_at: new Date().toISOString(),
-            login_count: (profile as any)?.login_count ? (profile as any).login_count + 1 : 1,
-            ip_hash: ipHash,
-          })
-          .eq("user_id", data.user.id);
+            if (profile?.banned) {
+              await supabase.auth.signOut();
+              toast({
+                title: "Conta suspensa",
+                description: profile.ban_reason || "Sua conta foi suspensa. Contate o suporte.",
+                variant: "destructive",
+              });
+              navigate("/conta");
+              return;
+            }
 
-        await logAuthEvent("login_success", data.user.id);
+            // Update login stats (fire-and-forget)
+            const ipHash = await getIpHash();
+            Promise.resolve(supabase.from("profiles").update({
+              last_login_at: new Date().toISOString(),
+              login_count: (profile?.login_count || 0) + 1,
+              ip_hash: ipHash,
+            }).eq("user_id", data.user.id)).catch(() => {});
+          } catch {}
+        })();
 
-        const { data: profiles } = await supabase
-          .from("user_profiles")
-          .select("id")
-          .eq("user_id", data.user.id);
+        // Ensure user_profiles exist (fire-and-forget)
+        Promise.resolve(supabase.from("user_profiles").select("id").eq("user_id", data.user.id)).then(({ data: profiles }) => {
+          if (!profiles?.length) {
+            Promise.resolve(supabase.from("user_profiles").insert({
+              user_id: data.user.id,
+              name: data.user.user_metadata?.name || email.split("@")[0],
+              is_default: true,
+              avatar_index: Math.floor(Math.random() * 8),
+            })).catch(() => {});
+          }
+        }).catch(() => {});
 
-        if (!profiles?.length) {
-          await supabase.from("user_profiles").insert({
-            user_id: data.user.id,
-            name: data.user.user_metadata?.name || email.split("@")[0],
-            is_default: true,
-            avatar_index: Math.floor(Math.random() * 8),
-          });
-        }
-
+        // Navigate immediately — don't wait for DB checks
         navigate("/perfis");
       }
     } catch (err: any) {
       const msg = err.message?.includes("Invalid login")
         ? "E-mail ou senha incorretos"
+        : err.message?.includes("demorou demais")
+        ? "O servidor está lento. Tente novamente em alguns segundos."
         : err.message || "Erro ao processar";
       toast({ title: "Erro", description: msg, variant: "destructive" });
     } finally {
