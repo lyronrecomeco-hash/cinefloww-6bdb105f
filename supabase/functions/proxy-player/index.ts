@@ -150,7 +150,8 @@ const ALLOWED_DOMAINS = [
   "vembed.stream", "vembed.online",
   "autoembed.co", "videasy.net",
   "vidsrc.cc", "vidsrc.net", "vidsrc.xyz", "vidsrc.icu",
-  "megaembed.com",
+  "megaembed.com", "megaembed.xyz",
+  "superflixapi.help",
 ];
 
 function isAllowedUrl(url: string): boolean {
