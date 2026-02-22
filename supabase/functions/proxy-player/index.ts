@@ -196,6 +196,7 @@ Deno.serve(async (req) => {
       "embedplay.click": "https://embedplayapi.site/",
       "embedplayapi.site": "https://embedplayapi.site/",
       "playerflixapi.com": "https://playerflixapi.com/",
+      "superflixapi.help": "https://megaembed.com/",
     };
     const referer = refererMap[hostname] || origin + "/";
 
