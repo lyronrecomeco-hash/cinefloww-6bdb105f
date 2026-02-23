@@ -27,7 +27,8 @@ const MyListPage = lazy(() => import("./pages/MyListPage"));
 const AuthPage = lazy(() => import("./pages/AuthPage"));
 const ProfileSelector = lazy(() => import("./pages/ProfileSelector"));
 const ImportListPage = lazy(() => import("./pages/ImportListPage"));
-const TVPage = lazy(() => import("./pages/TVPage"));
+// TVPage disabled
+// const TVPage = lazy(() => import("./pages/TVPage"));
 
 // Admin (lazy loaded)
 const AdminLogin = lazy(() => import("./pages/AdminLogin"));
@@ -95,8 +96,7 @@ const App = () => (
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />
             <Route path="/player" element={<PlayerPage />} />
             <Route path="/player/:type/:id" element={<PlayerPage />} />
-            <Route path="/lynetv" element={<TVPage />} />
-            <Route path="/tv/:channelId" element={<TVPage />} />
+            {/* TV Lyne desativada */}
             <Route path="/dmca" element={<DmcaPage />} />
             <Route path="/termos" element={<TermsPage />} />
             <Route path="/dados" element={<DadosPage />} />
