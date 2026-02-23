@@ -1,9 +1,9 @@
-import { useEffect, useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
-import { Radio, Search, Tv2 } from "lucide-react";
+import { Radio, Search, Tv2, ArrowLeft, Loader2 } from "lucide-react";
 
 interface TVChannel {
   id: string;
@@ -31,6 +31,7 @@ interface EPGEntry {
 }
 
 const TVPage = () => {
+  const { channelId } = useParams<{ channelId?: string }>();
   const [channels, setChannels] = useState<TVChannel[]>([]);
   const [categories, setCategories] = useState<TVCategory[]>([]);
   const [epgMap, setEpgMap] = useState<Record<string, EPGEntry["epg"]>>({});
@@ -38,6 +39,12 @@ const TVPage = () => {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+
+  // Player state
+  const [playerChannel, setPlayerChannel] = useState<TVChannel | null>(null);
+  const [playerHtml, setPlayerHtml] = useState<string | null>(null);
+  const [playerLoading, setPlayerLoading] = useState(false);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -75,6 +82,39 @@ const TVPage = () => {
     return () => clearInterval(interval);
   }, [fetchEpg]);
 
+  // Handle channel route - auto-open player
+  useEffect(() => {
+    if (channelId && channels.length > 0) {
+      const ch = channels.find(c => c.id === channelId);
+      if (ch) openPlayer(ch);
+    }
+  }, [channelId, channels]);
+
+  const openPlayer = useCallback(async (channel: TVChannel) => {
+    setPlayerChannel(channel);
+    setPlayerLoading(true);
+    setPlayerHtml(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("proxy-tv", {
+        body: { url: channel.stream_url },
+      });
+
+      if (!error && data?.html) {
+        setPlayerHtml(data.html);
+      }
+    } catch {
+      // fallback: show embed directly
+    }
+    setPlayerLoading(false);
+  }, []);
+
+  const closePlayer = useCallback(() => {
+    setPlayerChannel(null);
+    setPlayerHtml(null);
+    navigate("/lynetv", { replace: true });
+  }, [navigate]);
+
   const filtered = channels.filter((ch) => {
     const matchCat = activeCategory === 0 || ch.categories?.includes(activeCategory);
     const matchSearch = !search || ch.name.toLowerCase().includes(search.toLowerCase());
@@ -84,6 +124,55 @@ const TVPage = () => {
   const handleWatch = (channel: TVChannel) => {
     navigate(`/tv/${channel.id}`);
   };
+
+  // ===== PLAYER VIEW =====
+  if (playerChannel) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-black flex flex-col">
+        {/* Header */}
+        <div className="flex items-center gap-3 px-4 py-3 bg-black/80 backdrop-blur-sm z-10">
+          <button onClick={closePlayer} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
+            <ArrowLeft className="w-4 h-4 text-white" />
+          </button>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-semibold text-white truncate">{playerChannel.name}</h2>
+            <div className="flex items-center gap-1.5">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span>
+              </span>
+              <span className="text-[10px] text-red-400 font-bold uppercase tracking-wider">AO VIVO</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Player */}
+        <div className="flex-1 relative">
+          {playerLoading ? (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Loader2 className="w-8 h-8 text-primary animate-spin" />
+            </div>
+          ) : playerHtml ? (
+            <iframe
+              ref={iframeRef}
+              srcDoc={playerHtml}
+              className="w-full h-full border-0"
+              allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              title={playerChannel.name}
+            />
+          ) : (
+            <iframe
+              src={playerChannel.stream_url}
+              className="w-full h-full border-0"
+              allow="autoplay; encrypted-media; fullscreen"
+              title={playerChannel.name}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

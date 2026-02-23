@@ -27,6 +27,7 @@ const MyListPage = lazy(() => import("./pages/MyListPage"));
 const AuthPage = lazy(() => import("./pages/AuthPage"));
 const ProfileSelector = lazy(() => import("./pages/ProfileSelector"));
 const ImportListPage = lazy(() => import("./pages/ImportListPage"));
+const TVPage = lazy(() => import("./pages/TVPage"));
 
 // Admin (lazy loaded)
 const AdminLogin = lazy(() => import("./pages/AdminLogin"));
@@ -49,6 +50,7 @@ const UsersPage = lazy(() => import("./pages/admin/UsersPage"));
 const WatchRoomsPage = lazy(() => import("./pages/admin/WatchRoomsPage"));
 const IntegrationsPage = lazy(() => import("./pages/admin/IntegrationsPage"));
 const ContentSourcesPage = lazy(() => import("./pages/admin/ContentSourcesPage"));
+const TVManager = lazy(() => import("./pages/admin/TVManager"));
 
 
 
@@ -93,7 +95,8 @@ const App = () => (
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />
             <Route path="/player" element={<PlayerPage />} />
             <Route path="/player/:type/:id" element={<PlayerPage />} />
-            {/* TV routes removed */}
+            <Route path="/lynetv" element={<TVPage />} />
+            <Route path="/tv/:channelId" element={<TVPage />} />
             <Route path="/dmca" element={<DmcaPage />} />
             <Route path="/termos" element={<TermsPage />} />
             <Route path="/dados" element={<DadosPage />} />
@@ -117,7 +120,7 @@ const App = () => (
               <Route path="pedidos" element={<RequestsPage />} />
               <Route path="banco" element={<BancoPage />} />
               <Route path="ads" element={<AdsManagerPage />} />
-              {/* TV manager removed */}
+              <Route path="tv" element={<TVManager />} />
               <Route path="discord" element={<DiscordBotPage />} />
               <Route path="logs" element={<LogsPage />} />
               <Route path="seguranca" element={<SecurityMonitor />} />
