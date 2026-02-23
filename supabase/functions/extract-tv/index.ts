@@ -66,12 +66,13 @@ Deno.serve(async (req) => {
     }
 
     const embedUrl = channel.stream_url;
+    const isCineveo = embedUrl.includes("cineveo");
 
     // Fetch the embed page
     const resp = await fetch(embedUrl, {
       headers: {
         "User-Agent": UA,
-        "Referer": new URL(embedUrl).origin + "/",
+        "Referer": isCineveo ? "https://cinetvembed.cineveo.site/" : new URL(embedUrl).origin + "/",
         "Accept": "text/html,application/xhtml+xml",
       },
     });
