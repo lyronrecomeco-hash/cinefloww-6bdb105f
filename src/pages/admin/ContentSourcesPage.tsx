@@ -165,11 +165,11 @@ const ContentSourcesPage = () => {
 
   const loadVideoStatuses = async (tmdbId: number, type: string) => {
     setLoadingVideos(true);
+    // Query ALL content_types for this tmdb_id (series/tv/anime/dorama/movie can vary)
     const { data } = await supabase
       .from("video_cache")
-      .select("tmdb_id, video_url, video_type, provider, season, episode")
+      .select("tmdb_id, video_url, video_type, provider, season, episode, content_type")
       .eq("tmdb_id", tmdbId)
-      .eq("content_type", type === "tv" ? "tv" : "movie")
       .gt("expires_at", new Date().toISOString());
 
     const map = new Map<string, { url: string; type: string; provider: string }>();
