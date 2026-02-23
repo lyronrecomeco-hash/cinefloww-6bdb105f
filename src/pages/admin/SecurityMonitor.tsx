@@ -88,7 +88,7 @@ const SecurityMonitor = () => {
   useEffect(() => {
     fetchData();
     if (liveMode) {
-      intervalRef.current = setInterval(fetchData, 1000);
+      intervalRef.current = setInterval(fetchData, 10000);
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [liveMode, fetchData]);
@@ -133,7 +133,7 @@ const SecurityMonitor = () => {
           { label: "Requisições 24h", value: stats.totalRequests, icon: Activity, color: "text-blue-400" },
           { label: "Bloqueadas", value: stats.blockedRequests, icon: Ban, color: "text-red-400" },
           { label: "Taxa Bloqueio", value: `${stats.blockRate.toFixed(1)}%`, icon: Shield, color: stats.blockRate > 20 ? "text-red-400" : "text-green-400" },
-          { label: "IPs Únicos", value: stats.uniqueIPs, icon: Globe, color: "text-purple-400" },
+          { label: "Endpoints", value: stats.topEndpoints.length, icon: Globe, color: "text-purple-400" },
           { label: "Req/min", value: stats.requestsPerMinute, icon: Clock, color: stats.requestsPerMinute > 30 ? "text-red-400" : "text-green-400" },
           { label: "Visitantes Hoje", value: visitors.today, icon: Users, color: "text-primary" },
         ].map(s => (
@@ -197,7 +197,6 @@ const SecurityMonitor = () => {
               )}
               <span className="text-muted-foreground w-16 flex-shrink-0">{formatTime(log.accessed_at)}</span>
               <span className="font-mono truncate flex-1">{log.endpoint}</span>
-              <span className="text-muted-foreground font-mono text-[10px] w-20 flex-shrink-0 truncate">{log.ip_hash || "—"}</span>
               {log.reason && <span className="px-2 py-0.5 rounded bg-red-500/20 text-red-400 text-[10px]">{log.reason}</span>}
             </div>
           ))}
