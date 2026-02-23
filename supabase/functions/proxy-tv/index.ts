@@ -66,7 +66,7 @@ Deno.serve(async (req) => {
     }
 
     const parsed = new URL(channelUrl);
-    if (!parsed.hostname.includes("embedtv")) {
+    if (!parsed.hostname.includes("embedtv") && !parsed.hostname.includes("cineveo")) {
       return new Response(JSON.stringify({ error: "Invalid URL" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
