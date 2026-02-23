@@ -87,8 +87,13 @@ Deno.serve(async (req) => {
     const found = findVideoUrl(html);
 
     if (found) {
-      // Force HTTPS to avoid mixed-content blocking on HTTPS pages
       let secureUrl = found.url;
+      // Resolve relative URLs against the embed page origin
+      if (secureUrl.startsWith("/")) {
+        const embedOrigin = new URL(embedUrl).origin;
+        secureUrl = embedOrigin + secureUrl;
+      }
+      // Force HTTPS
       if (secureUrl.startsWith("http://")) {
         secureUrl = secureUrl.replace("http://", "https://");
       }
