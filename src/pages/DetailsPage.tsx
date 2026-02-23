@@ -82,15 +82,19 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setDetail(null);
+    setHasVideo(null);
     setShowSeasons(false);
     setShowCast(false);
     setShowAudioModal(false);
     setShowTrailer(false);
-    setHasVideo(null);
     const fetcher = type === "movie" ? getMovieDetails : getSeriesDetails;
     fetcher(id).then((data) => {
       if (cancelled) return;
+      if (!data) {
+        setDetail(null);
+        setLoading(false);
+        return;
+      }
       setDetail(data);
       setLoading(false);
       // Track view (non-blocking)
@@ -156,10 +160,11 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     );
   }
 
-  const imdbId = detail.imdb_id || detail.external_ids?.imdb_id || null;
-  const cast = detail.credits?.cast ?? [];
-  const similar = detail.similar?.results ?? [];
-  const trailer = detail.videos?.results.find((v) => v.type === "Trailer" && v.site === "YouTube");
+  const imdbId = detail?.imdb_id || detail?.external_ids?.imdb_id || null;
+  const cast = detail?.credits?.cast ?? [];
+  const similar = detail?.similar?.results ?? [];
+  const genres = detail?.genres ?? [];
+  const trailer = detail?.videos?.results?.find((v) => v.type === "Trailer" && v.site === "YouTube");
 
   const proceedToWatch = () => {
     const savedPref = localStorage.getItem("cineflow_audio_pref");
@@ -297,7 +302,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
             {/* Genres */}
             <div className="flex flex-wrap justify-center sm:justify-start gap-1.5 sm:gap-2 mb-3 sm:mb-4">
-              {detail.genres.map((g) => (
+              {genres.map((g) => (
                 <span key={g.id} className="px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-white/5 border border-white/10 text-[10px] sm:text-xs font-medium text-secondary-foreground">
                   {g.name}
                 </span>

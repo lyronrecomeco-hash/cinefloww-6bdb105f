@@ -139,6 +139,13 @@ const WatchPage = () => {
       const { data: cached } = await query.maybeSingle();
       if (cached?.video_url) {
         console.log("[WatchPage] Cache hit - instant play!");
+        // Handle iframe-proxy type from cache
+        if (cached.video_type === "iframe-proxy") {
+          setIframeProxyUrl(cached.video_url);
+          setPhase("iframe-intercept");
+          extractionStarted.current = true;
+          return;
+        }
         const result = { url: cached.video_url, type: cached.video_type || "m3u8", provider: cached.provider || "cache" };
         extractionResult.current = result;
         // If intro already done, go straight to playing

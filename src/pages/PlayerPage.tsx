@@ -169,14 +169,19 @@ const PlayerPage = () => {
 
       // 2. If cache hit, use instantly
       if (cacheResult.data?.video_url) {
-        setBankSources([{
-          url: cacheResult.data.video_url,
-          quality: "auto",
-          provider: cacheResult.data.provider || "cache",
-          type: cacheResult.data.video_type === "mp4" ? "mp4" : "m3u8",
-        }]);
-        setBankLoading(false);
-        return;
+        // Skip iframe-proxy type - need extraction instead
+        if (cacheResult.data.video_type === "iframe-proxy") {
+          // Fall through to extract-video which will handle it
+        } else {
+          setBankSources([{
+            url: cacheResult.data.video_url,
+            quality: "auto",
+            provider: cacheResult.data.provider || "cache",
+            type: cacheResult.data.video_type === "mp4" ? "mp4" : "m3u8",
+          }]);
+          setBankLoading(false);
+          return;
+        }
       }
 
       // 3. No cache, call extract-video

@@ -109,7 +109,7 @@ const Dashboard = () => {
           supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "dorama"),
           supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "anime"),
           supabase.from("content").select("id, title, poster_path, content_type, created_at").order("created_at", { ascending: false }).limit(5),
-          supabase.from("site_visitors").select("visitor_id, visited_at, pathname, hostname").eq("hostname", "lyneflix.online"),
+          supabase.from("site_visitors").select("visitor_id, visited_at, pathname, hostname").eq("hostname", "lyneflix.online").gte("visited_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()).order("visited_at", { ascending: false }).limit(1000),
         ]);
 
         setCounts({
@@ -136,10 +136,13 @@ const Dashboard = () => {
         schema: "public",
         table: "site_visitors",
       }, async () => {
-        const { data } = await supabase
+      const { data } = await supabase
           .from("site_visitors")
           .select("visitor_id, visited_at, pathname, hostname")
-          .eq("hostname", "lyneflix.online");
+          .eq("hostname", "lyneflix.online")
+          .gte("visited_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+          .order("visited_at", { ascending: false })
+          .limit(1000);
         if (data) processVisitorData(data);
       })
       .subscribe();
@@ -149,7 +152,10 @@ const Dashboard = () => {
       const { data } = await supabase
         .from("site_visitors")
         .select("visitor_id, visited_at, pathname, hostname")
-        .eq("hostname", "lyneflix.online");
+        .eq("hostname", "lyneflix.online")
+        .gte("visited_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+        .order("visited_at", { ascending: false })
+        .limit(1000);
       if (data) processVisitorData(data);
     }, 30000);
 
