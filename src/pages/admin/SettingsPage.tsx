@@ -136,7 +136,7 @@ const SettingsPage = () => {
   }
 
   return (
-    <div className="space-y-8 max-w-3xl">
+    <div className="space-y-8">
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
@@ -149,7 +149,7 @@ const SettingsPage = () => {
       </div>
 
       {/* General Settings */}
-      <div className="glass p-6 space-y-5">
+      <div className="glass p-6 space-y-5 max-w-3xl">
         <h2 className="font-display text-lg font-bold">Geral</h2>
 
         <div>
@@ -213,7 +213,7 @@ const SettingsPage = () => {
       </div>
 
       {/* Partners Section */}
-      <div className="glass p-6 space-y-5">
+      <div className="glass p-6 space-y-5 max-w-3xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
