@@ -135,7 +135,8 @@ const ContinueWatchingRow = () => {
 
       <div
         ref={scrollRef}
-        className="flex gap-2.5 sm:gap-4 overflow-x-auto scrollbar-hide px-3 sm:px-6 lg:px-12 pb-2 scroll-smooth snap-x snap-mandatory"
+        className="flex gap-2.5 sm:gap-4 overflow-x-auto scrollbar-hide px-3 sm:px-6 lg:px-12 pb-2 snap-x snap-proximity overscroll-x-contain touch-auto"
+        style={{ WebkitOverflowScrolling: "touch" }}
       >
         {items.map((item) => {
           const pct = item.duration_seconds > 0 ? (item.progress_seconds / item.duration_seconds) * 100 : 0;

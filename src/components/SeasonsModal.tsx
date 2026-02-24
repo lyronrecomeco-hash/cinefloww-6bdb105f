@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, forwardRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { X, Clock, Star, ChevronDown, Play, Check } from "lucide-react";
 import { TMDBSeason, TMDBEpisode, getSeasonDetails, posterUrl } from "@/services/tmdb";
@@ -15,7 +15,7 @@ interface SeasonsModalProps {
   onClose: () => void;
 }
 
-const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: SeasonsModalProps) => {
+const SeasonsModal = forwardRef<HTMLDivElement, SeasonsModalProps>(({ seriesId, seriesTitle, seasons, imdbId, onClose }, ref) => {
   const navigate = useNavigate();
   const validSeasons = seasons.filter((s) => s.season_number > 0);
   const [selectedSeason, setSelectedSeason] = useState(validSeasons[0]?.season_number ?? 1);
@@ -84,6 +84,7 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
       <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
         <div className="absolute inset-0 bg-background/80 backdrop-blur-xl" />
         <div
+          ref={ref}
           className="relative w-full sm:max-w-4xl h-[90vh] sm:h-auto sm:max-h-[85vh] glass-strong overflow-hidden animate-scale-in flex flex-col rounded-t-3xl sm:rounded-2xl"
           onClick={(e) => e.stopPropagation()}
         >
@@ -172,13 +173,15 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
       )}
     </>
   );
-};
+});
 
-const EpisodeCard = ({ episode, progress, onPlay }: {
+SeasonsModal.displayName = "SeasonsModal";
+
+const EpisodeCard = forwardRef<HTMLDivElement, {
   episode: TMDBEpisode;
   progress?: { progress: number; duration: number; completed: boolean };
   onPlay: () => void;
-}) => {
+}>(({ episode, progress, onPlay }, ref) => {
   const progressPct = progress && progress.duration > 0
     ? Math.min(100, (progress.progress / progress.duration) * 100)
     : 0;
@@ -192,7 +195,7 @@ const EpisodeCard = ({ episode, progress, onPlay }: {
   };
 
   return (
-    <div className={`flex gap-2.5 sm:gap-4 p-2 sm:p-3 rounded-xl sm:rounded-2xl border transition-all group ${
+    <div ref={ref} className={`flex gap-2.5 sm:gap-4 p-2 sm:p-3 rounded-xl sm:rounded-2xl border transition-all group ${
       isWatched ? "bg-white/[0.01] border-white/5 opacity-60" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-white/10"
     }`}>
       {/* Thumbnail */}
@@ -253,6 +256,8 @@ const EpisodeCard = ({ episode, progress, onPlay }: {
       </div>
     </div>
   );
-};
+});
+
+EpisodeCard.displayName = "EpisodeCard";
 
 export default SeasonsModal;

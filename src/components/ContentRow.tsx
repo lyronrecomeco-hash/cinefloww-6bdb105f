@@ -52,7 +52,7 @@ const ContentRow = forwardRef<HTMLElement, ContentRowProps>(({ title, movies, ic
 
       <div
         ref={scrollRef}
-        className="flex gap-2.5 sm:gap-4 overflow-x-auto scrollbar-hide px-3 sm:px-6 lg:px-12 pb-2 scroll-smooth snap-x snap-proximity sm:snap-mandatory touch-pan-x"
+        className="flex gap-2.5 sm:gap-4 overflow-x-auto scrollbar-hide px-3 sm:px-6 lg:px-12 pb-2 snap-x snap-proximity overscroll-x-contain touch-auto"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
         {movies.map((movie) => (
