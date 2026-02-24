@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Server, Copy, Check, Terminal, RefreshCw, Play, FileCode, Download, Zap, Wifi, WifiOff, Activity, Clock, Cpu, HardDrive } from "lucide-react";
+import { Server, Copy, Check, Terminal, RefreshCw, Play, FileCode, Download, Zap, Wifi, WifiOff, Activity, Clock, Cpu, HardDrive, Eye, EyeOff, Save } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { Badge } from "@/components/ui/badge";
@@ -390,6 +390,8 @@ const VpsManagerPage = () => {
   const [serviceRoleKey, setServiceRoleKey] = useState<string>("");
   const [heartbeat, setHeartbeat] = useState<VpsHeartbeat | null>(null);
   const [isOnline, setIsOnline] = useState(false);
+  const [showKey, setShowKey] = useState(false);
+  const [savingKey, setSavingKey] = useState(false);
 
   // Load service role key + heartbeat
   useEffect(() => {
@@ -452,6 +454,18 @@ const VpsManagerPage = () => {
       supabase.removeChannel(heartbeatChannel);
     };
   }, []);
+
+
+  const saveServiceRoleKey = async () => {
+    if (!serviceRoleKey.trim()) return;
+    setSavingKey(true);
+    const { error } = await supabase
+      .from("site_settings")
+      .upsert({ key: "vps_service_key", value: JSON.stringify(serviceRoleKey.trim()) }, { onConflict: "key" });
+    setSavingKey(false);
+    if (error) toast.error("Erro ao salvar chave: " + error.message);
+    else toast.success("Service Role Key salva! Os scripts já estarão preenchidos.");
+  };
 
   const copyToClipboard = (text: string, id: string) => {
     let finalText = text
@@ -612,11 +626,44 @@ const VpsManagerPage = () => {
         </div>
       </div>
 
+      {/* Service Role Key */}
+      <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 space-y-3">
+        <p className="text-xs font-semibold flex items-center gap-2">
+          🔑 Service Role Key
+          <span className="text-muted-foreground font-normal">(necessária para o heartbeat funcionar)</span>
+        </p>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <input
+              type={showKey ? "text" : "password"}
+              value={serviceRoleKey}
+              onChange={(e) => setServiceRoleKey(e.target.value)}
+              placeholder="Cole sua Service Role Key aqui..."
+              className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-xs font-mono pr-8 focus:outline-none focus:border-primary/40"
+            />
+            <button
+              onClick={() => setShowKey(!showKey)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+          <button
+            onClick={saveServiceRoleKey}
+            disabled={savingKey || !serviceRoleKey.trim()}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 transition-colors disabled:opacity-40"
+          >
+            <Save className="w-3 h-3" />
+            {savingKey ? "Salvando..." : "Salvar"}
+          </button>
+        </div>
+      </div>
+
       {/* Quick Start */}
       <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10">
         <p className="text-xs text-primary/80">
-          🚀 <strong>Quick Start:</strong> Copie o script de <strong>Instalação Completa</strong> (credenciais já preenchidas), 
-          cole no terminal da VPS e execute. Rode <code className="bg-primary/10 px-1 rounded">npm start</code> e o painel detecta automaticamente.
+          🚀 <strong>Quick Start:</strong> 1) Cole a Service Role Key acima e salve. 2) Copie o script de <strong>Instalação Completa</strong> abaixo. 
+          3) Cole no terminal da VPS e execute. O painel detecta instantaneamente.
         </p>
       </div>
 
