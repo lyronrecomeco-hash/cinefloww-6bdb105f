@@ -30,6 +30,22 @@ interface AuditLog {
   created_at: string;
 }
 
+interface SiteActivity {
+  id: string;
+  pathname: string | null;
+  visited_at: string;
+}
+
+interface WatchActivity {
+  tmdb_id: number;
+  content_type: string;
+  progress_seconds: number;
+  duration_seconds: number;
+  season: number | null;
+  episode: number | null;
+  updated_at: string;
+}
+
 interface AdminUser {
   user_id: string;
   email: string;
@@ -63,7 +79,10 @@ const UsersPage = () => {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Profile | null>(null);
   const [userLogs, setUserLogs] = useState<AuditLog[]>([]);
+  const [siteActivity, setSiteActivity] = useState<SiteActivity[]>([]);
+  const [watchActivity, setWatchActivity] = useState<WatchActivity[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [activeLogTab, setActiveLogTab] = useState<"activity" | "auth" | "watch">("activity");
   const [banReason, setBanReason] = useState("");
   const [stats, setStats] = useState({ total: 0, banned: 0, today: 0 });
   const { toast } = useToast();
@@ -143,15 +162,35 @@ const UsersPage = () => {
     setSelected(profile);
     setLogsLoading(true);
     setBanReason(profile.ban_reason || "");
+    setActiveLogTab("activity");
 
-    const { data } = await supabase
+    const authPromise = supabase
       .from("auth_audit_log")
       .select("*")
       .eq("user_id", profile.user_id)
       .order("created_at", { ascending: false })
       .limit(50);
 
-    setUserLogs((data as AuditLog[]) || []);
+    const sitePromise = profile.ip_hash
+      ? supabase
+          .from("site_visitors")
+          .select("id, pathname, visited_at")
+          .eq("ip_hash", profile.ip_hash)
+          .order("visited_at", { ascending: false })
+          .limit(50)
+      : Promise.resolve({ data: [] as SiteActivity[] });
+
+    const watchPromise = supabase
+      .from("watch_progress")
+      .select("tmdb_id, content_type, progress_seconds, duration_seconds, season, episode, updated_at")
+      .order("updated_at", { ascending: false })
+      .limit(30);
+
+    const [authRes, siteRes, watchRes] = await Promise.all([authPromise, sitePromise, watchPromise]);
+
+    setUserLogs((authRes.data as AuditLog[]) || []);
+    setSiteActivity((siteRes.data as SiteActivity[]) || []);
+    setWatchActivity((watchRes.data as WatchActivity[]) || []);
     setLogsLoading(false);
   };
 
@@ -601,27 +640,92 @@ const UsersPage = () => {
             <div>
               <p className="text-xs font-medium mb-3 flex items-center gap-2">
                 <Clock className="w-4 h-4" />
-                Histórico de atividade
+                Logs do Usuário
               </p>
+
+              {/* Tab selector */}
+              <div className="flex gap-1 mb-3">
+                {([
+                  { key: "activity" as const, label: "Navegação", count: siteActivity.length },
+                  { key: "watch" as const, label: "Assistidos", count: watchActivity.length },
+                  { key: "auth" as const, label: "Auth", count: userLogs.length },
+                ]).map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveLogTab(tab.key)}
+                    className={`text-[11px] px-3 py-1.5 rounded-lg border transition-colors ${
+                      activeLogTab === tab.key
+                        ? "bg-primary/20 border-primary/30 text-primary"
+                        : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
+                    }`}
+                  >
+                    {tab.label} ({tab.count})
+                  </button>
+                ))}
+              </div>
+
               {logsLoading ? (
                 <div className="flex justify-center py-4">
                   <Loader2 className="w-4 h-4 animate-spin text-primary" />
                 </div>
-              ) : userLogs.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-4">Sem registros</p>
               ) : (
                 <div className="space-y-1 max-h-60 overflow-y-auto">
-                  {userLogs.map((log) => (
-                    <div key={log.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.02] text-xs">
-                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
-                        log.event.includes("fail") || log.event.includes("ban") ? "bg-destructive" :
-                        log.event.includes("success") || log.event.includes("signup") ? "bg-emerald-400" :
-                        "bg-muted-foreground"
-                      }`} />
-                      <span className="font-mono text-muted-foreground">{log.event}</span>
-                      <span className="ml-auto text-muted-foreground/60">{formatDate(log.created_at)}</span>
-                    </div>
-                  ))}
+                  {/* Site Activity Tab */}
+                  {activeLogTab === "activity" && (
+                    siteActivity.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-4">Sem registros de navegação</p>
+                    ) : (
+                      siteActivity.map((v) => (
+                        <div key={v.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.02] text-xs">
+                          <span className="w-2 h-2 rounded-full flex-shrink-0 bg-blue-400" />
+                          <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium">
+                            {v.pathname || "/"}
+                          </span>
+                          <span className="ml-auto text-muted-foreground/60">{formatDate(v.visited_at)}</span>
+                        </div>
+                      ))
+                    )
+                  )}
+
+                  {/* Watch Activity Tab */}
+                  {activeLogTab === "watch" && (
+                    watchActivity.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-4">Sem registros de reprodução</p>
+                    ) : (
+                      watchActivity.map((w, i) => {
+                        const pct = w.duration_seconds > 0 ? Math.round((w.progress_seconds / w.duration_seconds) * 100) : 0;
+                        return (
+                          <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.02] text-xs">
+                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${pct >= 90 ? "bg-emerald-400" : "bg-amber-400"}`} />
+                            <span className="font-mono text-muted-foreground">TMDB:{w.tmdb_id}</span>
+                            <span className="text-muted-foreground/60">{w.content_type}</span>
+                            {w.season != null && <span className="text-muted-foreground/60">S{w.season}E{w.episode}</span>}
+                            <span className="px-1.5 py-0.5 rounded bg-white/5 text-[10px]">{pct}%</span>
+                            <span className="ml-auto text-muted-foreground/60">{formatDate(w.updated_at)}</span>
+                          </div>
+                        );
+                      })
+                    )
+                  )}
+
+                  {/* Auth Tab */}
+                  {activeLogTab === "auth" && (
+                    userLogs.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-4">Sem registros de autenticação</p>
+                    ) : (
+                      userLogs.map((log) => (
+                        <div key={log.id} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.02] text-xs">
+                          <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
+                            log.event.includes("fail") || log.event.includes("ban") ? "bg-destructive" :
+                            log.event.includes("success") || log.event.includes("signup") ? "bg-emerald-400" :
+                            "bg-muted-foreground"
+                          }`} />
+                          <span className="font-mono text-muted-foreground">{log.event}</span>
+                          <span className="ml-auto text-muted-foreground/60">{formatDate(log.created_at)}</span>
+                        </div>
+                      ))
+                    )
+                  )}
                 </div>
               )}
             </div>
