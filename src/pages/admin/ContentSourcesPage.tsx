@@ -382,10 +382,10 @@ const ContentSourcesPage = () => {
         if (data?.value) {
           const v = data.value as any;
           setSyncProgress({ processed: v.processed || 0, total: v.total || total });
-          if (v.status === "completed" || v.status === "cancelled") {
+          if (v.done === true) {
             clearInterval(poll);
             setSyncing(false);
-            toast({ title: "Sincronização concluída", description: `${v.processed || 0} links atualizados` });
+            toast({ title: "✅ Sincronização concluída", description: `${v.updated || 0} atualizados, ${v.failed || 0} falhas de ${v.processed || 0} processados` });
           }
         }
       }, 3000);

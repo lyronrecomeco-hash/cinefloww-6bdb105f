@@ -39,17 +39,17 @@ const Dashboard = () => {
     setTodayVisitors(todaySet.size);
     setTodayViews(todayViewCount);
 
-    // Online now (last 5 min)
+    // Online now (last 5 min) — exclude admin pages
     const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000);
     const onlineSet = new Set<string>();
     visitorData.forEach((v: any) => {
-      if (new Date(v.visited_at) >= fiveMinAgo) onlineSet.add(v.visitor_id);
+      if (new Date(v.visited_at) >= fiveMinAgo && !v.pathname?.startsWith("/admin")) onlineSet.add(v.visitor_id);
     });
     setOnlineNow(onlineSet.size);
 
-    // Recent visitors (last 10)
+    // Recent visitors (last 10) — exclude admin pages
     const sorted = [...visitorData]
-      .filter((v) => v.visited_at?.startsWith(todayStr))
+      .filter((v) => v.visited_at?.startsWith(todayStr) && !v.pathname?.startsWith("/admin"))
       .sort((a, b) => new Date(b.visited_at).getTime() - new Date(a.visited_at).getTime())
       .slice(0, 12);
     setRecentVisitors(sorted);
