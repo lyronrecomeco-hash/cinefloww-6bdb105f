@@ -476,6 +476,48 @@ export type Database = {
           },
         ]
       }
+      partners: {
+        Row: {
+          active: boolean | null
+          created_at: string
+          description: string | null
+          icon_url: string | null
+          id: string
+          logo_url: string | null
+          name: string
+          show_navbar_icon: boolean | null
+          sort_order: number | null
+          updated_at: string
+          website_url: string | null
+        }
+        Insert: {
+          active?: boolean | null
+          created_at?: string
+          description?: string | null
+          icon_url?: string | null
+          id?: string
+          logo_url?: string | null
+          name: string
+          show_navbar_icon?: boolean | null
+          sort_order?: number | null
+          updated_at?: string
+          website_url?: string | null
+        }
+        Update: {
+          active?: boolean | null
+          created_at?: string
+          description?: string | null
+          icon_url?: string | null
+          id?: string
+          logo_url?: string | null
+          name?: string
+          show_navbar_icon?: boolean | null
+          sort_order?: number | null
+          updated_at?: string
+          website_url?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null

@@ -6,6 +6,7 @@ import { toSlug } from "@/lib/slugify";
 import { supabase } from "@/integrations/supabase/client";
 import RequestModal from "@/components/RequestModal";
 import CategoriesModal from "@/components/CategoriesModal";
+import CineVeoModal from "@/components/CineVeoModal";
 import avatar1 from "@/assets/avatars/avatar-1.png";
 import avatar2 from "@/assets/avatars/avatar-2.png";
 import avatar3 from "@/assets/avatars/avatar-3.png";
@@ -22,6 +23,7 @@ import anime5 from "@/assets/avatars/anime-5.png";
 import anime6 from "@/assets/avatars/anime-6.png";
 import anime7 from "@/assets/avatars/anime-7.png";
 import anime8 from "@/assets/avatars/anime-8.png";
+import cineveoIcon from "@/assets/cineveo-icon.png";
 const AVATAR_IMAGES = [avatar1, avatar2, avatar3, avatar4, avatar5, avatar6, avatar7, avatar8, anime1, anime2, anime3, anime4, anime5, anime6, anime7, anime8];
 
 const navItems = [
@@ -37,6 +39,7 @@ const navItems = [
 const Navbar = () => {
   const [showRequest, setShowRequest] = useState(false);
   const [showCategories, setShowCategories] = useState(false);
+  const [showCineVeo, setShowCineVeo] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -45,6 +48,7 @@ const Navbar = () => {
   const [searching, setSearching] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [activeProfile, setActiveProfile] = useState<{ name: string; avatar_index: number } | null>(null);
+  const [cineveoPartner, setCineveoPartner] = useState<{ show_navbar_icon: boolean; icon_url?: string } | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const searchRef = useRef<HTMLDivElement>(null);
@@ -57,7 +61,6 @@ const Navbar = () => {
   }, []);
 
   useEffect(() => {
-    // Check auth state
     supabase.auth.getSession().then(({ data: { session } }) => {
       setIsLoggedIn(!!session);
     });
@@ -65,11 +68,15 @@ const Navbar = () => {
       setIsLoggedIn(!!session);
     });
 
-    // Load active profile
     try {
       const stored = localStorage.getItem("lyneflix_active_profile");
       if (stored) setActiveProfile(JSON.parse(stored));
     } catch {}
+
+    // Load CineVeo partner config
+    supabase.from("partners").select("show_navbar_icon, icon_url").eq("active", true).order("sort_order").limit(1).then(({ data }) => {
+      if (data?.[0]) setCineveoPartner(data[0]);
+    });
 
     return () => subscription.unsubscribe();
   }, []);
@@ -79,7 +86,6 @@ const Navbar = () => {
     setSearchOpen(false);
     setQuery("");
     setResults([]);
-    // Refresh profile on navigation
     try {
       const stored = localStorage.getItem("lyneflix_active_profile");
       if (stored) setActiveProfile(JSON.parse(stored));
@@ -118,8 +124,6 @@ const Navbar = () => {
     setQuery("");
     setResults([]);
   };
-
-  // No longer needed - using avatar images
 
   return (
     <>
@@ -174,6 +178,17 @@ const Navbar = () => {
           >
             <LayoutGrid className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
+
+          {/* CineVeo Partner Icon */}
+          {cineveoPartner?.show_navbar_icon && (
+            <button
+              onClick={() => setShowCineVeo(true)}
+              className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors overflow-hidden"
+              title="Parceiro"
+            >
+              <img src={cineveoIcon} alt="Parceiro" className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
+            </button>
+          )}
 
           {/* Search */}
           <div ref={searchRef} className="relative">
@@ -292,7 +307,6 @@ const Navbar = () => {
               {item.label}
             </Link>
           ))}
-          {/* Pedidos inside menu */}
           <button
             onClick={() => { setShowRequest(true); setMenuOpen(false); }}
             className="w-full flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all"
@@ -304,6 +318,7 @@ const Navbar = () => {
       )}
     </nav>
     {showRequest && <RequestModal onClose={() => setShowRequest(false)} />}
+    {showCineVeo && <CineVeoModal onClose={() => setShowCineVeo(false)} />}
     <CategoriesModal
       open={showCategories}
       onClose={() => setShowCategories(false)}
