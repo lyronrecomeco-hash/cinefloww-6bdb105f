@@ -46,6 +46,9 @@ const BancoPage = () => {
   const [vcImporting, setVcImporting] = useState(false);
   const [vcProgress, setVcProgress] = useState<any>(null);
   const [vcStats, setVcStats] = useState<{ total: number; valid: number } | null>(null);
+  // IPTV CiineVeo import state
+  const [iptvImporting, setIptvImporting] = useState(false);
+  const [iptvProgress, setIptvProgress] = useState<{ current: number; total: number; cache: number; content: number } | null>(null);
 
   const fetchContent = useCallback(async () => {
     setLoading(true);
@@ -294,6 +297,49 @@ const BancoPage = () => {
   // Load VC stats on mount
   useEffect(() => { loadVcStats(); }, [loadVcStats]);
 
+  // IPTV CiineVeo import with auto-chaining
+  const IPTV_URL = "https://cineveo.site/api/generate_iptv_list.php?user=lyneflix-vods";
+  const startIptvImport = async () => {
+    setIptvImporting(true);
+    setIptvProgress({ current: 0, total: 0, cache: 0, content: 0 });
+    let nextIndex: number | null = 0;
+    let totalCache = 0;
+    let totalContent = 0;
+    let batchNum = 0;
+
+    try {
+      while (nextIndex !== null) {
+        const { data, error } = await supabase.functions.invoke("import-iptv", {
+          body: { action: "import", url: IPTV_URL, start_index: nextIndex, batch_size: 150 },
+        });
+        if (error || !data?.success) break;
+
+        totalCache += data.cache_imported || 0;
+        totalContent += data.content_imported || 0;
+        batchNum++;
+        setIptvProgress({
+          current: (nextIndex || 0) + (data.batch_processed || 0),
+          total: data.total_entries || 0,
+          cache: totalCache,
+          content: totalContent,
+        });
+
+        nextIndex = data.has_more ? data.next_index : null;
+      }
+
+      toast({
+        title: "✅ Importação IPTV concluída",
+        description: `${totalContent} conteúdos + ${totalCache} links importados em ${batchNum} lotes`,
+      });
+    } catch (e: any) {
+      toast({ title: "Erro IPTV", description: e.message, variant: "destructive" });
+    }
+
+    setIptvImporting(false);
+    fetchStats();
+    fetchContent();
+  };
+
   const filteredItems = filterStatus === "all"
     ? items
     : items.filter(i => {
@@ -373,6 +419,41 @@ const BancoPage = () => {
         )}
         {vcProgress?.done && !vcImporting && (
           <p className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1"><CheckCircle className="w-3 h-3" />{vcProgress.indexed} vídeos indexados com sucesso</p>
+        )}
+      </div>
+
+      {/* CiineVeo IPTV Import */}
+      <div className="glass p-3 sm:p-4 rounded-xl">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Link2 className="w-4 h-4 text-primary" />
+            <span className="text-xs sm:text-sm font-semibold">CiineVeo IPTV</span>
+            <span className="text-[10px] text-muted-foreground">(links diretos .mp4)</span>
+          </div>
+          {!iptvImporting ? (
+            <button onClick={startIptvImport}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/15 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/25 transition-colors">
+              <Upload className="w-3.5 h-3.5" /> Importar Lista
+            </button>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs text-primary"><Loader2 className="w-3.5 h-3.5 animate-spin" />Importando...</span>
+          )}
+        </div>
+        {iptvImporting && iptvProgress && (
+          <div className="mt-2 space-y-1">
+            <div className="relative h-1.5 rounded-full bg-muted overflow-hidden">
+              <div className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all"
+                style={{ width: iptvProgress.total > 0 ? `${Math.round((iptvProgress.current / iptvProgress.total) * 100)}%` : '0%' }} />
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              {iptvProgress.current.toLocaleString()} processados — {iptvProgress.content} conteúdos, {iptvProgress.cache} links
+            </p>
+          </div>
+        )}
+        {!iptvImporting && iptvProgress && iptvProgress.content > 0 && (
+          <p className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1">
+            <CheckCircle className="w-3 h-3" />{iptvProgress.content} conteúdos + {iptvProgress.cache} links importados
+          </p>
         )}
       </div>
 
