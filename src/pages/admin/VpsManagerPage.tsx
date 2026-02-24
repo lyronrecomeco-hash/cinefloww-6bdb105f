@@ -1,9 +1,20 @@
-import { useState, useEffect } from "react";
-import { Server, Copy, Check, Terminal, RefreshCw, Play, FileCode, Download, Zap } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Server, Copy, Check, Terminal, RefreshCw, Play, FileCode, Download, Zap, Wifi, WifiOff, Activity, Clock, Cpu, HardDrive } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { Badge } from "@/components/ui/badge";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+
+interface VpsHeartbeat {
+  status: "online" | "offline";
+  uptime_seconds?: number;
+  workers?: Record<string, string>;
+  last_beat?: string;
+  hostname?: string;
+  memory_mb?: number;
+  node_version?: string;
+}
 
 const SCRIPTS = [
   {
@@ -41,7 +52,8 @@ cat > package.json << 'PKGJSON'
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "dotenv": "^16.4.7"
   }
 }
 PKGJSON
@@ -51,27 +63,36 @@ npm install
 # Criar .env (credenciais já preenchidas)
 cat > .env << 'ENVFILE'
 SUPABASE_URL=\${SUPABASE_URL}
-SUPABASE_SERVICE_ROLE_KEY=COLE_SUA_SERVICE_ROLE_KEY_AQUI
+SUPABASE_SERVICE_ROLE_KEY=\${SERVICE_ROLE_KEY}
 BATCH_SIZE=1000
 CONCURRENCY=40
 ENVFILE
 
+# Criar diretório de scripts
+mkdir -p scripts
+
 echo "✅ Instalação concluída!"
-echo "⚠️  Edite ~/lyneflix-vps/.env e preencha a SERVICE_ROLE_KEY"
-echo "📌 Depois execute: cd ~/lyneflix-vps && npm start"`,
+echo "📌 Execute: cd ~/lyneflix-vps && npm start"`,
   },
   {
     id: "ecosystem",
     label: "PM2 Ecosystem",
-    description: "Arquivo de configuração do PM2 com workers de batch-resolve, turbo-resolve e refresh-links.",
+    description: "Arquivo de configuração do PM2 com workers de batch-resolve, turbo-resolve, refresh-links e heartbeat.",
     icon: FileCode,
     code: `// ecosystem.config.cjs
 module.exports = {
   apps: [
     {
+      name: "heartbeat",
+      script: "scripts/heartbeat.mjs",
+      cron_restart: "*/2 * * * *",     // A cada 2 minutos
+      autorestart: false,
+      env: { NODE_ENV: "production" },
+    },
+    {
       name: "batch-resolve",
       script: "scripts/batch-resolve.mjs",
-      cron_restart: "0 */3 * * *",    // A cada 3 horas
+      cron_restart: "0 */3 * * *",
       autorestart: false,
       max_memory_restart: "512M",
       env: { NODE_ENV: "production" },
@@ -79,7 +100,7 @@ module.exports = {
     {
       name: "turbo-resolve",
       script: "scripts/turbo-resolve.mjs",
-      cron_restart: "30 */2 * * *",   // A cada 2h30
+      cron_restart: "30 */2 * * *",
       autorestart: false,
       max_memory_restart: "512M",
       env: { NODE_ENV: "production" },
@@ -87,7 +108,7 @@ module.exports = {
     {
       name: "refresh-links",
       script: "scripts/refresh-links.mjs",
-      cron_restart: "0 4 * * *",      // 4h da manhã
+      cron_restart: "0 4 * * *",
       autorestart: false,
       max_memory_restart: "256M",
       env: { NODE_ENV: "production" },
@@ -95,12 +116,59 @@ module.exports = {
     {
       name: "cleanup",
       script: "scripts/cleanup.mjs",
-      cron_restart: "0 5 * * *",      // 5h da manhã
+      cron_restart: "0 5 * * *",
       autorestart: false,
       env: { NODE_ENV: "production" },
     },
   ],
 };`,
+  },
+  {
+    id: "heartbeat",
+    label: "Heartbeat (Status)",
+    description: "Envia status da VPS para o painel a cada 2 minutos. Sincroniza automaticamente.",
+    icon: Activity,
+    code: `// scripts/heartbeat.mjs
+import { createClient } from "@supabase/supabase-js";
+import { execSync } from "child_process";
+import { config } from "dotenv";
+import os from "os";
+config();
+
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+async function sendHeartbeat() {
+  let workers = {};
+  try {
+    const pm2List = execSync("pm2 jlist", { encoding: "utf-8" });
+    const apps = JSON.parse(pm2List);
+    for (const app of apps) {
+      workers[app.name] = app.pm2_env?.status || "unknown";
+    }
+  } catch { workers = { error: "pm2 not available" }; }
+
+  const uptimeSeconds = os.uptime();
+  const memoryMb = Math.round((os.totalmem() - os.freemem()) / 1024 / 1024);
+
+  const heartbeat = {
+    status: "online",
+    uptime_seconds: uptimeSeconds,
+    workers,
+    last_beat: new Date().toISOString(),
+    hostname: os.hostname(),
+    memory_mb: memoryMb,
+    node_version: process.version,
+  };
+
+  const { error } = await supabase
+    .from("site_settings")
+    .upsert({ key: "vps_heartbeat", value: heartbeat }, { onConflict: "key" });
+
+  if (error) console.error("[heartbeat] Erro:", error.message);
+  else console.log("[heartbeat] ✅ Status enviado:", new Date().toISOString());
+}
+
+sendHeartbeat().catch(console.error);`,
   },
   {
     id: "batch-resolve",
@@ -109,7 +177,6 @@ module.exports = {
     icon: Zap,
     code: `// scripts/batch-resolve.mjs
 import { createClient } from "@supabase/supabase-js";
-import { readFileSync } from "fs";
 import { config } from "dotenv";
 config();
 
@@ -192,35 +259,25 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 async function cleanup() {
   console.log("[cleanup] Iniciando limpeza...");
 
-  // Limpar resolve_logs > 7 dias
   const { count: c1 } = await supabase
     .from("resolve_logs").delete().lt("created_at", new Date(Date.now() - 7*86400000).toISOString())
     .select("*", { count: "exact", head: true });
   console.log(\`[cleanup] resolve_logs removidos: \${c1 || 0}\`);
 
-  // Limpar resolve_failures > 3 dias
   const { count: c2 } = await supabase
     .from("resolve_failures").delete().lt("attempted_at", new Date(Date.now() - 3*86400000).toISOString())
     .select("*", { count: "exact", head: true });
   console.log(\`[cleanup] resolve_failures removidos: \${c2 || 0}\`);
 
-  // Limpar site_visitors > 14 dias
   const { count: c3 } = await supabase
     .from("site_visitors").delete().lt("visited_at", new Date(Date.now() - 14*86400000).toISOString())
     .select("*", { count: "exact", head: true });
   console.log(\`[cleanup] site_visitors removidos: \${c3 || 0}\`);
 
-  // Limpar video_cache expirado
   const { count: c4 } = await supabase
     .from("video_cache").delete().lt("expires_at", new Date().toISOString())
     .select("*", { count: "exact", head: true });
   console.log(\`[cleanup] video_cache expirados removidos: \${c4 || 0}\`);
-
-  // Limpar ad_clicks > 30 dias
-  const { count: c5 } = await supabase
-    .from("ad_clicks").delete().lt("clicked_at", new Date(Date.now() - 30*86400000).toISOString())
-    .select("*", { count: "exact", head: true });
-  console.log(\`[cleanup] ad_clicks removidos: \${c5 || 0}\`);
 
   console.log("[cleanup] ✅ Limpeza concluída!");
 }
@@ -250,7 +307,7 @@ async function update() {
     .maybeSingle();
 
   if (!data?.value) {
-    console.log("[update] Nenhum script remoto encontrado. Use o painel admin para publicar.");
+    console.log("[update] Nenhum script remoto encontrado.");
     return;
   }
 
@@ -272,31 +329,65 @@ update().catch(console.error);`,
   },
 ];
 
+function formatUptime(seconds: number): string {
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 const VpsManagerPage = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>("install");
   const [serviceRoleKey, setServiceRoleKey] = useState<string>("");
+  const [heartbeat, setHeartbeat] = useState<VpsHeartbeat | null>(null);
+  const [isOnline, setIsOnline] = useState(false);
 
+  // Load service role key + heartbeat
   useEffect(() => {
-    // Try to load the service role key from site_settings if stored
-    supabase
-      .from("site_settings")
-      .select("value")
-      .eq("key", "vps_service_key")
-      .maybeSingle()
-      .then(({ data }) => {
-        if (data?.value) {
-          const val = data.value as any;
-          setServiceRoleKey(typeof val === "string" ? val.replace(/^"|"$/g, '') : val.key || "");
+    const loadData = async () => {
+      const [keyRes, hbRes] = await Promise.all([
+        supabase.from("site_settings").select("value").eq("key", "vps_service_key").maybeSingle(),
+        supabase.from("site_settings").select("value").eq("key", "vps_heartbeat").maybeSingle(),
+      ]);
+      if (keyRes.data?.value) {
+        const val = keyRes.data.value as any;
+        setServiceRoleKey(typeof val === "string" ? val.replace(/^"|"$/g, '') : val.key || "");
+      }
+      if (hbRes.data?.value) {
+        const hb = hbRes.data.value as unknown as VpsHeartbeat;
+        setHeartbeat(hb);
+        // Consider online if last beat < 5 min ago
+        if (hb.last_beat) {
+          const diff = Date.now() - new Date(hb.last_beat).getTime();
+          setIsOnline(diff < 5 * 60 * 1000);
         }
-      });
+      }
+    };
+    loadData();
+
+    // Poll heartbeat every 30s
+    const interval = setInterval(async () => {
+      const { data } = await supabase.from("site_settings").select("value").eq("key", "vps_heartbeat").maybeSingle();
+      if (data?.value) {
+        const hb = data.value as unknown as VpsHeartbeat;
+        setHeartbeat(hb);
+        if (hb.last_beat) {
+          const diff = Date.now() - new Date(hb.last_beat).getTime();
+          setIsOnline(diff < 5 * 60 * 1000);
+        }
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const copyToClipboard = (text: string, id: string) => {
-    // Replace placeholders with actual values
     let finalText = text
       .replace(/\$\{SUPABASE_URL\}/g, SUPABASE_URL)
-      .replace(/COLE_SUA_SERVICE_ROLE_KEY_AQUI/g, serviceRoleKey || "COLE_SUA_SERVICE_ROLE_KEY_AQUI");
+      .replace(/\$\{SERVICE_ROLE_KEY\}/g, serviceRoleKey || "COLE_SUA_SERVICE_ROLE_KEY_AQUI");
     navigator.clipboard.writeText(finalText);
     setCopiedId(id);
     toast.success("Copiado para área de transferência!");
@@ -306,20 +397,114 @@ const VpsManagerPage = () => {
   const getDisplayCode = (code: string) => {
     return code
       .replace(/\$\{SUPABASE_URL\}/g, SUPABASE_URL)
-      .replace(/COLE_SUA_SERVICE_ROLE_KEY_AQUI/g, serviceRoleKey || "COLE_SUA_SERVICE_ROLE_KEY_AQUI");
+      .replace(/\$\{SERVICE_ROLE_KEY\}/g, serviceRoleKey || "COLE_SUA_SERVICE_ROLE_KEY_AQUI");
   };
+
+  const workerEntries = heartbeat?.workers ? Object.entries(heartbeat.workers) : [];
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-xl sm:text-2xl font-bold flex items-center gap-3">
-          <Server className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
-          VPS Manager
-        </h1>
-        <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-          Scripts e configuração para a VPS de processamento pesado
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="font-display text-xl sm:text-2xl font-bold flex items-center gap-3">
+            <Server className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
+            VPS Manager
+          </h1>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+            Scripts e configuração para a VPS de processamento pesado
+          </p>
+        </div>
+        <Badge
+          variant={isOnline ? "default" : "secondary"}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold ${
+            isOnline
+              ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+              : "bg-white/5 text-muted-foreground border border-white/10"
+          }`}
+        >
+          {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+          {isOnline ? "CONECTADO VPS" : "DESCONECTADO"}
+        </Badge>
       </div>
+
+      {/* Real-time Status Panel */}
+      {isOnline && heartbeat && (
+        <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/15 space-y-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <p className="text-sm font-semibold text-emerald-400">VPS Online — Sincronizado</p>
+            {heartbeat.last_beat && (
+              <span className="text-xs text-muted-foreground ml-auto">
+                Último beat: {new Date(heartbeat.last_beat).toLocaleTimeString("pt-BR")}
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {heartbeat.hostname && (
+              <div className="flex items-center gap-2 text-xs">
+                <HardDrive className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-muted-foreground">Host:</span>
+                <span className="font-medium">{heartbeat.hostname}</span>
+              </div>
+            )}
+            {heartbeat.uptime_seconds != null && (
+              <div className="flex items-center gap-2 text-xs">
+                <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-muted-foreground">Uptime:</span>
+                <span className="font-medium">{formatUptime(heartbeat.uptime_seconds)}</span>
+              </div>
+            )}
+            {heartbeat.memory_mb != null && (
+              <div className="flex items-center gap-2 text-xs">
+                <Cpu className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-muted-foreground">RAM:</span>
+                <span className="font-medium">{heartbeat.memory_mb} MB</span>
+              </div>
+            )}
+            {heartbeat.node_version && (
+              <div className="flex items-center gap-2 text-xs">
+                <Terminal className="w-3.5 h-3.5 text-muted-foreground" />
+                <span className="text-muted-foreground">Node:</span>
+                <span className="font-medium">{heartbeat.node_version}</span>
+              </div>
+            )}
+          </div>
+
+          {workerEntries.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {workerEntries.map(([name, status]) => (
+                <Badge
+                  key={name}
+                  variant="secondary"
+                  className={`text-[10px] px-2 py-0.5 ${
+                    status === "online"
+                      ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20"
+                      : status === "stopped"
+                      ? "bg-white/5 text-muted-foreground border-white/10"
+                      : "bg-amber-500/15 text-amber-400 border-amber-500/20"
+                  }`}
+                >
+                  <span className={`w-1.5 h-1.5 rounded-full mr-1.5 inline-block ${
+                    status === "online" ? "bg-emerald-400" : status === "stopped" ? "bg-muted-foreground" : "bg-amber-400"
+                  }`} />
+                  {name}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Offline hint */}
+      {!isOnline && (
+        <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5">
+          <p className="text-xs text-muted-foreground">
+            ⏳ Aguardando conexão... Instale o script de <strong>Instalação Completa</strong> na VPS. 
+            O heartbeat sincronizará automaticamente em até 2 minutos.
+          </p>
+        </div>
+      )}
 
       {/* Status Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -348,11 +533,11 @@ const VpsManagerPage = () => {
         <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center">
-              <RefreshCw className="w-5 h-5 text-blue-400" />
+              <Activity className="w-5 h-5 text-blue-400" />
             </div>
             <div>
-              <p className="text-sm font-semibold">Auto-Update</p>
-              <p className="text-xs text-muted-foreground">npm run update</p>
+              <p className="text-sm font-semibold">Heartbeat</p>
+              <p className="text-xs text-muted-foreground">Sync automático</p>
             </div>
           </div>
         </div>
@@ -362,8 +547,7 @@ const VpsManagerPage = () => {
       <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10">
         <p className="text-xs text-primary/80">
           🚀 <strong>Quick Start:</strong> Copie o script de <strong>Instalação Completa</strong> (credenciais já preenchidas), 
-          cole no terminal da VPS e execute. Rode <code className="bg-primary/10 px-1 rounded">npm start</code> e pronto.
-          Para atualizar scripts remotamente, use <code className="bg-primary/10 px-1 rounded">npm run update</code>.
+          cole no terminal da VPS e execute. Rode <code className="bg-primary/10 px-1 rounded">npm start</code> e o painel detecta automaticamente.
         </p>
       </div>
 
@@ -419,10 +603,10 @@ const VpsManagerPage = () => {
         </h2>
         <div className="space-y-2 text-xs text-muted-foreground">
           <p>1. <strong className="text-foreground">Instale</strong> — Execute o script de instalação na VPS</p>
-          <p>2. <strong className="text-foreground">Configure</strong> — Edite o <code className="bg-white/5 px-1 rounded">.env</code> com SUPABASE_URL e SERVICE_ROLE_KEY</p>
-          <p>3. <strong className="text-foreground">Inicie</strong> — <code className="bg-white/5 px-1 rounded">npm start</code> ativa todos os workers via PM2</p>
-          <p>4. <strong className="text-foreground">Monitore</strong> — <code className="bg-white/5 px-1 rounded">pm2 status</code> e <code className="bg-white/5 px-1 rounded">pm2 logs</code></p>
-          <p>5. <strong className="text-foreground">Atualize</strong> — <code className="bg-white/5 px-1 rounded">npm run update</code> baixa scripts atualizados do painel</p>
+          <p>2. <strong className="text-foreground">Inicie</strong> — <code className="bg-white/5 px-1 rounded">npm start</code> ativa todos os workers + heartbeat</p>
+          <p>3. <strong className="text-foreground">Sincronize</strong> — O painel detecta a VPS automaticamente via heartbeat</p>
+          <p>4. <strong className="text-foreground">Monitore</strong> — Status, workers e métricas em tempo real aqui no painel</p>
+          <p>5. <strong className="text-foreground">Atualize</strong> — <code className="bg-white/5 px-1 rounded">npm run update</code> baixa scripts atualizados remotamente</p>
         </div>
       </div>
     </div>
