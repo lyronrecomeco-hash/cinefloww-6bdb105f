@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Play, ExternalLink, Sparkles, Lock } from "lucide-react";
 
@@ -23,14 +23,17 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
   const [requiredAds, setRequiredAds] = useState(1);
   const [adConfig, setAdConfig] = useState<AdConfig | null>(null);
   const antiBypassRef = useRef<string>("");
+  const mountedRef = useRef(true);
+  const clickCountRef = useRef(0);
+  const requiredAdsRef = useRef(1);
 
   // Generate anti-bypass token
   useEffect(() => {
     const token = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     antiBypassRef.current = token;
-    // Store in sessionStorage to prevent page refresh bypass
     const gateKey = `ad_gate_${contentType}_${tmdbId}`;
     sessionStorage.setItem(gateKey, token);
+    return () => { mountedRef.current = false; };
   }, []);
 
   useEffect(() => {
@@ -38,6 +41,7 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
       supabase.from("site_settings").select("value").eq("key", "adsterra_smartlink").maybeSingle(),
       supabase.from("site_settings").select("value").eq("key", "ad_config").maybeSingle(),
     ]).then(([{ data: linkData }, { data: configData }]) => {
+      if (!mountedRef.current) return;
       if (linkData?.value) {
         const val = linkData.value as any;
         const url = typeof val === "string" ? val.replace(/^"|"$/g, '') : val.url || "";
@@ -47,8 +51,9 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
         const cfg = configData.value as any;
         setAdConfig(cfg);
         const isSeries = contentType === "tv" || contentType === "series";
-        setRequiredAds(isSeries ? (cfg.series_ads || 2) : (cfg.movie_ads || 1));
-        // Check if ads are disabled
+        const req = isSeries ? (cfg.series_ads || 2) : (cfg.movie_ads || 1);
+        setRequiredAds(req);
+        requiredAdsRef.current = req;
         if (cfg.enabled === false) {
           onContinue();
           return;
@@ -58,18 +63,31 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
     });
   }, []);
 
-  const handleAdClick = () => {
+  // iOS/Android: detect return from ad tab via visibilitychange
+  // This prevents the modal from being destroyed when the browser regains focus
+  const handleAdClick = useCallback(() => {
     if (!smartlink) return;
 
-    // Validate anti-bypass
     const gateKey = `ad_gate_${contentType}_${tmdbId}`;
     const storedToken = sessionStorage.getItem(gateKey);
     if (storedToken !== antiBypassRef.current) return;
 
-    // Open ad in new tab
-    window.open(smartlink, "_blank", "noopener,noreferrer");
+    // Open ad - use location.href fallback for iOS that blocks window.open
+    const adWindow = window.open(smartlink, "_blank", "noopener,noreferrer");
     
-    const newCount = clickCount + 1;
+    // iOS Safari sometimes blocks window.open, fallback to creating an anchor
+    if (!adWindow) {
+      const a = document.createElement("a");
+      a.href = smartlink;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+    
+    const newCount = clickCountRef.current + 1;
+    clickCountRef.current = newCount;
     setClickCount(newCount);
 
     // Log click (non-blocking)
@@ -81,17 +99,16 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
     }).then(() => {});
 
     // Check if all required ads completed
-    if (newCount >= requiredAds) {
-      // Mark as completed in session to prevent re-showing
+    if (newCount >= requiredAdsRef.current) {
       const completedKey = `ad_completed_${contentType}_${tmdbId}`;
       sessionStorage.setItem(completedKey, String(Date.now()));
       sessionStorage.removeItem(gateKey);
       
       setTimeout(() => {
-        onContinue();
+        if (mountedRef.current) onContinue();
       }, 600);
     }
-  };
+  }, [smartlink, contentType, tmdbId, contentTitle, onContinue]);
 
   // If no smartlink configured or ads disabled, skip
   useEffect(() => {
@@ -158,7 +175,6 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
             <p className="text-[10px] text-muted-foreground">
               {clickCount}/{requiredAds} concluído{requiredAds > 1 ? "s" : ""}
             </p>
-            {/* Progress bar */}
             <div className="w-full h-1.5 bg-white/5 rounded-full mt-2 overflow-hidden">
               <div
                 className="h-full bg-primary rounded-full transition-all duration-500"

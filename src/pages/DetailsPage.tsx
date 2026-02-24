@@ -331,7 +331,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                   Trailer
                 </button>
               )}
-              {type === "tv" && detail.seasons && detail.seasons.length > 0 && (
+              {type === "tv" && detail.seasons && detail.seasons.length > 0 && hasVideo !== false && (
                 <button
                   onClick={() => setShowSeasons(true)}
                   className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl glass glass-hover font-semibold text-xs sm:text-sm"
