@@ -297,31 +297,19 @@ const BancoPage = () => {
   // Load VC stats on mount
   useEffect(() => { loadVcStats(); }, [loadVcStats]);
 
-  // IPTV CiineVeo import — single call, progress via polling
+  // IPTV CiineVeo — fire once, auto-chains server-side, UI polls progress
   const IPTV_URL = "https://cineveo.site/api/generate_iptv_list.php?user=lyneflix-vods";
   const startIptvImport = async () => {
     setIptvImporting(true);
     setIptvProgress({ phase: "downloading", entries: 0, valid: 0, cache: 0, content: 0, done: false });
 
-    // Fire and forget — progress is tracked via site_settings polling
+    // Single fire — function auto-chains itself
     supabase.functions.invoke("import-iptv", {
       body: { url: IPTV_URL },
-    }).then(({ data, error }) => {
-      if (error || !data?.success) {
-        toast({ title: "Erro IPTV", description: error?.message || data?.error || "Falha", variant: "destructive" });
-      } else {
-        toast({
-          title: "✅ Importação IPTV concluída",
-          description: `${data.content_imported} conteúdos + ${data.cache_imported} links importados`,
-        });
-      }
-      setIptvImporting(false);
-      fetchStats();
-      fetchContent();
-    });
+    }).catch(() => {}); // Don't await — polling handles UI
   };
 
-  // Poll IPTV progress
+  // Poll IPTV progress from site_settings
   useEffect(() => {
     if (!iptvImporting) return;
     const interval = setInterval(async () => {
@@ -336,7 +324,20 @@ const BancoPage = () => {
           content: p.content_imported || 0,
           done: p.done || false,
         });
-        if (p.done) { clearInterval(interval); }
+        if (p.done) {
+          clearInterval(interval);
+          setIptvImporting(false);
+          if (p.phase === "error") {
+            toast({ title: "Erro IPTV", description: p.error || "Falha na importação", variant: "destructive" });
+          } else {
+            toast({
+              title: "✅ Importação IPTV concluída",
+              description: `${p.content_imported || 0} conteúdos + ${p.cache_imported || 0} links importados`,
+            });
+          }
+          fetchStats();
+          fetchContent();
+        }
       }
     }, 2000);
     return () => clearInterval(interval);
