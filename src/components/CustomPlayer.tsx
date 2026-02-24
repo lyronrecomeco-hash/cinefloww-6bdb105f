@@ -55,6 +55,13 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
     setLoading(true);
     setError(false);
 
+    // Remove crossOrigin for mp4 to avoid CORS issues with direct streams
+    if (src.type === "mp4") {
+      video.removeAttribute("crossorigin");
+    } else {
+      video.crossOrigin = "anonymous";
+    }
+
     if (src.type === "m3u8" && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
@@ -299,7 +306,6 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
         ref={videoRef}
         className="w-full h-full object-contain"
         playsInline
-        crossOrigin="anonymous"
       />
 
       {/* Loading — premium minimal spinner */}
