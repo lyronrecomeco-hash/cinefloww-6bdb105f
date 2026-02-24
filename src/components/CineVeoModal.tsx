@@ -38,12 +38,13 @@ const CineVeoModal = ({ onClose }: CineVeoModalProps) => {
 
         {/* Logo */}
         <div className="flex justify-center pt-2">
-          <img
-            src={partner?.logo_url || cineveoLogo}
-            alt={partner?.name || "CineVeo"}
-            className="h-10 sm:h-12 object-contain mix-blend-screen"
-            style={{ background: 'transparent' }}
-          />
+          <div className="bg-black/60 rounded-xl px-6 py-3">
+            <img
+              src={partner?.logo_url || cineveoLogo}
+              alt={partner?.name || "CineVeo"}
+              className="h-10 sm:h-12 object-contain"
+            />
+          </div>
         </div>
 
         <div className="text-center space-y-3">
