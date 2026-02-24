@@ -5,6 +5,7 @@ import { TMDBSeason, TMDBEpisode, getSeasonDetails, posterUrl } from "@/services
 import { getEpisodeProgress } from "@/lib/watchProgress";
 import { toSlug } from "@/lib/slugify";
 import AudioSelectModal from "@/components/AudioSelectModal";
+import AdGateModal from "@/components/AdGateModal";
 
 interface SeasonsModalProps {
   seriesId: number;
@@ -23,6 +24,8 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [pendingEpisode, setPendingEpisode] = useState<{ season: number; episode: number } | null>(null);
   const [progressMap, setProgressMap] = useState<Map<string, { progress: number; duration: number; completed: boolean }>>(new Map());
+  const [showAdGate, setShowAdGate] = useState(false);
+  const [adGatePendingEp, setAdGatePendingEp] = useState<{ season: number; episode: number } | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -32,7 +35,6 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
     }).catch(() => setLoading(false));
   }, [seriesId, selectedSeason]);
 
-  // Load watch progress for all episodes
   useEffect(() => {
     getEpisodeProgress(seriesId, "tv").then(setProgressMap);
   }, [seriesId]);
@@ -42,6 +44,26 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
+
+  const handleEpisodePlay = (season: number, episode: number) => {
+    // Check if ad gate already completed for this series
+    const completedKey = `ad_completed_tv_${seriesId}`;
+    if (sessionStorage.getItem(completedKey)) {
+      setPendingEpisode({ season, episode });
+      return;
+    }
+    // Show ad gate first
+    setAdGatePendingEp({ season, episode });
+    setShowAdGate(true);
+  };
+
+  const handleAdGateContinue = () => {
+    setShowAdGate(false);
+    if (adGatePendingEp) {
+      setPendingEpisode(adGatePendingEp);
+      setAdGatePendingEp(null);
+    }
+  };
 
   const handleAudioSelect = (audio: string) => {
     if (!pendingEpisode) return;
@@ -120,7 +142,7 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
                     key={ep.id}
                     episode={ep}
                     progress={prog}
-                    onPlay={() => setPendingEpisode({ season: ep.season_number, episode: ep.episode_number })}
+                    onPlay={() => handleEpisodePlay(ep.season_number, ep.episode_number)}
                   />
                 );
               })
@@ -138,6 +160,16 @@ const SeasonsModal = ({ seriesId, seriesTitle, seasons, imdbId, onClose }: Seaso
           onSelect={handleAudioSelect} onClose={() => setPendingEpisode(null)}
         />
       )}
+
+      {showAdGate && (
+        <AdGateModal
+          contentTitle={seriesTitle}
+          tmdbId={seriesId}
+          contentType="tv"
+          onContinue={handleAdGateContinue}
+          onClose={() => { setShowAdGate(false); setAdGatePendingEp(null); }}
+        />
+      )}
     </>
   );
 };
@@ -151,6 +183,13 @@ const EpisodeCard = ({ episode, progress, onPlay }: {
     ? Math.min(100, (progress.progress / progress.duration) * 100)
     : 0;
   const isWatched = progress?.completed;
+
+  const formatTime = (s: number) => {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    if (h > 0) return `${h}h${m}m`;
+    return `${m}min`;
+  };
 
   return (
     <div className={`flex gap-2.5 sm:gap-4 p-2 sm:p-3 rounded-xl sm:rounded-2xl border transition-all group ${
@@ -200,6 +239,13 @@ const EpisodeCard = ({ episode, progress, onPlay }: {
             <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{episode.runtime}min</span>
           )}
           {episode.air_date && <span>{new Date(episode.air_date).toLocaleDateString("pt-BR")}</span>}
+          {/* Show where user stopped */}
+          {progress && !isWatched && progressPct > 0 && (
+            <span className="flex items-center gap-1 text-primary">
+              <Play className="w-2.5 h-2.5 fill-primary" />
+              {formatTime(progress.progress)} / {formatTime(progress.duration)}
+            </span>
+          )}
         </div>
         {episode.overview && (
           <p className="text-muted-foreground text-[10px] sm:text-xs leading-relaxed line-clamp-2 hidden sm:block">{episode.overview}</p>

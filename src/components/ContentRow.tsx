@@ -52,10 +52,11 @@ const ContentRow = forwardRef<HTMLElement, ContentRowProps>(({ title, movies, ic
 
       <div
         ref={scrollRef}
-        className="flex gap-2.5 sm:gap-4 overflow-x-auto scrollbar-hide px-3 sm:px-6 lg:px-12 pb-2"
+        className="flex gap-2.5 sm:gap-4 overflow-x-auto scrollbar-hide px-3 sm:px-6 lg:px-12 pb-2 scroll-smooth snap-x snap-mandatory"
+        style={{ WebkitOverflowScrolling: "touch" }}
       >
         {movies.map((movie) => (
-          <div key={movie.id} className="flex-shrink-0 w-[120px] sm:w-[160px] lg:w-[180px]">
+          <div key={movie.id} className="flex-shrink-0 w-[120px] sm:w-[160px] lg:w-[180px] snap-start">
             <MovieCard movie={movie} />
           </div>
         ))}
