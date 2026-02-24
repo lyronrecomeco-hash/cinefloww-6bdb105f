@@ -324,8 +324,8 @@ const TEMPLATES = [
     color: "text-primary",
     bg: "bg-primary/10 border-primary/20",
     data: {
-      title: "🚀 Mega Atualização do Catálogo!",
-      message: "A LyneFlix acaba de receber uma atualização massiva!\n\n📊 Números da atualização:\n• +30.000 links de vídeo indexados\n• +16.000 links diretos via CiineVeo IPTV\n• +7.000 links via MegaEmbed\n• +5.000 links via CDN Prime\n\n🎯 O que mudou:\n• Player mais rápido e estável\n• Mais opções de reprodução por título\n• Carregamento instantâneo para conteúdos indexados\n\n💙 Obrigado por fazer parte da LyneFlix!",
+      title: "🚀 Mega Atualização da LyneFlix!",
+      message: "Acabamos de lançar uma atualização gigante! Confira o que mudou:\n\n🎬 Catálogo Expandido\n• +30.000 conteúdos disponíveis para assistir\n• Filmes, séries, animes e doramas novos todos os dias\n• Temporadas completas de séries populares\n\n⚡ Player Mais Rápido\n• Reprodução instantânea — sem espera\n• Qualidade de imagem otimizada\n• Menos travamentos e buffering\n\n🔧 Melhorias Gerais\n• Navegação mais fluida e responsiva\n• Busca inteligente com resultados melhores\n• Correções de bugs reportados pela comunidade\n\n💙 Obrigado por fazer parte da LyneFlix!",
       button_text: "Explorar Catálogo",
       button_link: "/filmes",
       button_style: "primary",
