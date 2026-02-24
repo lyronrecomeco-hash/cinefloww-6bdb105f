@@ -199,14 +199,15 @@ Deno.serve(async (req: Request) => {
       errors: accumulated.errors,
     });
 
-    // ── Bulk delete old entries for these IDs, then insert fresh ──
+    // ── Bulk delete old cineveo-iptv entries for these IDs, then insert fresh ──
     const tmdbIds = [...new Set(validEntries.map(e => e.tmdbId!))];
     for (let i = 0; i < tmdbIds.length; i += 500) {
       await adminClient.from("video_cache").delete()
+        .eq("provider", "cineveo-iptv")
         .in("tmdb_id", tmdbIds.slice(i, i + 500));
     }
 
-    // Map content types for video_cache (no constraint there, but keep consistent)
+    // Map content types for video_cache
     const validTypes = new Set(["movie", "series", "dorama", "anime"]);
     const cacheRows = validEntries.map(e => ({
       tmdb_id: e.tmdbId!,
@@ -229,82 +230,7 @@ Deno.serve(async (req: Request) => {
       else cacheImported += batch.length;
     }
 
-    // ── Enrich new content (only IDs not already in content table) ──
-    const existingIds = new Set<number>();
-    for (let i = 0; i < tmdbIds.length; i += 500) {
-      const { data: existing } = await adminClient
-        .from("content").select("tmdb_id")
-        .in("tmdb_id", tmdbIds.slice(i, i + 500));
-      existing?.forEach(e => existingIds.add(e.tmdb_id));
-    }
-
-    const newIds = tmdbIds.filter(id => !existingIds.has(id));
     let contentImported = 0;
-
-    if (newIds.length > 0 && (Date.now() - startTime) < MAX_RUNTIME_MS - 20000) {
-      await saveProgress(adminClient, {
-        done: false, phase: "enriching_content", start_index: startIndex,
-        entries: accumulated.entries + entries.length,
-        valid: validEntries.length,
-        cache_imported: accumulated.cache + cacheImported,
-        content_imported: accumulated.content,
-        errors: accumulated.errors + errors,
-      });
-
-      const tmdbDetails = new Map<number, any>();
-      const queue = [...newIds.slice(0, 200)]; // Limit per batch
-      async function worker() {
-        while (queue.length > 0) {
-          if (Date.now() - startTime > MAX_RUNTIME_MS - 10000) break;
-          const id = queue.shift();
-          if (!id) break;
-          const type = validEntries.find(e => e.tmdbId === id)?.contentType === "series" ? "tv" : "movie";
-          try {
-            const res = await fetch(
-              `${TMDB_BASE}/${type}/${id}?language=pt-BR&append_to_response=external_ids`,
-              { headers: tmdbHeaders },
-            );
-            if (res.ok) tmdbDetails.set(id, await res.json());
-          } catch { /* skip */ }
-        }
-      }
-      await Promise.all(Array.from({ length: Math.min(8, newIds.length) }, () => worker()));
-
-      const contentRows = newIds
-        .filter(id => tmdbDetails.has(id))
-        .map(id => {
-          const d = tmdbDetails.get(id)!;
-          const entry = validEntries.find(e => e.tmdbId === id)!;
-          return {
-            tmdb_id: id,
-            imdb_id: d.imdb_id || d.external_ids?.imdb_id || null,
-            content_type: validTypes.has(entry.contentType) ? entry.contentType : "movie",
-            title: d.title || d.name || entry.title,
-            original_title: d.original_title || d.original_name || null,
-            overview: d.overview || "",
-            poster_path: d.poster_path || null,
-            backdrop_path: d.backdrop_path || null,
-            release_date: d.release_date || d.first_air_date || null,
-            vote_average: d.vote_average || 0,
-            runtime: d.runtime || null,
-            number_of_seasons: d.number_of_seasons || null,
-            number_of_episodes: d.number_of_episodes || null,
-            status: "published",
-            featured: false,
-            audio_type: ["dublado"],
-            created_by: userId || null,
-          };
-        });
-
-      for (let i = 0; i < contentRows.length; i += 200) {
-        const batch = contentRows.slice(i, i + 200);
-        const { error } = await adminClient.from("content").upsert(batch, {
-          onConflict: "tmdb_id,content_type",
-        });
-        if (error) { errors++; console.error(`content err:`, error.message); }
-        else contentImported += batch.length;
-      }
-    }
 
     // ── Accumulate totals ──
     const newAccumulated = {
@@ -322,7 +248,10 @@ Deno.serve(async (req: Request) => {
       await saveProgress(adminClient, {
         done: false, phase: "chaining",
         start_index: nextIndex,
-        ...newAccumulated,
+        cache_imported: newAccumulated.cache,
+        content_imported: newAccumulated.content,
+        entries: newAccumulated.entries,
+        errors: newAccumulated.errors,
       });
 
       // Fire next batch in background
@@ -341,11 +270,141 @@ Deno.serve(async (req: Request) => {
         }),
       }).catch(() => {});
     } else {
-      // Done!
+      // Done importing cache! Now trigger TMDB enrichment for new content
+      await saveProgress(adminClient, {
+        done: false, phase: "enriching_content",
+        start_index: nextIndex || startIndex,
+        cache_imported: newAccumulated.cache,
+        content_imported: 0,
+        entries: newAccumulated.entries,
+        errors: newAccumulated.errors,
+      });
+
+      // Find all unique tmdb_ids from cineveo-iptv that don't exist in content yet
+      const { data: missingRows } = await adminClient
+        .from("video_cache")
+        .select("tmdb_id, content_type")
+        .eq("provider", "cineveo-iptv")
+        .not("tmdb_id", "in", `(${(await adminClient.from("content").select("tmdb_id")).data?.map((r: any) => r.tmdb_id).join(",") || "0"})`)
+        .limit(1000);
+
+      // Actually, better approach: use a raw query via distinct
+      const allCacheIds = new Set<number>();
+      let offset = 0;
+      while (true) {
+        const { data: batch } = await adminClient
+          .from("video_cache")
+          .select("tmdb_id")
+          .eq("provider", "cineveo-iptv")
+          .range(offset, offset + 999);
+        if (!batch?.length) break;
+        batch.forEach((r: any) => allCacheIds.add(r.tmdb_id));
+        offset += 1000;
+        if (batch.length < 1000) break;
+      }
+
+      const existingIds = new Set<number>();
+      const allIds = [...allCacheIds];
+      for (let i = 0; i < allIds.length; i += 500) {
+        const { data: existing } = await adminClient
+          .from("content")
+          .select("tmdb_id")
+          .in("tmdb_id", allIds.slice(i, i + 500));
+        existing?.forEach((e: any) => existingIds.add(e.tmdb_id));
+      }
+
+      const newIds = allIds.filter(id => !existingIds.has(id));
+      let contentImportedTotal = 0;
+      let enrichErrors = 0;
+
+      if (newIds.length > 0) {
+        // Get content_type mapping from cache
+        const typeMap = new Map<number, string>();
+        for (let i = 0; i < newIds.length; i += 500) {
+          const { data: rows } = await adminClient
+            .from("video_cache")
+            .select("tmdb_id, content_type")
+            .eq("provider", "cineveo-iptv")
+            .in("tmdb_id", newIds.slice(i, i + 500));
+          rows?.forEach((r: any) => typeMap.set(r.tmdb_id, r.content_type));
+        }
+
+        // TMDB enrichment in parallel batches
+        const ENRICH_CONCURRENCY = 10;
+        const queue = [...newIds];
+        const tmdbDetails = new Map<number, any>();
+
+        async function enrichWorker() {
+          while (queue.length > 0) {
+            const id = queue.shift();
+            if (!id) break;
+            const ct = typeMap.get(id) || "movie";
+            const type = ct === "series" || ct === "dorama" || ct === "anime" ? "tv" : "movie";
+            try {
+              const res = await fetch(
+                `${TMDB_BASE}/${type}/${id}?language=pt-BR&append_to_response=external_ids`,
+                { headers: tmdbHeaders },
+              );
+              if (res.ok) tmdbDetails.set(id, await res.json());
+            } catch { /* skip */ }
+          }
+        }
+
+        await Promise.all(Array.from({ length: Math.min(ENRICH_CONCURRENCY, newIds.length) }, () => enrichWorker()));
+
+        const validTypes = new Set(["movie", "series", "dorama", "anime"]);
+        const contentRows = newIds
+          .filter(id => tmdbDetails.has(id))
+          .map(id => {
+            const d = tmdbDetails.get(id)!;
+            const ct = typeMap.get(id) || "movie";
+            return {
+              tmdb_id: id,
+              imdb_id: d.imdb_id || d.external_ids?.imdb_id || null,
+              content_type: validTypes.has(ct) ? ct : "movie",
+              title: d.title || d.name || `TMDB ${id}`,
+              original_title: d.original_title || d.original_name || null,
+              overview: d.overview || "",
+              poster_path: d.poster_path || null,
+              backdrop_path: d.backdrop_path || null,
+              release_date: d.release_date || d.first_air_date || null,
+              vote_average: d.vote_average || 0,
+              runtime: d.runtime || null,
+              number_of_seasons: d.number_of_seasons || null,
+              number_of_episodes: d.number_of_episodes || null,
+              status: "published",
+              featured: false,
+              audio_type: ["dublado"],
+              created_by: userId || null,
+            };
+          });
+
+        for (let i = 0; i < contentRows.length; i += 200) {
+          const batch = contentRows.slice(i, i + 200);
+          const { error } = await adminClient.from("content").upsert(batch, {
+            onConflict: "tmdb_id,content_type",
+          });
+          if (error) { enrichErrors++; console.error(`content err:`, error.message); }
+          else contentImportedTotal += batch.length;
+
+          // Update progress periodically
+          await saveProgress(adminClient, {
+            done: false, phase: "enriching_content",
+            cache_imported: newAccumulated.cache,
+            content_imported: contentImportedTotal,
+            entries: newAccumulated.entries,
+            errors: newAccumulated.errors + enrichErrors,
+          });
+        }
+      }
+
+      // Final done
       await saveProgress(adminClient, {
         done: true, phase: "complete",
-        start_index: nextIndex || startIndex,
-        ...newAccumulated,
+        cache_imported: newAccumulated.cache,
+        content_imported: contentImportedTotal,
+        entries: newAccumulated.entries,
+        errors: newAccumulated.errors + enrichErrors,
       });
     }
 
