@@ -102,13 +102,13 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         tmdb_id: id,
         content_type: type === "movie" ? "movie" : "tv",
       }).then(() => {});
-      // Check if video exists in cache
+      // Check if video exists in cache — for series also check episode-level entries
       const cType = type === "movie" ? "movie" : "series";
       supabase
         .from("video_cache_safe")
         .select("id")
         .eq("tmdb_id", id)
-        .eq("content_type", cType)
+        .in("content_type", type === "tv" ? ["series", "tv"] : [cType])
         .limit(1)
         .then(({ data: cacheData }) => {
           if (!cancelled) setHasVideo(!!(cacheData && cacheData.length > 0));
