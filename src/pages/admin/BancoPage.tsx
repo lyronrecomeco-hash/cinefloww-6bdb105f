@@ -48,7 +48,7 @@ const BancoPage = () => {
   const [vcStats, setVcStats] = useState<{ total: number; valid: number } | null>(null);
   // IPTV CiineVeo import state
   const [iptvImporting, setIptvImporting] = useState(false);
-  const [iptvProgress, setIptvProgress] = useState<{ current: number; total: number; cache: number; content: number } | null>(null);
+  const [iptvProgress, setIptvProgress] = useState<{ phase: string; entries: number; valid: number; cache: number; content: number; done: boolean } | null>(null);
 
   const fetchContent = useCallback(async () => {
     setLoading(true);
@@ -297,48 +297,50 @@ const BancoPage = () => {
   // Load VC stats on mount
   useEffect(() => { loadVcStats(); }, [loadVcStats]);
 
-  // IPTV CiineVeo import with auto-chaining
+  // IPTV CiineVeo import — single call, progress via polling
   const IPTV_URL = "https://cineveo.site/api/generate_iptv_list.php?user=lyneflix-vods";
   const startIptvImport = async () => {
     setIptvImporting(true);
-    setIptvProgress({ current: 0, total: 0, cache: 0, content: 0 });
-    let nextIndex: number | null = 0;
-    let totalCache = 0;
-    let totalContent = 0;
-    let batchNum = 0;
+    setIptvProgress({ phase: "downloading", entries: 0, valid: 0, cache: 0, content: 0, done: false });
 
-    try {
-      while (nextIndex !== null) {
-        const { data, error } = await supabase.functions.invoke("import-iptv", {
-          body: { action: "import", url: IPTV_URL, start_index: nextIndex, batch_size: 150 },
+    // Fire and forget — progress is tracked via site_settings polling
+    supabase.functions.invoke("import-iptv", {
+      body: { url: IPTV_URL },
+    }).then(({ data, error }) => {
+      if (error || !data?.success) {
+        toast({ title: "Erro IPTV", description: error?.message || data?.error || "Falha", variant: "destructive" });
+      } else {
+        toast({
+          title: "✅ Importação IPTV concluída",
+          description: `${data.content_imported} conteúdos + ${data.cache_imported} links importados`,
         });
-        if (error || !data?.success) break;
-
-        totalCache += data.cache_imported || 0;
-        totalContent += data.content_imported || 0;
-        batchNum++;
-        setIptvProgress({
-          current: (nextIndex || 0) + (data.batch_processed || 0),
-          total: data.total_entries || 0,
-          cache: totalCache,
-          content: totalContent,
-        });
-
-        nextIndex = data.has_more ? data.next_index : null;
       }
-
-      toast({
-        title: "✅ Importação IPTV concluída",
-        description: `${totalContent} conteúdos + ${totalCache} links importados em ${batchNum} lotes`,
-      });
-    } catch (e: any) {
-      toast({ title: "Erro IPTV", description: e.message, variant: "destructive" });
-    }
-
-    setIptvImporting(false);
-    fetchStats();
-    fetchContent();
+      setIptvImporting(false);
+      fetchStats();
+      fetchContent();
+    });
   };
+
+  // Poll IPTV progress
+  useEffect(() => {
+    if (!iptvImporting) return;
+    const interval = setInterval(async () => {
+      const { data } = await supabase.from("site_settings").select("value").eq("key", "iptv_import_progress").maybeSingle();
+      if (data?.value) {
+        const p = data.value as any;
+        setIptvProgress({
+          phase: p.phase || "downloading",
+          entries: p.entries || 0,
+          valid: p.valid || 0,
+          cache: p.cache_imported || 0,
+          content: p.content_imported || 0,
+          done: p.done || false,
+        });
+        if (p.done) { clearInterval(interval); }
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [iptvImporting]);
 
   const filteredItems = filterStatus === "all"
     ? items
@@ -443,14 +445,17 @@ const BancoPage = () => {
           <div className="mt-2 space-y-1">
             <div className="relative h-1.5 rounded-full bg-muted overflow-hidden">
               <div className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all"
-                style={{ width: iptvProgress.total > 0 ? `${Math.round((iptvProgress.current / iptvProgress.total) * 100)}%` : '0%' }} />
+                style={{ width: iptvProgress.entries > 0 ? `${Math.round((iptvProgress.cache / Math.max(iptvProgress.valid, 1)) * 100)}%` : '0%' }} />
             </div>
             <p className="text-[10px] text-muted-foreground">
-              {iptvProgress.current.toLocaleString()} processados — {iptvProgress.content} conteúdos, {iptvProgress.cache} links
+              {iptvProgress.phase === "downloading" ? "Baixando lista..." :
+               iptvProgress.phase === "importing_cache" ? `Importando links... ${iptvProgress.cache.toLocaleString()}/${iptvProgress.valid.toLocaleString()}` :
+               iptvProgress.phase === "enriching_content" ? `Enriquecendo catálogo... ${iptvProgress.content} novos` :
+               `${iptvProgress.entries.toLocaleString()} entradas, ${iptvProgress.cache} links, ${iptvProgress.content} conteúdos`}
             </p>
           </div>
         )}
-        {!iptvImporting && iptvProgress && iptvProgress.content > 0 && (
+        {!iptvImporting && iptvProgress && iptvProgress.done && (
           <p className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1">
             <CheckCircle className="w-3 h-3" />{iptvProgress.content} conteúdos + {iptvProgress.cache} links importados
           </p>
