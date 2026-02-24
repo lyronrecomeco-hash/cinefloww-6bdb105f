@@ -36,9 +36,21 @@ function parseEntry(infoLine: string, url: string): ParsedEntry | null {
 
   const group = groupMatch?.[1] || "";
 
+  // Extract TMDB ID and type from tvg-id="movie:1020386" or tvg-id="tv:12345"
   let tmdbId: number | null = null;
-  const fileMatch = url.match(/\/(\d+)\.(?:mp4|m3u8|mkv|ts)(?:\?|$)/);
-  if (fileMatch) tmdbId = parseInt(fileMatch[1]);
+  let contentType = "movie";
+
+  const tvgIdMatch = infoLine.match(/tvg-id="(?:movie|tv|series):(\d+)"/);
+  if (tvgIdMatch) {
+    tmdbId = parseInt(tvgIdMatch[1]);
+    if (infoLine.match(/tvg-id="tv:/)) contentType = "series";
+  }
+
+  // Fallback: extract from URL
+  if (!tmdbId) {
+    const fileMatch = url.match(/\/(\d+)\.(?:mp4|m3u8|mkv|ts)/);
+    if (fileMatch) tmdbId = parseInt(fileMatch[1]);
+  }
   if (!tmdbId) {
     const pathMatch = url.match(/\/(?:movie|tv|embed)\/.*?\/(\d+)/);
     if (pathMatch) tmdbId = parseInt(pathMatch[1]);
@@ -49,10 +61,14 @@ function parseEntry(infoLine: string, url: string): ParsedEntry | null {
   const seMatch = title.match(/S(\d+)\s*E(\d+)/i) || url.match(/\/(\d+)\/(\d+)\/?$/);
   if (seMatch) { season = parseInt(seMatch[1]); episode = parseInt(seMatch[2]); }
 
+  // Map group to valid content_type
   const groupLower = group.toLowerCase();
-  let contentType = "movie";
   if (groupLower.includes("serie") || groupLower.includes("séri") || groupLower.includes("novela") || season !== null) {
-    contentType = "tv";
+    contentType = "series";
+  } else if (groupLower.includes("dorama")) {
+    contentType = "dorama";
+  } else if (groupLower.includes("anime")) {
+    contentType = "anime";
   }
 
   return { title, url, group, tmdbId, season, episode, contentType };
@@ -183,17 +199,18 @@ Deno.serve(async (req: Request) => {
       errors: accumulated.errors,
     });
 
-    // ── Bulk delete old cineveo-iptv for these IDs, then insert ──
+    // ── Bulk delete old entries for these IDs, then insert fresh ──
     const tmdbIds = [...new Set(validEntries.map(e => e.tmdbId!))];
     for (let i = 0; i < tmdbIds.length; i += 500) {
       await adminClient.from("video_cache").delete()
-        .in("tmdb_id", tmdbIds.slice(i, i + 500))
-        .eq("provider", "cineveo-iptv");
+        .in("tmdb_id", tmdbIds.slice(i, i + 500));
     }
 
+    // Map content types for video_cache (no constraint there, but keep consistent)
+    const validTypes = new Set(["movie", "series", "dorama", "anime"]);
     const cacheRows = validEntries.map(e => ({
       tmdb_id: e.tmdbId!,
-      content_type: e.contentType,
+      content_type: validTypes.has(e.contentType) ? e.contentType : "movie",
       audio_type: detectAudio(e.title, e.group),
       video_url: e.url,
       video_type: detectVideoType(e.url),
@@ -241,7 +258,7 @@ Deno.serve(async (req: Request) => {
           if (Date.now() - startTime > MAX_RUNTIME_MS - 10000) break;
           const id = queue.shift();
           if (!id) break;
-          const type = validEntries.find(e => e.tmdbId === id)?.contentType === "tv" ? "tv" : "movie";
+          const type = validEntries.find(e => e.tmdbId === id)?.contentType === "series" ? "tv" : "movie";
           try {
             const res = await fetch(
               `${TMDB_BASE}/${type}/${id}?language=pt-BR&append_to_response=external_ids`,
@@ -261,7 +278,7 @@ Deno.serve(async (req: Request) => {
           return {
             tmdb_id: id,
             imdb_id: d.imdb_id || d.external_ids?.imdb_id || null,
-            content_type: entry.contentType,
+            content_type: validTypes.has(entry.contentType) ? entry.contentType : "movie",
             title: d.title || d.name || entry.title,
             original_title: d.original_title || d.original_name || null,
             overview: d.overview || "",
