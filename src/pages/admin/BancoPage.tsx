@@ -243,8 +243,30 @@ const BancoPage = () => {
     try {
       let consecutiveEmpty = 0;
       while (!cancelRef.current && consecutiveEmpty < 3) {
-        const { data, error } = await supabase.functions.invoke("batch-resolve");
-        if (error) { console.error("[banco] batch-resolve error:", error); break; }
+        // Use fetch directly with longer timeout for batch processing
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 300000); // 5 min timeout
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+        let data: any = null;
+        let fetchError: any = null;
+        try {
+          const res = await fetch(`${supabaseUrl}/functions/v1/batch-resolve`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "apikey": supabaseKey,
+              "Authorization": `Bearer ${supabaseKey}`,
+            },
+            signal: controller.signal,
+          });
+          clearTimeout(timeout);
+          data = await res.json();
+        } catch (e) {
+          clearTimeout(timeout);
+          fetchError = e;
+        }
+        if (fetchError) { console.error("[banco] batch-resolve error:", fetchError); break; }
 
         const batchResolved = data?.resolved || 0;
         const batchFailed = data?.failed || 0;
