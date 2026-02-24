@@ -198,7 +198,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     const cType = type === "movie" ? "movie" : "series";
     try {
       // Only select metadata, NOT video_url — URL stays server-side
-      const { data } = await supabase
+      const { data: rows } = await supabase
         .from("video_cache")
         .select("video_type, provider")
         .eq("tmdb_id", id)
@@ -207,7 +207,9 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         .is("season", null)
         .is("episode", null)
         .gt("expires_at", new Date().toISOString())
-        .maybeSingle();
+        .order("created_at", { ascending: false })
+        .limit(1);
+      const data = rows?.[0] || null;
       if (data) {
         return { cached: true, type: data.video_type, provider: data.provider };
       }
