@@ -59,7 +59,7 @@ const BancoPage = () => {
     let query = supabase
       .from("content")
       .select("id, tmdb_id, imdb_id, title, content_type, poster_path, release_date", { count: "exact" })
-      .order("title", { ascending: true })
+      .order("release_date", { ascending: false, nullsFirst: false })
       .range(from, to);
 
     if (filterType !== "all") query = query.eq("content_type", filterType);

@@ -18,20 +18,23 @@ const AUDIO_OPTIONS = [
 ];
 
 const AudioSelectModal = ({ tmdbId, type, title, subtitle, onSelect, onClose }: AudioSelectModalProps) => {
-  const [audioTypes, setAudioTypes] = useState<string[]>(["dublado", "legendado"]);
+  const [availableAudios, setAvailableAudios] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const cType = type === "movie" ? "movie" : "series";
+    // Check REAL availability from video_cache
     supabase
-      .from("content")
+      .from("video_cache")
       .select("audio_type")
       .eq("tmdb_id", tmdbId)
       .eq("content_type", cType)
-      .maybeSingle()
+      .gt("expires_at", new Date().toISOString())
       .then(({ data }) => {
-        const dbTypes = data?.audio_type?.length ? data.audio_type : [];
-        const merged = new Set([...dbTypes, "dublado", "legendado"]);
-        setAudioTypes([...merged]);
+        if (data && data.length > 0) {
+          setAvailableAudios(new Set(data.map(d => d.audio_type)));
+        }
+        setLoading(false);
       });
   }, [tmdbId, type]);
 
@@ -40,8 +43,6 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, onSelect, onClose }: 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
-
-  const available = AUDIO_OPTIONS.filter(o => audioTypes.includes(o.key));
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
@@ -60,27 +61,53 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, onSelect, onClose }: 
               </button>
             </div>
 
-            <div className="space-y-3">
-              {available.map(opt => {
-                const Icon = opt.icon;
-                return (
-                  <button
-                    key={opt.key}
-                    onClick={() => { localStorage.setItem("cineflow_audio_pref", opt.key); onSelect(opt.key); }}
-                    className="w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/10 hover:bg-white/[0.08] hover:border-primary/30 transition-all duration-200 group"
-                  >
-                    <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/25 transition-colors">
-                      <Icon className="w-6 h-6 text-primary" />
-                    </div>
-                    <div className="text-left flex-1">
-                      <p className="font-semibold text-sm text-foreground">{opt.label}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{opt.description}</p>
-                    </div>
-                    <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-                  </button>
-                );
-              })}
-            </div>
+            {loading ? (
+              <div className="flex justify-center py-8">
+                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {AUDIO_OPTIONS.map(opt => {
+                  const Icon = opt.icon;
+                  const isAvailable = availableAudios.has(opt.key);
+                  return (
+                    <button
+                      key={opt.key}
+                      onClick={() => { if (!isAvailable) return; localStorage.setItem("cineflow_audio_pref", opt.key); onSelect(opt.key); }}
+                      disabled={!isAvailable}
+                      className={`w-full flex items-center gap-4 p-4 rounded-2xl border transition-all duration-200 group ${
+                        isAvailable
+                          ? "bg-white/[0.03] border-white/10 hover:bg-white/[0.08] hover:border-primary/30 cursor-pointer"
+                          : "bg-white/[0.01] border-white/5 opacity-40 cursor-not-allowed"
+                      }`}
+                    >
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
+                        isAvailable ? "bg-primary/15 group-hover:bg-primary/25" : "bg-white/5"
+                      }`}>
+                        <Icon className={`w-6 h-6 ${isAvailable ? "text-primary" : "text-muted-foreground/50"}`} />
+                      </div>
+                      <div className="text-left flex-1">
+                        <p className={`font-semibold text-sm ${isAvailable ? "text-foreground" : "text-muted-foreground/50"}`}>{opt.label}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {isAvailable ? opt.description : "Indisponível no momento"}
+                        </p>
+                      </div>
+                      {isAvailable ? (
+                        <ChevronRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                      ) : (
+                        <X className="w-4 h-4 text-muted-foreground/30" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {!loading && availableAudios.size === 0 && (
+              <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center">
+                <p className="text-xs text-amber-400">Nenhuma fonte disponível no momento. Tente novamente mais tarde.</p>
+              </div>
+            )}
 
             <div className="mt-5 pt-5 border-t border-white/10">
               <button
