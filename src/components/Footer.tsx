@@ -18,20 +18,6 @@ const Footer = forwardRef<HTMLElement>((_, ref) => {
           AVISO LEGAL: Nós não armazenamos nenhum dos arquivos em nenhum servidor. Todos os conteúdos são fornecidos por terceiros sem qualquer tipo de filiação.
         </p>
 
-        {/* Parceiros */}
-        <div className="flex flex-col items-center gap-2">
-          <button
-            onClick={() => setShowPartners(true)}
-            className="text-muted-foreground hover:text-primary text-xs sm:text-sm transition-colors flex items-center gap-1.5 font-medium"
-          >
-            <Handshake className="w-3.5 h-3.5" />
-            Parceiros
-          </button>
-          <div className="flex items-center gap-3 flex-wrap justify-center">
-            <span className="text-muted-foreground/80 text-xs sm:text-sm">CiineVeo</span>
-          </div>
-        </div>
-
         <div className="flex items-center gap-4 sm:gap-6 flex-wrap justify-center">
           <Link to="/dmca" className="text-muted-foreground hover:text-primary text-xs sm:text-sm transition-colors">
             Política DMCA
@@ -40,6 +26,14 @@ const Footer = forwardRef<HTMLElement>((_, ref) => {
           <Link to="/termos" className="text-muted-foreground hover:text-primary text-xs sm:text-sm transition-colors">
             Termos e Condições
           </Link>
+          <span className="text-white/10">|</span>
+          <button
+            onClick={() => setShowPartners(true)}
+            className="text-muted-foreground hover:text-primary text-xs sm:text-sm transition-colors flex items-center gap-1"
+          >
+            <Handshake className="w-3 h-3" />
+            Parceiros
+          </button>
           <span className="text-white/10">|</span>
           <button
             onClick={() => setShowDnsHelp(true)}
