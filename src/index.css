@@ -108,18 +108,20 @@
     position: relative;
     overflow: hidden;
   }
-  .card-shine::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, hsl(220 25% 100% / 0.05), transparent);
-    transition: left 0.5s ease;
-  }
-  .card-shine:hover::before {
-    left: 100%;
+  @media (hover: hover) {
+    .card-shine::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, hsl(220 25% 100% / 0.05), transparent);
+      transition: left 0.5s ease;
+    }
+    .card-shine:hover::before {
+      left: 100%;
+    }
   }
 }
 
@@ -234,15 +236,16 @@ html {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-/* Global smooth transitions */
-a, button {
-  transition-property: color, background-color, border-color, transform, opacity, box-shadow;
-  transition-duration: 0.2s;
-  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+@media (hover: hover) {
+  a, button {
+    transition-property: color, background-color, border-color, opacity, box-shadow;
+    transition-duration: 0.2s;
+    transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
 }
 
 img {
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition: none;
 }
 
 /* Section animation opt-in (evita travar scroll no mobile) */

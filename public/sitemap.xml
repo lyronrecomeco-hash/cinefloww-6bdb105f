@@ -1,40 +1,62 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!-- Página Principal -->
   <url>
     <loc>https://lyneflix.online/</loc>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
+
+  <!-- Catálogo de Filmes -->
   <url>
     <loc>https://lyneflix.online/filmes</loc>
     <changefreq>daily</changefreq>
-    <priority>0.9</priority>
+    <priority>0.95</priority>
   </url>
+
+  <!-- Catálogo de Séries -->
   <url>
     <loc>https://lyneflix.online/series</loc>
     <changefreq>daily</changefreq>
-    <priority>0.9</priority>
+    <priority>0.95</priority>
   </url>
+
+  <!-- Doramas -->
   <url>
     <loc>https://lyneflix.online/doramas</loc>
     <changefreq>daily</changefreq>
-    <priority>0.8</priority>
+    <priority>0.9</priority>
   </url>
+
+  <!-- Lançamentos -->
   <url>
     <loc>https://lyneflix.online/lancamentos</loc>
     <changefreq>daily</changefreq>
-    <priority>0.8</priority>
+    <priority>0.9</priority>
   </url>
+
+  <!-- Em Breve -->
   <url>
     <loc>https://lyneflix.online/em-breve</loc>
     <changefreq>weekly</changefreq>
     <priority>0.7</priority>
   </url>
+
+  <!-- Minha Lista -->
+  <url>
+    <loc>https://lyneflix.online/minha-lista</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>
+
+  <!-- Conta -->
   <url>
     <loc>https://lyneflix.online/conta</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
+
+  <!-- Páginas Legais -->
   <url>
     <loc>https://lyneflix.online/dmca</loc>
     <changefreq>yearly</changefreq>
