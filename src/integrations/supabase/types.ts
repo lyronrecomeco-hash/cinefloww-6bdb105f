@@ -1265,6 +1265,13 @@ export type Database = {
           tmdb_id: number
         }[]
       }
+      get_video_stats_by_provider: {
+        Args: never
+        Returns: {
+          cnt: number
+          provider: string
+        }[]
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
