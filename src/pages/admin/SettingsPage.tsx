@@ -68,7 +68,7 @@ const SettingsPage = () => {
     const sessionId = crypto.randomUUID().slice(0, 8);
     try {
       const { error } = await supabase.functions.invoke("refresh-links", {
-        body: { mode: refreshMode, batch_size: 30, session_id: sessionId },
+        body: { mode: refreshMode, batch_size: 1000, session_id: sessionId },
       });
       if (error) throw error;
       toast({ title: "Atualização iniciada", description: `Modo: ${refreshMode}` });

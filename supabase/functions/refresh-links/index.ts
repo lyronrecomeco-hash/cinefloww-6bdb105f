@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const BATCH_SIZE = 30;
+const BATCH_SIZE = 1000;
 const CONCURRENCY = 8;
 const ITEM_TIMEOUT_MS = 12_000;
 const MAX_RUNTIME_MS = 110_000;
