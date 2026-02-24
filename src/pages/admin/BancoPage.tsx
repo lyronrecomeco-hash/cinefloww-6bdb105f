@@ -139,14 +139,6 @@ const BancoPage = () => {
     fetchStats();
   }, [fetchContent, fetchStats]);
 
-  // Auto-resolve on mount
-  useEffect(() => {
-    if (autoResolveStarted.current) return;
-    if (stats.withoutVideo > 0) {
-      autoResolveStarted.current = true;
-      resolveAllLinks();
-    }
-  }, [stats.withoutVideo]);
 
   // Realtime subscription for live updates
   useEffect(() => {
@@ -228,66 +220,80 @@ const BancoPage = () => {
     }
   };
 
-  // Resolve ALL links via server-side batch-resolve — fires rapidly, realtime updates UI
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  // Resolve ALL links via turbo-resolve + polling (sem travar a UI)
   const resolveAllLinks = async () => {
     setResolving(true);
     cancelRef.current = false;
 
-    // Get accurate count of unresolved
-    const { count: totalContent } = await supabase.from("content").select("*", { count: "exact", head: true });
-    const { count: cachedCount } = await supabase.from("video_cache").select("*", { count: "exact", head: true }).gt("expires_at", new Date().toISOString());
-    const { count: failedCount } = await supabase.from("resolve_failures").select("*", { count: "exact", head: true });
-    const totalToResolve = Math.max(0, (totalContent || 0) - (cachedCount || 0) - (failedCount || 0));
-    setResolveProgress({ current: 0, total: totalToResolve });
+    const { count: totalContent } = await supabase
+      .from("content")
+      .select("*", { count: "exact", head: true });
+    const { count: cachedCount } = await supabase
+      .from("video_cache")
+      .select("*", { count: "exact", head: true })
+      .gt("expires_at", new Date().toISOString());
+    const { count: failedCount } = await supabase
+      .from("resolve_failures")
+      .select("*", { count: "exact", head: true });
+
+    const initialWithout = Math.max(0, (totalContent || 0) - (cachedCount || 0) - (failedCount || 0));
+    setResolveProgress({ current: 0, total: initialWithout });
 
     try {
-      let consecutiveEmpty = 0;
-      while (!cancelRef.current && consecutiveEmpty < 3) {
-        // Use fetch directly with longer timeout for batch processing
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 300000); // 5 min timeout
-        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-        const supabaseKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-        let data: any = null;
-        let fetchError: any = null;
-        try {
-          const res = await fetch(`${supabaseUrl}/functions/v1/batch-resolve`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "apikey": supabaseKey,
-              "Authorization": `Bearer ${supabaseKey}`,
-            },
-            signal: controller.signal,
-          });
-          clearTimeout(timeout);
-          data = await res.json();
-        } catch (e) {
-          clearTimeout(timeout);
-          fetchError = e;
-        }
-        if (fetchError) { console.error("[banco] batch-resolve error:", fetchError); break; }
+      const launchWave = async () => {
+        const { error } = await supabase.functions.invoke("turbo-resolve");
+        if (error) throw error;
+      };
 
-        const batchResolved = data?.resolved || 0;
-        const batchFailed = data?.failed || 0;
+      await launchWave();
 
-        // Update progress with actual resolved count
-        setResolveProgress(prev => ({ ...prev, current: prev.current + batchResolved + batchFailed }));
+      let lastRemaining = initialWithout;
+      let stagnantPolls = 0;
+      let elapsedMs = 0;
+      const MAX_DURATION_MS = 15 * 60 * 1000;
 
-        if (batchResolved === 0 && batchFailed === 0) {
-          consecutiveEmpty++;
+      while (!cancelRef.current && elapsedMs < MAX_DURATION_MS) {
+        await sleep(4000);
+        elapsedMs += 4000;
+
+        const [{ count: totalNow }, { count: cachedNow }, { count: failedNow }] = await Promise.all([
+          supabase.from("content").select("*", { count: "exact", head: true }),
+          supabase
+            .from("video_cache")
+            .select("*", { count: "exact", head: true })
+            .gt("expires_at", new Date().toISOString()),
+          supabase.from("resolve_failures").select("*", { count: "exact", head: true }),
+        ]);
+
+        const remaining = Math.max(0, (totalNow || 0) - (cachedNow || 0) - (failedNow || 0));
+        const current = Math.max(0, initialWithout - remaining);
+        setResolveProgress({ current, total: initialWithout });
+
+        if (remaining <= 0) break;
+
+        if (remaining >= lastRemaining) {
+          stagnantPolls += 1;
         } else {
-          consecutiveEmpty = 0;
+          stagnantPolls = 0;
         }
-        if (data?.message === "All items processed!") break;
+
+        if (stagnantPolls >= 6) {
+          await launchWave();
+          stagnantPolls = 0;
+        }
+
+        lastRemaining = remaining;
       }
 
       toast({
         title: cancelRef.current ? "Resolução cancelada" : "Resolução concluída",
-        description: `Processado com sucesso`,
+        description: "Processamento em lote estabilizado e executado.",
       });
     } catch (e) {
-      toast({ title: "Erro", description: "Falha na resolução", variant: "destructive" });
+      console.error("[banco] turbo-resolve error:", e);
+      toast({ title: "Erro", description: "Falha na resolução em lote", variant: "destructive" });
     }
 
     setResolving(false);

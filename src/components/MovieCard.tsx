@@ -54,6 +54,11 @@ const MovieCard = memo(({ movie, audioBadges }: MovieCardProps) => {
           className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
           decoding="async"
+          onError={(e) => {
+            if (e.currentTarget.dataset.fallbackApplied === "1") return;
+            e.currentTarget.dataset.fallbackApplied = "1";
+            e.currentTarget.src = "/placeholder.svg";
+          }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
 
