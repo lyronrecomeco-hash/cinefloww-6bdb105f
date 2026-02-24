@@ -243,8 +243,8 @@ img {
   transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
-/* Section fade-in on scroll */
-section {
+/* Section animation opt-in (evita travar scroll no mobile) */
+.section-animate {
   animation: smooth-appear 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
