@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, forwardRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Play, ExternalLink, Sparkles, Lock } from "lucide-react";
+import { Play, ExternalLink, Sparkles, Lock, ShieldCheck } from "lucide-react";
 
 interface AdConfig {
   movie_ads: number;
@@ -16,16 +16,21 @@ interface AdGateModalProps {
   contentType?: "movie" | "tv" | "series";
 }
 
-const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = "movie" }: AdGateModalProps) => {
+const AdGateModal = forwardRef<HTMLDivElement, AdGateModalProps>(({ onContinue, onClose, contentTitle, tmdbId, contentType = "movie" }, ref) => {
   const [smartlink, setSmartlink] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [clickCount, setClickCount] = useState(0);
   const [requiredAds, setRequiredAds] = useState(1);
-  const [adConfig, setAdConfig] = useState<AdConfig | null>(null);
+  const [isReturningFromAd, setIsReturningFromAd] = useState(false);
   const antiBypassRef = useRef<string>("");
   const mountedRef = useRef(true);
   const clickCountRef = useRef(0);
   const requiredAdsRef = useRef(1);
+  const adClickPendingRef = useRef(false);
+  const adOpenedAtRef = useRef<number | null>(null);
+
+  const pendingKey = `ad_pending_${contentType}_${tmdbId}`;
+  const pendingAtKey = `ad_pending_at_${contentType}_${tmdbId}`;
 
   // Generate anti-bypass token
   useEffect(() => {
@@ -48,8 +53,7 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
         setSmartlink(url || null);
       }
       if (configData?.value) {
-        const cfg = configData.value as any;
-        setAdConfig(cfg);
+        const cfg = (configData.value ?? {}) as unknown as Partial<AdConfig>;
         const isSeries = contentType === "tv" || contentType === "series";
         const req = isSeries ? (cfg.series_ads || 2) : (cfg.movie_ads || 1);
         setRequiredAds(req);
@@ -63,8 +67,42 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
     });
   }, []);
 
-  // iOS/Android: detect return from ad tab via visibilitychange
-  // This prevents the modal from being destroyed when the browser regains focus
+  const registerAdReturn = useCallback(() => {
+    if (!adClickPendingRef.current) return;
+
+    const openedAt = adOpenedAtRef.current ?? Number(sessionStorage.getItem(pendingAtKey) || 0);
+    const elapsed = openedAt ? Date.now() - openedAt : 0;
+    if (elapsed < 1000) return;
+
+    adClickPendingRef.current = false;
+    adOpenedAtRef.current = null;
+    sessionStorage.removeItem(pendingKey);
+    sessionStorage.removeItem(pendingAtKey);
+    setIsReturningFromAd(false);
+
+    const newCount = clickCountRef.current + 1;
+    clickCountRef.current = newCount;
+    setClickCount(newCount);
+
+    const visitorId = localStorage.getItem("_cf_vid") || "unknown";
+    supabase.from("ad_clicks").insert({
+      visitor_id: visitorId,
+      content_title: contentTitle || null,
+      tmdb_id: tmdbId || null,
+    }).then(() => {});
+
+    if (newCount >= requiredAdsRef.current) {
+      const completedKey = `ad_completed_${contentType}_${tmdbId}`;
+      sessionStorage.setItem(completedKey, String(Date.now()));
+      const gateKey = `ad_gate_${contentType}_${tmdbId}`;
+      sessionStorage.removeItem(gateKey);
+
+      setTimeout(() => {
+        if (mountedRef.current) onContinue();
+      }, 450);
+    }
+  }, [contentTitle, tmdbId, contentType, onContinue, pendingAtKey, pendingKey]);
+
   const handleAdClick = useCallback(() => {
     if (!smartlink) return;
 
@@ -72,10 +110,15 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
     const storedToken = sessionStorage.getItem(gateKey);
     if (storedToken !== antiBypassRef.current) return;
 
-    // Open ad - use location.href fallback for iOS that blocks window.open
+    const openedAt = Date.now();
+    adClickPendingRef.current = true;
+    adOpenedAtRef.current = openedAt;
+    sessionStorage.setItem(pendingKey, "1");
+    sessionStorage.setItem(pendingAtKey, String(openedAt));
+    setIsReturningFromAd(true);
+
     const adWindow = window.open(smartlink, "_blank", "noopener,noreferrer");
-    
-    // iOS Safari sometimes blocks window.open, fallback to creating an anchor
+
     if (!adWindow) {
       const a = document.createElement("a");
       a.href = smartlink;
@@ -85,30 +128,34 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
       a.click();
       document.body.removeChild(a);
     }
-    
-    const newCount = clickCountRef.current + 1;
-    clickCountRef.current = newCount;
-    setClickCount(newCount);
+  }, [smartlink, contentType, tmdbId, pendingKey, pendingAtKey]);
 
-    // Log click (non-blocking)
-    const visitorId = localStorage.getItem("_cf_vid") || "unknown";
-    supabase.from("ad_clicks").insert({
-      visitor_id: visitorId,
-      content_title: contentTitle || null,
-      tmdb_id: tmdbId || null,
-    }).then(() => {});
-
-    // Check if all required ads completed
-    if (newCount >= requiredAdsRef.current) {
-      const completedKey = `ad_completed_${contentType}_${tmdbId}`;
-      sessionStorage.setItem(completedKey, String(Date.now()));
-      sessionStorage.removeItem(gateKey);
-      
-      setTimeout(() => {
-        if (mountedRef.current) onContinue();
-      }, 600);
+  useEffect(() => {
+    const hasPending = sessionStorage.getItem(pendingKey) === "1";
+    if (hasPending) {
+      adClickPendingRef.current = true;
+      adOpenedAtRef.current = Number(sessionStorage.getItem(pendingAtKey) || Date.now());
+      setIsReturningFromAd(true);
     }
-  }, [smartlink, contentType, tmdbId, contentTitle, onContinue]);
+
+    const tryComplete = () => {
+      if (document.visibilityState && document.visibilityState !== "visible") return;
+      window.setTimeout(() => {
+        if (mountedRef.current) registerAdReturn();
+      }, 450);
+    };
+
+    document.addEventListener("visibilitychange", tryComplete);
+    window.addEventListener("focus", tryComplete);
+    window.addEventListener("pageshow", tryComplete);
+
+    return () => {
+      document.removeEventListener("visibilitychange", tryComplete);
+      window.removeEventListener("focus", tryComplete);
+      window.removeEventListener("pageshow", tryComplete);
+    };
+  }, [registerAdReturn, pendingKey, pendingAtKey]);
+
 
   // If no smartlink configured or ads disabled, skip
   useEffect(() => {
@@ -127,6 +174,7 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-background/90 backdrop-blur-xl" />
       <div
+        ref={ref}
         className="relative w-full max-w-sm bg-card/95 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 sm:p-8 animate-scale-in text-center"
         onClick={(e) => e.stopPropagation()}
       >
@@ -142,20 +190,29 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
         <h2 className="font-display text-lg sm:text-xl font-bold mb-2">
           {completed ? "Liberado! 🎉" : "Quase lá! 🎬"}
         </h2>
-        <p className="text-muted-foreground text-xs sm:text-sm leading-relaxed mb-4">
+        <p className="text-muted-foreground text-xs sm:text-sm leading-relaxed mb-3">
           {completed ? (
             "Acesso liberado! Preparando player..."
           ) : (
             <>
-              Para manter a <span className="text-primary font-semibold">LyneFlix</span> gratuita,{" "}
-              {requiredAds > 1
-                ? `clique ${requiredAds} vezes no botão abaixo.`
-                : "clique no botão abaixo para continuar."
-              }
-              {" "}É rapidinho! 💜
+              Para manter a <span className="text-primary font-semibold">LyneFlix</span> gratuita, abra o anúncio e volte para continuar.
+              {requiredAds > 1 ? ` Repita ${requiredAds} vezes.` : " É só 1 clique."}
             </>
           )}
         </p>
+
+        {!completed && (
+          <div className="mb-4 rounded-2xl border border-primary/20 bg-primary/10 px-3 py-2.5 text-left">
+            <div className="flex items-start gap-2">
+              <ShieldCheck className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+              <p className="text-[11px] sm:text-xs text-foreground/90 leading-relaxed">
+                <span className="font-semibold">É seguro:</span> não é vírus. O botão abre apenas o parceiro.
+                <br />
+                <span className="font-semibold">Como fazer:</span> toque em <span className="text-primary font-semibold">Abrir anúncio</span> e depois volte para este app.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Progress indicator for multiple ads */}
         {requiredAds > 1 && !completed && (
@@ -185,15 +242,26 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
         )}
 
         {!completed ? (
-          <button
-            onClick={handleAdClick}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all hover:scale-[1.02] active:scale-[0.98]"
-          >
-            <ExternalLink className="w-4 h-4" />
-            {clickCount > 0 ? `Continuar (${clickCount}/${requiredAds})` : "Continuar"}
-          </button>
+          <div className="space-y-2">
+            <button
+              onClick={handleAdClick}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Abrir anúncio
+            </button>
+
+            {isReturningFromAd && (
+              <button
+                onClick={registerAdReturn}
+                className="w-full py-3 rounded-2xl bg-secondary text-secondary-foreground text-sm font-medium border border-border hover:bg-secondary/90 transition-colors"
+              >
+                Já cliquei no anúncio e voltei
+              </button>
+            )}
+          </div>
         ) : (
-          <div className="flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 text-sm font-medium">
+          <div className="flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-primary/15 border border-primary/30 text-primary text-sm font-medium">
             <Play className="w-4 h-4 fill-current" />
             Liberando player...
           </div>
@@ -202,13 +270,15 @@ const AdGateModal = ({ onContinue, onClose, contentTitle, tmdbId, contentType = 
         {/* Anti-bypass notice */}
         <div className="flex items-center justify-center gap-1.5 mt-4">
           <Lock className="w-3 h-3 text-muted-foreground/40" />
-          <p className="text-[10px] text-muted-foreground/50">
-            {isSeries ? "Libera todos os episódios da sessão" : "Você apoia o site ao visualizar nossos parceiros"} ✨
+          <p className="text-[10px] text-muted-foreground/60">
+            {isSeries ? "Ao concluir, todos episódios da série ficam liberados nesta sessão" : "Você apoia o site ao visualizar nossos parceiros"} ✨
           </p>
         </div>
       </div>
     </div>
   );
-};
+});
+
+AdGateModal.displayName = "AdGateModal";
 
 export default AdGateModal;
