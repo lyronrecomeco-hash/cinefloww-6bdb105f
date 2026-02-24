@@ -49,6 +49,7 @@ const BancoPage = () => {
   // IPTV CiineVeo import state
   const [iptvImporting, setIptvImporting] = useState(false);
   const [iptvProgress, setIptvProgress] = useState<{ phase: string; entries: number; valid: number; cache: number; content: number; done: boolean } | null>(null);
+  const [iptvDbStats, setIptvDbStats] = useState<{ links: number; content: number }>({ links: 0, content: 0 });
 
   const fetchContent = useCallback(async () => {
     setLoading(true);
@@ -297,6 +298,15 @@ const BancoPage = () => {
   // Load VC stats on mount
   useEffect(() => { loadVcStats(); }, [loadVcStats]);
 
+  // Load IPTV DB stats on mount
+  const loadIptvDbStats = useCallback(async () => {
+    const { count: linkCount } = await supabase.from("video_cache").select("*", { count: "exact", head: true }).eq("provider", "cineveo-iptv");
+    const { data: progressData } = await supabase.from("site_settings").select("value").eq("key", "iptv_import_progress").maybeSingle();
+    const contentCount = (progressData?.value as any)?.content_imported || 0;
+    setIptvDbStats({ links: linkCount || 0, content: contentCount });
+  }, []);
+  useEffect(() => { loadIptvDbStats(); }, [loadIptvDbStats]);
+
   // IPTV CiineVeo — fire once, auto-chains server-side, UI polls progress
   const IPTV_URL = "https://cineveo.site/api/generate_iptv_list.php?user=lyneflix-vods";
   const startIptvImport = async () => {
@@ -320,8 +330,8 @@ const BancoPage = () => {
           phase: p.phase || "downloading",
           entries: p.entries || 0,
           valid: p.valid || 0,
-          cache: p.cache_imported || 0,
-          content: p.content_imported || 0,
+          cache: p.cache_imported || p.cache || 0,
+          content: p.content_imported || p.content || 0,
           done: p.done || false,
         });
         if (p.done) {
@@ -337,6 +347,7 @@ const BancoPage = () => {
           }
           fetchStats();
           fetchContent();
+          loadIptvDbStats();
         }
       }
     }, 2000);
@@ -456,9 +467,9 @@ const BancoPage = () => {
             </p>
           </div>
         )}
-        {!iptvImporting && iptvProgress && iptvProgress.done && (
+        {!iptvImporting && (
           <p className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1">
-            <CheckCircle className="w-3 h-3" />{iptvProgress.content} conteúdos + {iptvProgress.cache} links importados
+            <CheckCircle className="w-3 h-3" />{iptvDbStats.content.toLocaleString()} conteúdos + {iptvDbStats.links.toLocaleString()} links importados
           </p>
         )}
       </div>
