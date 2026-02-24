@@ -179,11 +179,11 @@ async function getUnresolved() {
 
 async function resolveItem(item) {
   try {
-    const res = await fetch(\\\`\\\${process.env.SUPABASE_URL}/functions/v1/extract-video\\\`, {
+    const res = await fetch(\`\${process.env.SUPABASE_URL}/functions/v1/extract-video\`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": \\\`Bearer \\\${process.env.SUPABASE_SERVICE_ROLE_KEY}\\\`,
+        "Authorization": \`Bearer \${process.env.SUPABASE_SERVICE_ROLE_KEY}\`,
       },
       body: JSON.stringify({
         tmdbId: item.tmdb_id,
@@ -211,7 +211,7 @@ async function processInParallel(items) {
       if (result.success) success++;
       else fail++;
       if ((success + fail) % 50 === 0) {
-        console.log(\\\`[batch] \\\${success + fail}/\\\${total} (✅\\\${success} ❌\\\${fail})\\\`);
+        console.log(\`[batch] \${success + fail}/\${total} (✅\${success} ❌\${fail})\`);
       }
     }
   }
@@ -224,9 +224,9 @@ async function main() {
   console.log("[batch-resolve] Iniciando...");
   const items = await getUnresolved();
   if (!items.length) { console.log("[batch-resolve] Nada para resolver."); return; }
-  console.log(\\\`[batch-resolve] \\\${items.length} itens para processar\\\`);
+  console.log(\`[batch-resolve] \${items.length} itens para processar\`);
   const stats = await processInParallel(items);
-  console.log(\\\`[batch-resolve] Concluído: \\\${JSON.stringify(stats)}\\\`);
+  console.log(\`[batch-resolve] Concluído: \${JSON.stringify(stats)}\`);
 }
 
 main().catch(console.error);
@@ -246,11 +246,11 @@ async function turbo() {
   await supabase.from("video_cache").delete().lt("expires_at", new Date().toISOString());
   console.log("[turbo-resolve] Disparando batch-resolve...");
   
-  const res = await fetch(\\\`\\\${process.env.SUPABASE_URL}/functions/v1/batch-resolve\\\`, {
+  const res = await fetch(\`\${process.env.SUPABASE_URL}/functions/v1/batch-resolve\`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": \\\`Bearer \\\${process.env.SUPABASE_SERVICE_ROLE_KEY}\\\`,
+      "Authorization": \`Bearer \${process.env.SUPABASE_SERVICE_ROLE_KEY}\`,
     },
     body: JSON.stringify({ _wave: 1 }),
     signal: AbortSignal.timeout(300000),
@@ -272,11 +272,11 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 
 async function refresh() {
   console.log("[refresh-links] Iniciando refresh...");
-  const res = await fetch(\\\`\\\${process.env.SUPABASE_URL}/functions/v1/refresh-links\\\`, {
+  const res = await fetch(\`\${process.env.SUPABASE_URL}/functions/v1/refresh-links\`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": \\\`Bearer \\\${process.env.SUPABASE_SERVICE_ROLE_KEY}\\\`,
+      "Authorization": \`Bearer \${process.env.SUPABASE_SERVICE_ROLE_KEY}\`,
     },
     body: JSON.stringify({ mode: "expiring", session_id: "vps-" + Date.now() }),
     signal: AbortSignal.timeout(300000),
