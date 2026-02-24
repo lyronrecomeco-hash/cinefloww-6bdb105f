@@ -986,7 +986,7 @@ Deno.serve(async (req) => {
     const s = season || 1;
     const e = episode || 1;
 
-    // 1. Check cache
+    // 1. Check cache - always get the NEWEST entry
     if (!force_provider) {
       let query = supabase
         .from("video_cache")
@@ -1001,7 +1001,8 @@ Deno.serve(async (req) => {
       if (episode) query = query.eq("episode", episode);
       else query = query.is("episode", null);
 
-      const { data: cached } = await query.maybeSingle();
+      const { data: cachedRows } = await query.order("created_at", { ascending: false }).limit(1);
+      const cached = cachedRows?.[0] || null;
       if (cached) {
         console.log(`[extract] Cache hit for tmdb_id=${tmdb_id}`);
         return new Response(JSON.stringify({
@@ -1127,12 +1128,19 @@ Deno.serve(async (req) => {
     // 3. Save to cache, log & return
     if (videoUrl) {
       console.log(`[extract] Success via ${_pMap[provider] || provider}`);
-      await supabase.from("video_cache").upsert({
+      // Delete old entry first (handles NULL columns in unique index)
+      let delQ = supabase.from("video_cache").delete()
+        .eq("tmdb_id", tmdb_id).eq("content_type", cType).eq("audio_type", aType);
+      if (season) delQ = delQ.eq("season", season); else delQ = delQ.is("season", null);
+      if (episode) delQ = delQ.eq("episode", episode); else delQ = delQ.is("episode", null);
+      await delQ;
+      // Insert fresh entry
+      await supabase.from("video_cache").insert({
         tmdb_id, content_type: cType, audio_type: aType,
         season: season || null, episode: episode || null,
         video_url: videoUrl, video_type: videoType, provider,
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      }, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
+      });
 
       // Log success
       const logTitle = reqTitle || `TMDB ${tmdb_id}`;

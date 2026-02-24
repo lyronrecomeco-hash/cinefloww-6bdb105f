@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Wrench, Search, Film, Tv, Loader2, CheckCircle, XCircle, Play, RefreshCw,
-  Plus, Link2, ChevronDown, ChevronRight, Star, X, ExternalLink, Save, Pencil, Trash2
+  Plus, Link2, ChevronDown, ChevronRight, Star, X, ExternalLink, Save, Pencil, Trash2,
+  Database
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { searchMulti, getMovieDetails, getSeriesDetails, getSeasonDetails, posterUrl, TMDBMovie, TMDBMovieDetail } from "@/services/tmdb";
@@ -34,6 +35,10 @@ const ContentSourcesPage = () => {
 
   // Extracting state
   const [extractingKeys, setExtractingKeys] = useState<Set<string>>(new Set());
+
+  // Sync catalog state
+  const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ processed: number; total: number } | null>(null);
 
   // Player
   const [playerUrl, setPlayerUrl] = useState<string | null>(null);
@@ -354,6 +359,43 @@ const ContentSourcesPage = () => {
     }
   };
 
+  // Sync entire catalog - re-extract all content links
+  const syncCatalog = async () => {
+    setSyncing(true);
+    setSyncProgress({ processed: 0, total: 0 });
+    try {
+      const { count } = await supabase.from("content").select("*", { count: "exact", head: true });
+      const total = count || 0;
+      setSyncProgress({ processed: 0, total });
+
+      const sessionId = `sync_${Date.now()}`;
+      await supabase.functions.invoke("refresh-links", {
+        body: { mode: "all", batch_size: 1000, session_id: sessionId },
+      });
+
+      const poll = setInterval(async () => {
+        const { data } = await supabase
+          .from("site_settings")
+          .select("value")
+          .eq("key", "refresh_links_progress")
+          .maybeSingle();
+        if (data?.value) {
+          const v = data.value as any;
+          setSyncProgress({ processed: v.processed || 0, total: v.total || total });
+          if (v.status === "completed" || v.status === "cancelled") {
+            clearInterval(poll);
+            setSyncing(false);
+            toast({ title: "Sincronização concluída", description: `${v.processed || 0} links atualizados` });
+          }
+        }
+      }, 3000);
+      setTimeout(() => { clearInterval(poll); setSyncing(false); }, 600000);
+    } catch {
+      setSyncing(false);
+      toast({ title: "Erro na sincronização", variant: "destructive" });
+    }
+  };
+
   const renderVideoAction = (key: string, label: string, tmdbId: number, type: string, season?: number, episode?: number) => {
     const status = videoStatuses.get(key);
     const isExtracting = extractingKeys.has(key);
@@ -428,15 +470,41 @@ const ContentSourcesPage = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
-          <Wrench className="w-5 h-5 text-primary" />
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
+            <Wrench className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold font-display">Fontes & Vídeos</h1>
+            <p className="text-xs text-muted-foreground">Pesquise, extraia ou adicione links de vídeo manualmente</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-bold font-display">Fontes & Vídeos</h1>
-          <p className="text-xs text-muted-foreground">Pesquise, extraia ou adicione links de vídeo manualmente</p>
-        </div>
+        <button
+          onClick={syncCatalog}
+          disabled={syncing}
+          className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary/20 text-primary text-sm font-medium hover:bg-primary/30 transition-colors disabled:opacity-50"
+        >
+          {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+          {syncing ? "Sincronizando..." : "Atualizar Catálogo"}
+        </button>
       </div>
+
+      {/* Sync progress */}
+      {syncing && syncProgress && (
+        <div className="bg-card/50 border border-white/10 rounded-xl p-4">
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="text-muted-foreground">Atualizando links do catálogo...</span>
+            <span className="text-foreground font-medium">{syncProgress.processed} / {syncProgress.total || "..."}</span>
+          </div>
+          <div className="h-2 bg-white/5 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary rounded-full transition-all duration-500"
+              style={{ width: syncProgress.total ? `${(syncProgress.processed / syncProgress.total) * 100}%` : "5%" }}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Search - live search, no button */}
       <div className="relative">
