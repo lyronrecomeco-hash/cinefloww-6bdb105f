@@ -258,25 +258,18 @@ const PlayerPage = () => {
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   const source = sources[currentSourceIdx];
 
-  // Auto-fullscreen on mobile (Android + iOS)
+  // Auto-fullscreen on mobile (Android only — iOS webkitEnterFullscreen hijacks native player)
   useEffect(() => {
     if (!isMobile) return;
-    // Android: use Fullscreen API on the container
-    if (containerRef.current && !document.fullscreenElement) {
-      containerRef.current.requestFullscreen?.().then(() => setFullscreen(true)).catch(() => {
-        // iOS fallback: use webkit fullscreen on the video element once it's ready
-        const video = videoRef.current as any;
-        if (video?.webkitEnterFullscreen) {
-          const tryIOSFullscreen = () => {
-            try { video.webkitEnterFullscreen(); setFullscreen(true); } catch {}
-          };
-          if (video.readyState >= 1) {
-            tryIOSFullscreen();
-          } else {
-            video.addEventListener("loadedmetadata", tryIOSFullscreen, { once: true });
-          }
-        }
-      });
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    // iOS: do NOT use webkitEnterFullscreen — it opens the native player and hides custom controls
+    // Instead, rely on CSS fixed inset-0 for full-screen experience on iOS
+    if (!isIOS && containerRef.current && !document.fullscreenElement) {
+      containerRef.current.requestFullscreen?.().then(() => setFullscreen(true)).catch(() => {});
+    }
+    // Force landscape on Android
+    if (!isIOS) {
+      try { (screen.orientation as any)?.lock?.("landscape").catch(() => {}); } catch {}
     }
   }, [isMobile]);
 
@@ -336,7 +329,11 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    if (src.type === "mp4") {
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const useNativeHLS = src.type === "m3u8" && !Hls.isSupported() && video.canPlayType("application/vnd.apple.mpegurl");
+
+    if (src.type === "mp4" || useNativeHLS) {
+      // iOS native HLS and mp4: remove crossOrigin to avoid CORS failures
       video.removeAttribute("crossorigin");
     } else {
       video.crossOrigin = "anonymous";
@@ -399,16 +396,30 @@ const PlayerPage = () => {
         }
       });
       hls.on(Hls.Events.FRAG_LOADED, () => { setLoading(false); });
-    } else if (src.type === "m3u8" && video.canPlayType("application/vnd.apple.mpegurl")) {
+    } else if (useNativeHLS) {
+      // iOS native HLS — no crossOrigin, use native player inline
       video.src = src.url;
-      video.addEventListener("loadedmetadata", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
+      video.addEventListener("loadedmetadata", () => {
+        setLoading(false);
+        video.play().catch(() => {
+          // iOS requires user gesture — show play button, don't error
+          setPlaying(false);
+        });
+      }, { once: true });
+      video.addEventListener("error", (e) => {
+        console.error("[Player] iOS native HLS error:", (video as any).error);
+        setError(true); setLoading(false);
+      }, { once: true });
+      video.load(); // Force iOS to start loading
     } else {
       video.preload = "auto";
       video.src = src.url;
       video.addEventListener("loadeddata", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
       video.addEventListener("canplay", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
     }
-    video.addEventListener("error", () => { setError(true); setLoading(false); }, { once: true });
+    if (!useNativeHLS) {
+      video.addEventListener("error", () => { setError(true); setLoading(false); }, { once: true });
+    }
   }, []);
 
   useEffect(() => {
@@ -640,7 +651,7 @@ const PlayerPage = () => {
       }}
       style={{ cursor: showControls ? "default" : "none" }}>
       
-      <video ref={videoRef} className="w-full h-full object-contain" playsInline preload="auto"
+      <video ref={videoRef} className="w-full h-full object-contain" playsInline webkit-playsinline="true" preload="auto" autoPlay={false}
         onPlay={() => {
           if (watchRoom.isHost && watchRoom.room) {
             watchRoom.broadcastPlayback({ action: "play", position: videoRef.current?.currentTime || 0, timestamp: Date.now() });
