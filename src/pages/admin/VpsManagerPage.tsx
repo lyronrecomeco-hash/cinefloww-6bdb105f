@@ -20,7 +20,7 @@ const SCRIPTS = [
   {
     id: "install",
     label: "Instalação Completa",
-    description: "Instala Node.js 20, PM2, dependências e configura o ambiente da VPS do zero.",
+    description: "Instala Node.js 20, PM2, cria todos os scripts e inicia automaticamente. Basta colar e executar.",
     icon: Download,
     code: `#!/bin/bash
 set -e
@@ -61,31 +61,21 @@ PKGJSON
 npm install
 
 # Criar .env (credenciais já preenchidas)
-cat > .env << 'ENVFILE'
+cat > .env << ENVFILE
 SUPABASE_URL=\${SUPABASE_URL}
 SUPABASE_SERVICE_ROLE_KEY=\${SERVICE_ROLE_KEY}
 BATCH_SIZE=1000
 CONCURRENCY=40
 ENVFILE
 
-# Criar diretório de scripts
-mkdir -p scripts
-
-echo "✅ Instalação concluída!"
-echo "📌 Execute: cd ~/lyneflix-vps && npm start"`,
-  },
-  {
-    id: "ecosystem",
-    label: "PM2 Ecosystem",
-    description: "Arquivo de configuração do PM2 com workers de batch-resolve, turbo-resolve, refresh-links e heartbeat.",
-    icon: FileCode,
-    code: `// ecosystem.config.cjs
+# ecosystem.config.cjs
+cat > ecosystem.config.cjs << 'ECOFILE'
 module.exports = {
   apps: [
     {
       name: "heartbeat",
       script: "scripts/heartbeat.mjs",
-      cron_restart: "*/2 * * * *",     // A cada 2 minutos
+      cron_restart: "*/2 * * * *",
       autorestart: false,
       env: { NODE_ENV: "production" },
     },
@@ -121,14 +111,14 @@ module.exports = {
       env: { NODE_ENV: "production" },
     },
   ],
-};`,
-  },
-  {
-    id: "heartbeat",
-    label: "Heartbeat (Status)",
-    description: "Envia status da VPS para o painel a cada 2 minutos. Sincroniza automaticamente.",
-    icon: Activity,
-    code: `// scripts/heartbeat.mjs
+};
+ECOFILE
+
+# Criar diretório de scripts
+mkdir -p scripts
+
+# heartbeat.mjs
+cat > scripts/heartbeat.mjs << 'HBFILE'
 import { createClient } from "@supabase/supabase-js";
 import { execSync } from "child_process";
 import { config } from "dotenv";
@@ -168,14 +158,11 @@ async function sendHeartbeat() {
   else console.log("[heartbeat] ✅ Status enviado:", new Date().toISOString());
 }
 
-sendHeartbeat().catch(console.error);`,
-  },
-  {
-    id: "batch-resolve",
-    label: "Batch Resolve Worker",
-    description: "Resolve links de vídeo em massa com alta concorrência (40 workers). Processa lotes de 1000 itens.",
-    icon: Zap,
-    code: `// scripts/batch-resolve.mjs
+sendHeartbeat().catch(console.error);
+HBFILE
+
+# batch-resolve.mjs
+cat > scripts/batch-resolve.mjs << 'BRFILE'
 import { createClient } from "@supabase/supabase-js";
 import { config } from "dotenv";
 config();
@@ -192,11 +179,11 @@ async function getUnresolved() {
 
 async function resolveItem(item) {
   try {
-    const res = await fetch(\`\${process.env.SUPABASE_URL}/functions/v1/extract-video\`, {
+    const res = await fetch(\\\`\\\${process.env.SUPABASE_URL}/functions/v1/extract-video\\\`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": \`Bearer \${process.env.SUPABASE_SERVICE_ROLE_KEY}\`,
+        "Authorization": \\\`Bearer \\\${process.env.SUPABASE_SERVICE_ROLE_KEY}\\\`,
       },
       body: JSON.stringify({
         tmdbId: item.tmdb_id,
@@ -224,7 +211,7 @@ async function processInParallel(items) {
       if (result.success) success++;
       else fail++;
       if ((success + fail) % 50 === 0) {
-        console.log(\`[batch] \${success + fail}/\${total} (✅\${success} ❌\${fail})\`);
+        console.log(\\\`[batch] \\\${success + fail}/\\\${total} (✅\\\${success} ❌\\\${fail})\\\`);
       }
     }
   }
@@ -237,19 +224,72 @@ async function main() {
   console.log("[batch-resolve] Iniciando...");
   const items = await getUnresolved();
   if (!items.length) { console.log("[batch-resolve] Nada para resolver."); return; }
-  console.log(\`[batch-resolve] \${items.length} itens para processar\`);
+  console.log(\\\`[batch-resolve] \\\${items.length} itens para processar\\\`);
   const stats = await processInParallel(items);
-  console.log(\`[batch-resolve] Concluído: \${JSON.stringify(stats)}\`);
+  console.log(\\\`[batch-resolve] Concluído: \\\${JSON.stringify(stats)}\\\`);
 }
 
-main().catch(console.error);`,
-  },
-  {
-    id: "cleanup",
-    label: "Limpeza Automática",
-    description: "Remove logs antigos, cache expirado e otimiza tabelas automaticamente.",
-    icon: RefreshCw,
-    code: `// scripts/cleanup.mjs
+main().catch(console.error);
+BRFILE
+
+# turbo-resolve.mjs (chama batch-resolve em loop)
+cat > scripts/turbo-resolve.mjs << 'TRFILE'
+import { createClient } from "@supabase/supabase-js";
+import { config } from "dotenv";
+config();
+
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+async function turbo() {
+  console.log("[turbo-resolve] Limpando falhas antigas...");
+  await supabase.from("resolve_failures").delete().gte("tmdb_id", 0);
+  await supabase.from("video_cache").delete().lt("expires_at", new Date().toISOString());
+  console.log("[turbo-resolve] Disparando batch-resolve...");
+  
+  const res = await fetch(\\\`\\\${process.env.SUPABASE_URL}/functions/v1/batch-resolve\\\`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": \\\`Bearer \\\${process.env.SUPABASE_SERVICE_ROLE_KEY}\\\`,
+    },
+    body: JSON.stringify({ _wave: 1 }),
+    signal: AbortSignal.timeout(300000),
+  });
+  const data = await res.json();
+  console.log("[turbo-resolve] Resultado:", JSON.stringify(data));
+}
+
+turbo().catch(console.error);
+TRFILE
+
+# refresh-links.mjs
+cat > scripts/refresh-links.mjs << 'RLFILE'
+import { createClient } from "@supabase/supabase-js";
+import { config } from "dotenv";
+config();
+
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+async function refresh() {
+  console.log("[refresh-links] Iniciando refresh...");
+  const res = await fetch(\\\`\\\${process.env.SUPABASE_URL}/functions/v1/refresh-links\\\`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": \\\`Bearer \\\${process.env.SUPABASE_SERVICE_ROLE_KEY}\\\`,
+    },
+    body: JSON.stringify({ mode: "expiring", session_id: "vps-" + Date.now() }),
+    signal: AbortSignal.timeout(300000),
+  });
+  const data = await res.json();
+  console.log("[refresh-links] Resultado:", JSON.stringify(data));
+}
+
+refresh().catch(console.error);
+RLFILE
+
+# cleanup.mjs
+cat > scripts/cleanup.mjs << 'CLFILE'
 import { createClient } from "@supabase/supabase-js";
 import { config } from "dotenv";
 config();
@@ -259,37 +299,19 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 async function cleanup() {
   console.log("[cleanup] Iniciando limpeza...");
 
-  const { count: c1 } = await supabase
-    .from("resolve_logs").delete().lt("created_at", new Date(Date.now() - 7*86400000).toISOString())
-    .select("*", { count: "exact", head: true });
-  console.log(\`[cleanup] resolve_logs removidos: \${c1 || 0}\`);
-
-  const { count: c2 } = await supabase
-    .from("resolve_failures").delete().lt("attempted_at", new Date(Date.now() - 3*86400000).toISOString())
-    .select("*", { count: "exact", head: true });
-  console.log(\`[cleanup] resolve_failures removidos: \${c2 || 0}\`);
-
-  const { count: c3 } = await supabase
-    .from("site_visitors").delete().lt("visited_at", new Date(Date.now() - 14*86400000).toISOString())
-    .select("*", { count: "exact", head: true });
-  console.log(\`[cleanup] site_visitors removidos: \${c3 || 0}\`);
-
-  const { count: c4 } = await supabase
-    .from("video_cache").delete().lt("expires_at", new Date().toISOString())
-    .select("*", { count: "exact", head: true });
-  console.log(\`[cleanup] video_cache expirados removidos: \${c4 || 0}\`);
+  await supabase.from("resolve_logs").delete().lt("created_at", new Date(Date.now() - 7*86400000).toISOString());
+  await supabase.from("resolve_failures").delete().lt("attempted_at", new Date(Date.now() - 3*86400000).toISOString());
+  await supabase.from("site_visitors").delete().lt("visited_at", new Date(Date.now() - 14*86400000).toISOString());
+  await supabase.from("video_cache").delete().lt("expires_at", new Date().toISOString());
 
   console.log("[cleanup] ✅ Limpeza concluída!");
 }
 
-cleanup().catch(console.error);`,
-  },
-  {
-    id: "update",
-    label: "Auto-Update",
-    description: "Script para atualizar os scripts da VPS automaticamente sem troca manual de arquivos.",
-    icon: RefreshCw,
-    code: `// scripts/update.mjs
+cleanup().catch(console.error);
+CLFILE
+
+# update.mjs
+cat > scripts/update.mjs << 'UPFILE'
 import { createClient } from "@supabase/supabase-js";
 import { writeFileSync, mkdirSync } from "fs";
 import { config } from "dotenv";
@@ -299,33 +321,34 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 
 async function update() {
   console.log("[update] Buscando scripts atualizados...");
-
-  const { data } = await supabase
-    .from("site_settings")
-    .select("value")
-    .eq("key", "vps_scripts")
-    .maybeSingle();
-
-  if (!data?.value) {
-    console.log("[update] Nenhum script remoto encontrado.");
-    return;
-  }
-
-  const scripts = data.value;
+  const { data } = await supabase.from("site_settings").select("value").eq("key", "vps_scripts").maybeSingle();
+  if (!data?.value) { console.log("[update] Nenhum script remoto."); return; }
   mkdirSync("scripts", { recursive: true });
-
-  for (const [filename, content] of Object.entries(scripts)) {
-    writeFileSync(\`scripts/\${filename}\`, content);
-    console.log(\`[update] ✅ Atualizado: scripts/\${filename}\`);
+  for (const [filename, content] of Object.entries(data.value)) {
+    writeFileSync("scripts/" + filename, content);
+    console.log("[update] ✅ " + filename);
   }
-
-  console.log("[update] Reiniciando PM2...");
   const { execSync } = await import("child_process");
   execSync("pm2 restart all", { stdio: "inherit" });
-  console.log("[update] ✅ Concluído!");
 }
 
-update().catch(console.error);`,
+update().catch(console.error);
+UPFILE
+
+# Rodar primeiro heartbeat
+node scripts/heartbeat.mjs
+
+# Iniciar PM2
+pm2 start ecosystem.config.cjs
+pm2 save
+pm2 startup
+
+echo ""
+echo "✅ Instalação completa! VPS rodando."
+echo "📌 Comandos úteis:"
+echo "   pm2 status    — ver workers"
+echo "   pm2 logs      — ver logs"
+echo "   npm run update — atualizar scripts remotamente"`,
   },
 ];
 
