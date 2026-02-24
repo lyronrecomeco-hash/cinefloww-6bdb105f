@@ -45,8 +45,7 @@ const PartnersModal = ({ onClose }: PartnersModalProps) => {
         </div>
 
         <p className="text-muted-foreground text-sm leading-relaxed">
-          O LyneFlix conta com parceiros que fornecem infraestrutura e fontes de
-          conteúdo para garantir a melhor experiência de streaming.
+          Conheça os parceiros que fazem parte do ecossistema LyneFlix.
         </p>
 
         {partners.length > 0 ? (
