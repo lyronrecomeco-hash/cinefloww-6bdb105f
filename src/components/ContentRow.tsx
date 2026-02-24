@@ -24,7 +24,7 @@ const ContentRow = forwardRef<HTMLElement, ContentRowProps>(({ title, movies, ic
   if (movies.length === 0) return null;
 
   return (
-    <section className="mb-8 sm:mb-10 lg:mb-14">
+    <section className="mb-8 sm:mb-10 lg:mb-14" style={{ contain: "layout style" }}>
       <div className="flex items-center justify-between px-3 sm:px-6 lg:px-12 mb-3 sm:mb-4 lg:mb-6">
         <div className="flex items-center gap-2 sm:gap-3">
           {icon && (
@@ -52,8 +52,8 @@ const ContentRow = forwardRef<HTMLElement, ContentRowProps>(({ title, movies, ic
 
       <div
         ref={scrollRef}
-        className="flex gap-2.5 sm:gap-4 overflow-x-auto scrollbar-hide px-3 sm:px-6 lg:px-12 pb-2 snap-x snap-proximity overscroll-x-contain touch-auto"
-        style={{ WebkitOverflowScrolling: "touch" }}
+        className="flex gap-2.5 sm:gap-4 overflow-x-auto scrollbar-hide px-3 sm:px-6 lg:px-12 pb-2 snap-x snap-proximity overscroll-x-contain"
+        style={{ WebkitOverflowScrolling: "touch", willChange: "scroll-position" }}
       >
         {movies.map((movie) => (
           <div key={movie.id} className="flex-shrink-0 w-[120px] sm:w-[160px] lg:w-[180px] snap-start">

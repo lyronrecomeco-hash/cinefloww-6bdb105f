@@ -50,8 +50,8 @@ const MovieCard = memo(({ movie, audioBadges }: MovieCardProps) => {
       <div className="relative aspect-[2/3] rounded-xl sm:rounded-2xl overflow-hidden mb-2 sm:mb-3 card-shine">
         <img
           src={posterUrl(movie.poster_path)}
-          alt={title}
-          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+          alt={`${title} - Assistir grátis online em HD na LyneFlix`}
+          className="w-full h-full object-cover will-change-transform transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
           decoding="async"
           onError={(e) => {

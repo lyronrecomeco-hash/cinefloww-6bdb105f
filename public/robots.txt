@@ -1,8 +1,10 @@
 User-agent: Googlebot
 Allow: /
+Crawl-delay: 1
 
 User-agent: Bingbot
 Allow: /
+Crawl-delay: 2
 
 User-agent: Twitterbot
 Allow: /
@@ -12,6 +14,14 @@ Allow: /
 
 User-agent: *
 Allow: /
+Allow: /filmes
+Allow: /series
+Allow: /doramas
+Allow: /lancamentos
+Allow: /em-breve
+Allow: /minha-lista
+Allow: /filme/
+Allow: /serie/
 Disallow: /admin
 Disallow: /player
 Disallow: /assistir
@@ -19,5 +29,7 @@ Disallow: /api
 Disallow: /extrator
 Disallow: /perfis
 Disallow: /importar-lista
+Disallow: /v/
+Disallow: /b/
 
 Sitemap: https://lyneflix.online/sitemap.xml

@@ -48,7 +48,6 @@ const HeroSlider = ({ movies }: HeroSliderProps) => {
            src={backdropUrl(item.backdrop_path, "w1280")}
            loading={i === 0 ? "eager" : "lazy"}
            decoding="async"
-           fetchPriority={i === 0 ? "high" : "low"}
             alt={getDisplayTitle(item)}
             className="w-full h-full object-cover"
           />
