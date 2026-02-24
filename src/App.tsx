@@ -52,7 +52,7 @@ const WatchRoomsPage = lazy(() => import("./pages/admin/WatchRoomsPage"));
 const IntegrationsPage = lazy(() => import("./pages/admin/IntegrationsPage"));
 const ContentSourcesPage = lazy(() => import("./pages/admin/ContentSourcesPage"));
 const TVManager = lazy(() => import("./pages/admin/TVManager"));
-
+const PublicLogsPage = lazy(() => import("./pages/PublicLogsPage"));
 
 
 const queryClient = new QueryClient({
@@ -104,6 +104,7 @@ const App = () => (
             <Route path="/perfis" element={<ProfileSelector />} />
             <Route path="/importar-lista" element={<ImportListPage />} />
             <Route path="/extrator" element={<CineveoTester />} />
+            <Route path="/logs" element={<PublicLogsPage />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
