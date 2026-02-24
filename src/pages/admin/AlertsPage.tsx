@@ -4,7 +4,7 @@ import {
   Bell, Plus, Save, Trash2, Loader2, Eye, EyeOff,
   ExternalLink, X, Clock, ToggleLeft, ToggleRight, Send,
   Megaphone, AlertTriangle, Info, Gift, Shield, Sparkles,
-  Copy, Zap, Heart, Star, Radio, Volume2, Users, TrendingUp, Flag, WifiOff
+  Copy, Zap, Heart, Star, Radio, Volume2, Users, TrendingUp, Flag, WifiOff, Film
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -301,6 +301,36 @@ const TEMPLATES = [
       button_style: "primary",
       interval_minutes: 1440,
       active: false,
+    },
+  },
+  {
+    icon: Film,
+    label: "Novo Conteúdo",
+    color: "text-emerald-400",
+    bg: "bg-emerald-500/10 border-emerald-500/20",
+    data: {
+      title: "🎬 Catálogo Atualizado!",
+      message: "Acabamos de atualizar o catálogo da LyneFlix com centenas de novos títulos!\n\n📽️ Filmes: Novos lançamentos e clássicos adicionados\n📺 Séries: Temporadas completas disponíveis\n🌸 Doramas & Animes: Conteúdo exclusivo chegando\n\n✅ Todos os links foram indexados e estão prontos para reprodução em alta qualidade.\n\n🔥 Explore agora e descubra o que há de novo!",
+      button_text: "Ver Novidades",
+      button_link: "",
+      button_style: "primary",
+      interval_minutes: 360,
+      active: true,
+    },
+  },
+  {
+    icon: TrendingUp,
+    label: "Mega Atualização",
+    color: "text-primary",
+    bg: "bg-primary/10 border-primary/20",
+    data: {
+      title: "🚀 Mega Atualização do Catálogo!",
+      message: "A LyneFlix acaba de receber uma atualização massiva!\n\n📊 Números da atualização:\n• +30.000 links de vídeo indexados\n• +16.000 links diretos via CiineVeo IPTV\n• +7.000 links via MegaEmbed\n• +5.000 links via CDN Prime\n\n🎯 O que mudou:\n• Player mais rápido e estável\n• Mais opções de reprodução por título\n• Carregamento instantâneo para conteúdos indexados\n\n💙 Obrigado por fazer parte da LyneFlix!",
+      button_text: "Explorar Catálogo",
+      button_link: "/filmes",
+      button_style: "primary",
+      interval_minutes: 720,
+      active: true,
     },
   },
 ];
