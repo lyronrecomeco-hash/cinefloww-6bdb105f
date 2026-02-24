@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { Server, Copy, Check, Terminal, RefreshCw, Play, FileCode, Download, Zap, Wifi, WifiOff, Activity, Clock, Cpu, HardDrive } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -361,6 +361,29 @@ function formatUptime(seconds: number): string {
   return `${m}m`;
 }
 
+const HEARTBEAT_STALE_MS = 5 * 60 * 1000;
+
+function parseHeartbeatValue(raw: unknown): VpsHeartbeat | null {
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    try {
+      return JSON.parse(raw) as VpsHeartbeat;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof raw === "object") return raw as VpsHeartbeat;
+  return null;
+}
+
+function isHeartbeatOnline(hb: VpsHeartbeat | null): boolean {
+  if (!hb) return false;
+  if (hb.status === "offline") return false;
+  if (!hb.last_beat) return hb.status === "online";
+  const diff = Date.now() - new Date(hb.last_beat).getTime();
+  return diff < HEARTBEAT_STALE_MS;
+}
+
 const VpsManagerPage = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>("install");
@@ -370,41 +393,64 @@ const VpsManagerPage = () => {
 
   // Load service role key + heartbeat
   useEffect(() => {
+    let isMounted = true;
+
+    const applyHeartbeat = (rawValue: unknown) => {
+      const hb = parseHeartbeatValue(rawValue);
+      if (!isMounted) return;
+      setHeartbeat(hb);
+      setIsOnline(isHeartbeatOnline(hb));
+    };
+
     const loadData = async () => {
       const [keyRes, hbRes] = await Promise.all([
         supabase.from("site_settings").select("value").eq("key", "vps_service_key").maybeSingle(),
         supabase.from("site_settings").select("value").eq("key", "vps_heartbeat").maybeSingle(),
       ]);
+
+      if (!isMounted) return;
+
       if (keyRes.data?.value) {
         const val = keyRes.data.value as any;
-        setServiceRoleKey(typeof val === "string" ? val.replace(/^"|"$/g, '') : val.key || "");
+        setServiceRoleKey(typeof val === "string" ? val.replace(/^"|"$/g, "") : val.key || "");
       }
-      if (hbRes.data?.value) {
-        const hb = hbRes.data.value as unknown as VpsHeartbeat;
-        setHeartbeat(hb);
-        // Consider online if last beat < 5 min ago
-        if (hb.last_beat) {
-          const diff = Date.now() - new Date(hb.last_beat).getTime();
-          setIsOnline(diff < 5 * 60 * 1000);
-        }
-      }
+
+      applyHeartbeat(hbRes.data?.value);
     };
+
     loadData();
 
-    // Poll heartbeat every 30s
+    const heartbeatChannel = supabase
+      .channel("vps-heartbeat-live")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "site_settings",
+          filter: "key=eq.vps_heartbeat",
+        },
+        (payload) => {
+          const latestValue =
+            payload.new && typeof payload.new === "object" && "value" in payload.new
+              ? (payload.new as { value: unknown }).value
+              : null;
+          applyHeartbeat(latestValue);
+        }
+      )
+      .subscribe();
+
+    // Fallback polling caso realtime oscile
     const interval = setInterval(async () => {
       const { data } = await supabase.from("site_settings").select("value").eq("key", "vps_heartbeat").maybeSingle();
-      if (data?.value) {
-        const hb = data.value as unknown as VpsHeartbeat;
-        setHeartbeat(hb);
-        if (hb.last_beat) {
-          const diff = Date.now() - new Date(hb.last_beat).getTime();
-          setIsOnline(diff < 5 * 60 * 1000);
-        }
-      }
-    }, 30000);
+      applyHeartbeat(data?.value);
+    }, 10000);
 
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+      supabase.removeChannel(heartbeatChannel);
+    };
   }, []);
 
   const copyToClipboard = (text: string, id: string) => {
