@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const BATCH_SIZE = 1000;
-const CONCURRENCY = 20;
+const CONCURRENCY = 40;
 const FAILURE_RETRY_HOURS = 12; // Retry failed items after 12 hours
 
 Deno.serve(async (req) => {

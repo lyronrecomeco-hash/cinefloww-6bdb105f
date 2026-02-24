@@ -1,7 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Settings, Save, Loader2, Users, RefreshCw, Zap, Clock, AlertTriangle } from "lucide-react";
+import { Settings, Save, Loader2, Users, Handshake, Plus, Trash2, Eye, EyeOff, ExternalLink, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+
+interface Partner {
+  id: string;
+  name: string;
+  description: string | null;
+  website_url: string | null;
+  icon_url: string | null;
+  logo_url: string | null;
+  show_navbar_icon: boolean;
+  active: boolean;
+  sort_order: number;
+}
 
 const SettingsPage = () => {
   const [siteName, setSiteName] = useState("Cineflow");
@@ -10,24 +22,16 @@ const SettingsPage = () => {
   const [watchTogetherEnabled, setWatchTogetherEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshMode, setRefreshMode] = useState<string>("expiring");
-  const [refreshProgress, setRefreshProgress] = useState<any>(null);
-  const [cacheStats, setCacheStats] = useState<any>(null);
   const { toast } = useToast();
 
-  const fetchCacheStats = useCallback(async () => {
-    const { data } = await supabase.rpc("get_unresolved_content", { batch_limit: 1 });
-    const { count: totalCache } = await supabase.from("video_cache").select("id", { count: "exact", head: true });
-    const soon = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    const { count: expiring } = await supabase.from("video_cache").select("id", { count: "exact", head: true }).lt("expires_at", soon);
-    const { count: iframeProxy } = await supabase.from("video_cache").select("id", { count: "exact", head: true }).eq("video_type", "iframe-proxy");
-    setCacheStats({ total: totalCache || 0, expiring: expiring || 0, iframeProxy: iframeProxy || 0 });
-  }, []);
+  // Partners state
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [editingPartner, setEditingPartner] = useState<Partial<Partner> | null>(null);
+  const [savingPartner, setSavingPartner] = useState(false);
 
-  const fetchRefreshProgress = useCallback(async () => {
-    const { data } = await supabase.from("site_settings").select("value").eq("key", "refresh_links_progress").maybeSingle();
-    if (data?.value) setRefreshProgress(data.value);
+  const fetchPartners = useCallback(async () => {
+    const { data } = await supabase.from("partners").select("*").order("sort_order");
+    if (data) setPartners(data as Partner[]);
   }, []);
 
   useEffect(() => {
@@ -44,40 +48,8 @@ const SettingsPage = () => {
       setLoading(false);
     };
     fetch();
-    fetchCacheStats();
-    fetchRefreshProgress();
-  }, [fetchCacheStats, fetchRefreshProgress]);
-
-  // Poll refresh progress while refreshing
-  useEffect(() => {
-    if (!refreshing) return;
-    const interval = setInterval(async () => {
-      await fetchRefreshProgress();
-      const { data } = await supabase.from("site_settings").select("value").eq("key", "refresh_links_progress").maybeSingle();
-      if ((data?.value as any)?.done) {
-        setRefreshing(false);
-        fetchCacheStats();
-        toast({ title: "Atualização concluída!" });
-      }
-    }, 5000);
-    return () => clearInterval(interval);
-  }, [refreshing, fetchRefreshProgress, fetchCacheStats, toast]);
-
-  const startRefresh = async () => {
-    setRefreshing(true);
-    const sessionId = crypto.randomUUID().slice(0, 8);
-    try {
-      const { error } = await supabase.functions.invoke("refresh-links", {
-        body: { mode: refreshMode, batch_size: 1000, session_id: sessionId },
-      });
-      if (error) throw error;
-      toast({ title: "Atualização iniciada", description: `Modo: ${refreshMode}` });
-      fetchRefreshProgress();
-    } catch (err: any) {
-      setRefreshing(false);
-      toast({ title: "Erro", description: err.message, variant: "destructive" });
-    }
-  };
+    fetchPartners();
+  }, [fetchPartners]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -105,6 +77,56 @@ const SettingsPage = () => {
     setSaving(false);
   };
 
+  const savePartner = async () => {
+    if (!editingPartner?.name) return;
+    setSavingPartner(true);
+    try {
+      if (editingPartner.id) {
+        await supabase.from("partners").update({
+          name: editingPartner.name,
+          description: editingPartner.description || null,
+          website_url: editingPartner.website_url || null,
+          icon_url: editingPartner.icon_url || null,
+          logo_url: editingPartner.logo_url || null,
+          show_navbar_icon: editingPartner.show_navbar_icon ?? false,
+          active: editingPartner.active ?? true,
+        }).eq("id", editingPartner.id);
+      } else {
+        await supabase.from("partners").insert({
+          name: editingPartner.name,
+          description: editingPartner.description || null,
+          website_url: editingPartner.website_url || null,
+          icon_url: editingPartner.icon_url || null,
+          logo_url: editingPartner.logo_url || null,
+          show_navbar_icon: editingPartner.show_navbar_icon ?? false,
+          active: editingPartner.active ?? true,
+        });
+      }
+      toast({ title: editingPartner.id ? "Parceiro atualizado!" : "Parceiro adicionado!" });
+      setEditingPartner(null);
+      fetchPartners();
+    } catch (err: any) {
+      toast({ title: "Erro", description: err.message, variant: "destructive" });
+    }
+    setSavingPartner(false);
+  };
+
+  const deletePartner = async (id: string) => {
+    await supabase.from("partners").delete().eq("id", id);
+    fetchPartners();
+    toast({ title: "Parceiro removido" });
+  };
+
+  const togglePartnerNavbar = async (p: Partner) => {
+    await supabase.from("partners").update({ show_navbar_icon: !p.show_navbar_icon }).eq("id", p.id);
+    fetchPartners();
+  };
+
+  const togglePartnerActive = async (p: Partner) => {
+    await supabase.from("partners").update({ active: !p.active }).eq("id", p.id);
+    fetchPartners();
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-40">
@@ -114,13 +136,22 @@ const SettingsPage = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold">Configurações</h1>
-        <p className="text-sm text-muted-foreground mt-1">Configurações gerais do site</p>
+    <div className="space-y-8 max-w-3xl">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-xl bg-primary/20 flex items-center justify-center">
+          <Settings className="w-5 h-5 text-primary" />
+        </div>
+        <div>
+          <h1 className="text-xl font-bold font-display">Configurações</h1>
+          <p className="text-xs text-muted-foreground">Configurações gerais do site</p>
+        </div>
       </div>
 
-      <div className="glass p-6 space-y-5 max-w-2xl">
+      {/* General Settings */}
+      <div className="glass p-6 space-y-5">
+        <h2 className="font-display text-lg font-bold">Geral</h2>
+
         <div>
           <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Nome do Site</label>
           <input
@@ -159,8 +190,8 @@ const SettingsPage = () => {
               <Users className="w-4 h-4 text-primary" />
             </div>
             <div>
-              <p className="text-sm font-medium">Watch Together (Assistir Junto)</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Exibe o botão de assistir junto nas páginas de detalhe</p>
+              <p className="text-sm font-medium">Watch Together</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Botão de assistir junto nas páginas de detalhe</p>
             </div>
           </div>
           <button
@@ -181,96 +212,160 @@ const SettingsPage = () => {
         </button>
       </div>
 
-      {/* Refresh Links Section */}
-      <div className="glass p-6 space-y-5 max-w-2xl">
-        <div className="flex items-center gap-2">
-          <RefreshCw className="w-5 h-5 text-primary" />
-          <h2 className="font-display text-lg font-bold">Atualização de Links</h2>
-        </div>
-        <p className="text-xs text-muted-foreground">Puxa links atualizados das fontes para substituir links expirados ou quebrados.</p>
-
-        {/* Cache stats */}
-        {cacheStats && (
-          <div className="grid grid-cols-3 gap-3">
-            <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 text-center">
-              <p className="text-lg font-bold font-display">{cacheStats.total.toLocaleString()}</p>
-              <p className="text-[10px] text-muted-foreground">Links no cache</p>
-            </div>
-            <div className="p-3 rounded-xl bg-amber-400/5 border border-amber-400/10 text-center">
-              <p className="text-lg font-bold font-display text-amber-400">{cacheStats.expiring.toLocaleString()}</p>
-              <p className="text-[10px] text-muted-foreground">Expirando em 24h</p>
-            </div>
-            <div className="p-3 rounded-xl bg-orange-400/5 border border-orange-400/10 text-center">
-              <p className="text-lg font-bold font-display text-orange-400">{cacheStats.iframeProxy.toLocaleString()}</p>
-              <p className="text-[10px] text-muted-foreground">Iframe-proxy</p>
-            </div>
+      {/* Partners Section */}
+      <div className="glass p-6 space-y-5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Handshake className="w-5 h-5 text-primary" />
+            <h2 className="font-display text-lg font-bold">Parceiros</h2>
           </div>
+          <button
+            onClick={() => setEditingPartner({ name: "", description: "", website_url: "", icon_url: "", logo_url: "", show_navbar_icon: false, active: true })}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Adicionar
+          </button>
+        </div>
+
+        <p className="text-xs text-muted-foreground">
+          Gerencie parceiros que aparecem no site. Controle ícone na navbar, logo no modal e link para o site.
+        </p>
+
+        {/* Partners list */}
+        {partners.length === 0 && !editingPartner && (
+          <p className="text-center text-muted-foreground text-sm py-6">Nenhum parceiro cadastrado</p>
         )}
 
-        {/* Mode selector */}
-        <div>
-          <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Modo de atualização</label>
-          <div className="grid grid-cols-2 gap-2">
-            {[
-              { id: "expiring", label: "Expirando", icon: Clock, desc: "Links que vencem em 24h" },
-              { id: "iframe-proxy", label: "Iframe-Proxy", icon: AlertTriangle, desc: "Substituir por link direto" },
-              { id: "old", label: "Antigos", icon: RefreshCw, desc: "Links com +3 dias" },
-              { id: "all", label: "Todos", icon: Zap, desc: "Atualizar tudo (mais lento)" },
-            ].map(m => (
-              <button
-                key={m.id}
-                onClick={() => setRefreshMode(m.id)}
-                className={`p-3 rounded-xl border text-left transition-all ${
-                  refreshMode === m.id
-                    ? "border-primary/50 bg-primary/10"
-                    : "border-white/5 bg-white/[0.02] hover:bg-white/[0.04]"
-                }`}
-              >
+        <div className="space-y-3">
+          {partners.map(p => (
+            <div key={p.id} className="flex items-center gap-3 p-4 rounded-xl bg-white/[0.03] border border-white/5">
+              {p.icon_url && (
+                <img src={p.icon_url} alt={p.name} className="w-8 h-8 rounded-lg object-contain bg-white/5 p-1" />
+              )}
+              <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <m.icon className={`w-3.5 h-3.5 ${refreshMode === m.id ? "text-primary" : "text-muted-foreground"}`} />
-                  <span className="text-sm font-medium">{m.label}</span>
+                  <p className="text-sm font-medium truncate">{p.name}</p>
+                  {!p.active && <span className="text-[10px] bg-white/10 text-muted-foreground px-1.5 py-0.5 rounded">Inativo</span>}
+                  {p.show_navbar_icon && <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded">Navbar</span>}
                 </div>
-                <p className="text-[10px] text-muted-foreground mt-1">{m.desc}</p>
-              </button>
-            ))}
-          </div>
+                {p.website_url && <p className="text-xs text-muted-foreground truncate">{p.website_url}</p>}
+              </div>
+              <div className="flex items-center gap-1">
+                <button onClick={() => togglePartnerNavbar(p)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors" title="Toggle navbar icon">
+                  {p.show_navbar_icon ? <Eye className="w-3.5 h-3.5 text-primary" /> : <EyeOff className="w-3.5 h-3.5 text-muted-foreground" />}
+                </button>
+                <button onClick={() => togglePartnerActive(p)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors" title="Toggle ativo">
+                  <div className={`w-2.5 h-2.5 rounded-full ${p.active ? "bg-emerald-400" : "bg-white/20"}`} />
+                </button>
+                <button onClick={() => setEditingPartner({ ...p })} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors" title="Editar">
+                  <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+                </button>
+                <button onClick={() => deletePartner(p.id)} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-colors" title="Remover">
+                  <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
 
-        {/* Progress */}
-        {refreshProgress && !refreshProgress.done && (
-          <div className="p-4 rounded-xl bg-white/[0.03] border border-white/5 space-y-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Progresso</span>
-              <span className="font-mono text-xs">{refreshProgress.processed || 0}/{refreshProgress.total || "?"}</span>
+        {/* Edit/Add Form */}
+        {editingPartner && (
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-primary/20 space-y-4">
+            <h3 className="text-sm font-semibold">{editingPartner.id ? "Editar Parceiro" : "Novo Parceiro"}</h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-medium text-muted-foreground uppercase mb-1">Nome</label>
+                <input
+                  value={editingPartner.name || ""}
+                  onChange={(e) => setEditingPartner({ ...editingPartner, name: e.target.value })}
+                  className="w-full h-9 px-3 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50"
+                  placeholder="CineVeo"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-muted-foreground uppercase mb-1">URL do Site</label>
+                <input
+                  value={editingPartner.website_url || ""}
+                  onChange={(e) => setEditingPartner({ ...editingPartner, website_url: e.target.value })}
+                  className="w-full h-9 px-3 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50"
+                  placeholder="https://cineveo.com"
+                />
+              </div>
             </div>
-            <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-primary transition-all"
-                style={{ width: `${refreshProgress.total ? (refreshProgress.processed / refreshProgress.total * 100) : 0}%` }}
+
+            <div>
+              <label className="block text-[10px] font-medium text-muted-foreground uppercase mb-1">Descrição</label>
+              <textarea
+                value={editingPartner.description || ""}
+                onChange={(e) => setEditingPartner({ ...editingPartner, description: e.target.value })}
+                rows={2}
+                className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm resize-none focus:outline-none focus:border-primary/50"
+                placeholder="Descrição do parceiro..."
               />
             </div>
-            <div className="flex gap-4 text-[10px] text-muted-foreground">
-              <span>✅ {refreshProgress.updated || 0} atualizados</span>
-              <span>❌ {refreshProgress.failed || 0} falhas</span>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-medium text-muted-foreground uppercase mb-1">URL do Ícone (navbar)</label>
+                <input
+                  value={editingPartner.icon_url || ""}
+                  onChange={(e) => setEditingPartner({ ...editingPartner, icon_url: e.target.value })}
+                  className="w-full h-9 px-3 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50"
+                  placeholder="URL da imagem do ícone"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-medium text-muted-foreground uppercase mb-1">URL da Logo (modal)</label>
+                <input
+                  value={editingPartner.logo_url || ""}
+                  onChange={(e) => setEditingPartner({ ...editingPartner, logo_url: e.target.value })}
+                  className="w-full h-9 px-3 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50"
+                  placeholder="URL da logo completa"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editingPartner.show_navbar_icon ?? false}
+                  onChange={(e) => setEditingPartner({ ...editingPartner, show_navbar_icon: e.target.checked })}
+                  className="rounded"
+                />
+                <span className="text-xs">Mostrar ícone na navbar</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={editingPartner.active ?? true}
+                  onChange={(e) => setEditingPartner({ ...editingPartner, active: e.target.checked })}
+                  className="rounded"
+                />
+                <span className="text-xs">Ativo</span>
+              </label>
+            </div>
+
+            <div className="flex gap-2">
+              <button
+                onClick={savePartner}
+                disabled={savingPartner || !editingPartner.name}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+              >
+                {savingPartner ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                Salvar
+              </button>
+              <button
+                onClick={() => setEditingPartner(null)}
+                className="px-4 py-2 rounded-xl bg-white/5 text-sm font-medium hover:bg-white/10 transition-colors"
+              >
+                Cancelar
+              </button>
             </div>
           </div>
         )}
-
-        {refreshProgress?.done && (
-          <div className="p-3 rounded-xl bg-emerald-400/5 border border-emerald-400/10 text-xs text-emerald-400">
-            ✅ Última execução: {refreshProgress.updated || 0} atualizados, {refreshProgress.failed || 0} falhas
-            {refreshProgress.elapsed_seconds && ` em ${refreshProgress.elapsed_seconds}s`}
-          </div>
-        )}
-
-        <button
-          onClick={startRefresh}
-          disabled={refreshing}
-          className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
-        >
-          {refreshing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-          {refreshing ? "Atualizando..." : "Iniciar Atualização"}
-        </button>
       </div>
     </div>
   );
