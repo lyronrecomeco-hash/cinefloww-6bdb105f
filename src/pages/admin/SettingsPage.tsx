@@ -215,8 +215,10 @@ const SettingsPage = () => {
       {/* Partners Section */}
       <div className="glass p-6 space-y-5">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Handshake className="w-5 h-5 text-primary" />
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
+              <Handshake className="w-4 h-4 text-primary" />
+            </div>
             <h2 className="font-display text-lg font-bold">Parceiros</h2>
           </div>
           <button
@@ -240,9 +242,13 @@ const SettingsPage = () => {
         <div className="space-y-3">
           {partners.map(p => (
             <div key={p.id} className="flex items-center gap-3 p-4 rounded-xl bg-white/[0.03] border border-white/5">
-              {p.icon_url && (
-                <img src={p.icon_url} alt={p.name} className="w-8 h-8 rounded-lg object-contain bg-white/5 p-1" />
-              )}
+              <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0 overflow-hidden">
+                {p.icon_url ? (
+                  <img src={p.icon_url} alt={p.name} className="w-7 h-7 object-contain mix-blend-screen" />
+                ) : (
+                  <Handshake className="w-4 h-4 text-muted-foreground" />
+                )}
+              </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-medium truncate">{p.name}</p>
