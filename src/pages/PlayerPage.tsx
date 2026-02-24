@@ -135,44 +135,52 @@ const PlayerPage = () => {
 
   // Resolve video via extract-video edge function
   const extractionRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!params.id || !params.type) return;
-    const key = `${params.type}-${params.id}-${audioParam}-${season}-${episode}`;
-    if (extractionRef.current === key) return; // Prevent double extraction
-    extractionRef.current = key;
+  const playerRetryCount = useRef(0);
+
+  const loadVideo = useCallback(async (skipCache = false) => {
+    if (!params.id || !params.type || !tmdbId) return;
     setBankLoading(true);
     setBankSources([]);
 
-    const load = async () => {
-      const cType = params.type === "movie" ? "movie" : "series";
-      const aType = audioParam || "legendado";
+    const cType = params.type === "movie" ? "movie" : "series";
+    const aType = audioParam || "legendado";
 
-      // 1. Title + cache check in parallel (FAST)
-      let cacheQuery = supabase
-        .from("video_cache")
-        .select("video_url, video_type, provider")
-        .eq("tmdb_id", tmdbId!)
-        .eq("content_type", cType)
-        .eq("audio_type", aType)
-        .gt("expires_at", new Date().toISOString());
-      if (season) cacheQuery = cacheQuery.eq("season", season);
-      else cacheQuery = cacheQuery.is("season", null);
-      if (episode) cacheQuery = cacheQuery.eq("episode", episode);
-      else cacheQuery = cacheQuery.is("episode", null);
+    // If retrying, delete stale cache first
+    if (skipCache) {
+      console.log("[PlayerPage] Deleting stale cache, re-extracting...");
+      let delQuery = supabase.from("video_cache").delete()
+        .eq("tmdb_id", tmdbId).eq("content_type", cType).eq("audio_type", aType);
+      if (season) delQuery = delQuery.eq("season", season);
+      else delQuery = delQuery.is("season", null);
+      if (episode) delQuery = delQuery.eq("episode", episode);
+      else delQuery = delQuery.is("episode", null);
+      await delQuery;
+    }
 
-      const [titleResult, cacheResult] = await Promise.all([
-        supabase.from("content").select("title").eq("tmdb_id", tmdbId!).eq("content_type", cType).maybeSingle(),
-        cacheQuery.maybeSingle(),
-      ]);
+    try {
+      if (!skipCache) {
+        // 1. Title + cache check in parallel (FAST)
+        let cacheQuery = supabase
+          .from("video_cache")
+          .select("video_url, video_type, provider")
+          .eq("tmdb_id", tmdbId)
+          .eq("content_type", cType)
+          .eq("audio_type", aType)
+          .gt("expires_at", new Date().toISOString());
+        if (season) cacheQuery = cacheQuery.eq("season", season);
+        else cacheQuery = cacheQuery.is("season", null);
+        if (episode) cacheQuery = cacheQuery.eq("episode", episode);
+        else cacheQuery = cacheQuery.is("episode", null);
 
-      if (titleResult.data?.title) setBankTitle(titleResult.data.title);
+        const [titleResult, cacheResult] = await Promise.all([
+          supabase.from("content").select("title").eq("tmdb_id", tmdbId).eq("content_type", cType).maybeSingle(),
+          cacheQuery.maybeSingle(),
+        ]);
 
-      // 2. If cache hit, use instantly
-      if (cacheResult.data?.video_url) {
-        // Skip iframe-proxy type - need extraction instead
-        if (cacheResult.data.video_type === "iframe-proxy") {
-          // Fall through to extract-video which will handle it
-        } else {
+        if (titleResult.data?.title) setBankTitle(titleResult.data.title);
+
+        // 2. If cache hit, use instantly
+        if (cacheResult.data?.video_url && cacheResult.data.video_type !== "iframe-proxy") {
           setBankSources([{
             url: cacheResult.data.video_url,
             quality: "auto",
@@ -184,9 +192,9 @@ const PlayerPage = () => {
         }
       }
 
-      // 3. No cache, call extract-video
+      // 3. Call extract-video
       const { data } = await supabase.functions.invoke("extract-video", {
-        body: { tmdb_id: tmdbId!, imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
+        body: { tmdb_id: tmdbId, imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
       });
 
       if (data?.url) {
@@ -197,10 +205,19 @@ const PlayerPage = () => {
           type: data.type === "mp4" ? "mp4" : "m3u8",
         }]);
       }
-      setBankLoading(false);
-    };
-    load().catch(() => setBankLoading(false));
+    } catch {}
+    setBankLoading(false);
   }, [params.id, params.type, audioParam, imdbId, season, episode, tmdbId]);
+
+  // Initial load
+  useEffect(() => {
+    if (!params.id || !params.type) return;
+    const key = `${params.type}-${params.id}-${audioParam}-${season}-${episode}`;
+    if (extractionRef.current === key) return;
+    extractionRef.current = key;
+    playerRetryCount.current = 0;
+    loadVideo(false);
+  }, [params.id, params.type, audioParam, imdbId, season, episode, tmdbId, loadVideo]);
 
   const sources: VideoSource[] = useMemo(() => {
     if (bankSources.length > 0) return bankSources;
@@ -760,8 +777,17 @@ const PlayerPage = () => {
                 <AlertTriangle className="w-4 h-4" /> Avisar a equipe
               </button>
               <div className="flex gap-2">
-                {error && source && (
-                  <button onClick={() => attachSource(source, true)} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
+                {error && (
+                  <button onClick={() => {
+                    if (playerRetryCount.current < 2) {
+                      playerRetryCount.current++;
+                      extractionRef.current = null;
+                      setError(false);
+                      loadVideo(true);
+                    } else if (source) {
+                      attachSource(source, true);
+                    }
+                  }} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
                     <RefreshCw className="w-4 h-4" /> Tentar de novo
                   </button>
                 )}

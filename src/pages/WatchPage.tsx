@@ -114,48 +114,62 @@ const WatchPage = () => {
   }, [id, type]);
 
   // START extraction IMMEDIATELY when we have audio (parallel with intro)
-  const tryExtraction = useCallback(async () => {
-    if (extractionStarted.current) return;
+  const retryCount = useRef(0);
+  const tryExtraction = useCallback(async (skipCache = false) => {
+    if (extractionStarted.current && !skipCache) return;
     extractionStarted.current = true;
 
     const cType = isMovie ? "movie" : "series";
     const aType = selectedAudio || "legendado";
 
     // 1. FAST: Check client-side cache first (direct DB query)
-    try {
-      let query = supabase
-        .from("video_cache")
-        .select("video_url, video_type, provider")
-        .eq("tmdb_id", Number(id))
-        .eq("content_type", cType)
-        .eq("audio_type", aType)
-        .gt("expires_at", new Date().toISOString());
+    if (!skipCache) {
+      try {
+        let query = supabase
+          .from("video_cache")
+          .select("video_url, video_type, provider")
+          .eq("tmdb_id", Number(id))
+          .eq("content_type", cType)
+          .eq("audio_type", aType)
+          .gt("expires_at", new Date().toISOString());
 
-      if (season) query = query.eq("season", season);
-      else query = query.is("season", null);
-      if (episode) query = query.eq("episode", episode);
-      else query = query.is("episode", null);
+        if (season) query = query.eq("season", season);
+        else query = query.is("season", null);
+        if (episode) query = query.eq("episode", episode);
+        else query = query.is("episode", null);
 
-      const { data: cached } = await query.maybeSingle();
-      if (cached?.video_url) {
-        console.log("[WatchPage] Cache hit - instant play!");
-        // Handle iframe-proxy type from cache
-        if (cached.video_type === "iframe-proxy") {
-          setIframeProxyUrl(cached.video_url);
-          setPhase("iframe-intercept");
-          extractionStarted.current = true;
+        const { data: cached } = await query.maybeSingle();
+        if (cached?.video_url) {
+          console.log("[WatchPage] Cache hit - instant play!");
+          if (cached.video_type === "iframe-proxy") {
+            setIframeProxyUrl(cached.video_url);
+            setPhase("iframe-intercept");
+            return;
+          }
+          const result = { url: cached.video_url, type: cached.video_type || "m3u8", provider: cached.provider || "cache" };
+          extractionResult.current = result;
+          if (introComplete) {
+            setSources([{ url: result.url, quality: "auto", provider: result.provider, type: result.type === "mp4" ? "mp4" : "m3u8" }]);
+            setPhase("playing");
+          }
           return;
         }
-        const result = { url: cached.video_url, type: cached.video_type || "m3u8", provider: cached.provider || "cache" };
-        extractionResult.current = result;
-        // If intro already done, go straight to playing
-        if (introComplete) {
-          setSources([{ url: result.url, quality: "auto", provider: result.provider, type: result.type === "mp4" ? "mp4" : "m3u8" }]);
-          setPhase("playing");
-        }
-        return;
-      }
-    } catch { /* cache miss, continue */ }
+      } catch { /* cache miss, continue */ }
+    } else {
+      // Delete stale cache entry before re-extraction
+      console.log("[WatchPage] Deleting stale cache, re-extracting...");
+      let delQuery = supabase
+        .from("video_cache")
+        .delete()
+        .eq("tmdb_id", Number(id))
+        .eq("content_type", cType)
+        .eq("audio_type", aType);
+      if (season) delQuery = delQuery.eq("season", season);
+      else delQuery = delQuery.is("season", null);
+      if (episode) delQuery = delQuery.eq("episode", episode);
+      else delQuery = delQuery.is("episode", null);
+      await delQuery;
+    }
 
     // 2. Call extract-video edge function
     try {
@@ -185,6 +199,21 @@ const WatchPage = () => {
     if (introComplete) setPhase("unavailable");
     else extractionResult.current = null; // mark as failed
   }, [id, imdbId, isMovie, selectedAudio, season, episode, introComplete]);
+
+  // Auto-retry on playback error: delete cache and re-extract
+  const handlePlaybackError = useCallback(() => {
+    if (retryCount.current < 2) {
+      retryCount.current++;
+      console.log(`[WatchPage] Playback failed, retry ${retryCount.current}/2`);
+      extractionStarted.current = false;
+      setSources([]);
+      setPhase("loading");
+      setIntroComplete(true); // skip intro on retry
+      tryExtraction(true); // skip cache, force re-extract
+    } else {
+      setPhase("unavailable");
+    }
+  }, [tryExtraction]);
 
   // Start extraction as soon as we have audio selected
   useEffect(() => {
@@ -310,7 +339,7 @@ const WatchPage = () => {
             setSources([{ url, quality: "auto", provider: "playerflix", type: vType }]);
             setPhase("playing");
           }}
-          onError={() => setPhase("unavailable")}
+          onError={handlePlaybackError}
           onClose={goBack}
           title={title}
         />
