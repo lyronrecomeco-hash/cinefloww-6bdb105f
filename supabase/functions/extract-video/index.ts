@@ -996,10 +996,8 @@ Deno.serve(async (req) => {
         .eq("audio_type", aType)
         .gt("expires_at", new Date().toISOString());
 
-      if (season) query = query.eq("season", season);
-      else query = query.is("season", null);
-      if (episode) query = query.eq("episode", episode);
-      else query = query.is("episode", null);
+      query = query.eq("season", season || 0);
+      query = query.eq("episode", episode || 0);
 
       const { data: cachedRows } = await query.order("created_at", { ascending: false }).limit(1);
       const cached = cachedRows?.[0] || null;
@@ -1058,13 +1056,13 @@ Deno.serve(async (req) => {
             const supabase2 = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
             await supabase2.from("video_cache").upsert({
               tmdb_id, content_type: cType, audio_type: aType,
-              season: season || null, episode: episode || null,
+              season: season || 0, episode: episode || 0,
               video_url: me.url, video_type: "iframe-proxy", provider: "megaembed",
               expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
             }, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
             await supabase2.from("resolve_logs").insert({
               tmdb_id, title: reqTitle || `TMDB ${tmdb_id}`, content_type: cType,
-              season: season || null, episode: episode || null,
+              season: season || 0, episode: episode || 0,
               provider: "megaembed", video_url: me.url, video_type: "iframe-proxy", success: true,
             });
             return new Response(JSON.stringify({
@@ -1128,25 +1126,19 @@ Deno.serve(async (req) => {
     // 3. Save to cache, log & return
     if (videoUrl) {
       console.log(`[extract] Success via ${_pMap[provider] || provider}`);
-      // Delete old entry first (handles NULL columns in unique index)
-      let delQ = supabase.from("video_cache").delete()
-        .eq("tmdb_id", tmdb_id).eq("content_type", cType).eq("audio_type", aType);
-      if (season) delQ = delQ.eq("season", season); else delQ = delQ.is("season", null);
-      if (episode) delQ = delQ.eq("episode", episode); else delQ = delQ.is("episode", null);
-      await delQ;
-      // Insert fresh entry
-      await supabase.from("video_cache").insert({
+      // Use upsert now that we have a proper unique constraint
+      await supabase.from("video_cache").upsert({
         tmdb_id, content_type: cType, audio_type: aType,
-        season: season || null, episode: episode || null,
+        season: season || 0, episode: episode || 0,
         video_url: videoUrl, video_type: videoType, provider,
         expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      });
+      }, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
 
       // Log success
       const logTitle = reqTitle || `TMDB ${tmdb_id}`;
       await supabase.from("resolve_logs").insert({
         tmdb_id, title: logTitle, content_type: cType,
-        season: season || null, episode: episode || null,
+        season: season || 0, episode: episode || 0,
         provider, video_url: videoUrl, video_type: videoType, success: true,
       });
 
@@ -1159,7 +1151,7 @@ Deno.serve(async (req) => {
     const logTitle = reqTitle || `TMDB ${tmdb_id}`;
     await supabase.from("resolve_logs").insert({
       tmdb_id, title: logTitle, content_type: cType,
-      season: season || null, episode: episode || null,
+      season: season || 0, episode: episode || 0,
       provider: force_provider || "all", success: false,
       error_message: "Nenhum provedor retornou vídeo",
     });
