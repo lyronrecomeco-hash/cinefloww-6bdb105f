@@ -50,7 +50,7 @@ const CineVeoModal = ({ onClose }: CineVeoModalProps) => {
             Parceiro Oficial
           </p>
           <p className="text-muted-foreground text-sm leading-relaxed">
-            {partner?.description || "Fornece infraestrutura e fontes de conteúdo para o LyneFlix, garantindo qualidade e variedade no catálogo."}
+            {partner?.description || "Parceiro oficial do ecossistema LyneFlix."}
           </p>
         </div>
 
