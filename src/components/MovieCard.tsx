@@ -22,12 +22,12 @@ const MovieCard = memo(({ movie, audioBadges }: MovieCardProps) => {
   useEffect(() => {
     if (audioBadges) { setBadges(audioBadges); return; }
     if (badgeCache.has(movie.id)) { setBadges(badgeCache.get(movie.id)!); return; }
-    const cType = type === "movie" ? "movie" : "series";
+    const cTypes = type === "movie" ? ["movie"] : ["series", "tv"];
     supabase
       .from("video_cache")
       .select("audio_type")
       .eq("tmdb_id", movie.id)
-      .eq("content_type", cType)
+      .in("content_type", cTypes)
       .gt("expires_at", new Date().toISOString())
       .then(({ data }) => {
         if (data) {

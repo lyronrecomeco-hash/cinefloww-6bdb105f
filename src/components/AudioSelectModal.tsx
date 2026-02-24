@@ -7,6 +7,8 @@ interface AudioSelectModalProps {
   type: "movie" | "tv";
   title: string;
   subtitle?: string;
+  season?: number;
+  episode?: number;
   onSelect: (audio: string) => void;
   onClose: () => void;
 }
@@ -14,35 +16,60 @@ interface AudioSelectModalProps {
 const AUDIO_OPTIONS = [
   { key: "dublado", icon: Mic, label: "Dublado PT-BR", description: "Áudio em português brasileiro" },
   { key: "legendado", icon: Subtitles, label: "Legendado", description: "Áudio original com legendas" },
-  { key: "cam", icon: Video, label: "CAM", description: "Gravação de câmera" },
+  { key: "cam", icon: Video, label: "CAM", description: "Gravação de câmera (qualidade inferior)" },
 ];
 
-const AudioSelectModal = ({ tmdbId, type, title, subtitle, onSelect, onClose }: AudioSelectModalProps) => {
+const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSelect, onClose }: AudioSelectModalProps) => {
   const [availableAudios, setAvailableAudios] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const cType = type === "movie" ? "movie" : "series";
-    // Check REAL availability from video_cache
-    supabase
-      .from("video_cache")
-      .select("audio_type")
-      .eq("tmdb_id", tmdbId)
-      .eq("content_type", cType)
-      .gt("expires_at", new Date().toISOString())
-      .then(({ data }) => {
-        if (data && data.length > 0) {
-          setAvailableAudios(new Set(data.map(d => d.audio_type)));
-        }
-        setLoading(false);
-      });
-  }, [tmdbId, type]);
+    // Query ALL audio types for this content from video_cache
+    const cTypes = type === "tv" ? ["series", "tv"] : ["movie"];
+    
+    const fetchAudios = async () => {
+      let query = supabase
+        .from("video_cache")
+        .select("audio_type")
+        .eq("tmdb_id", tmdbId)
+        .in("content_type", cTypes)
+        .gt("expires_at", new Date().toISOString());
+
+      // For specific episode, check episode-level entries
+      if (season !== undefined && episode !== undefined) {
+        query = query.eq("season", season).eq("episode", episode);
+      } else if (type === "movie") {
+        // Movies: only entries without season/episode
+        query = query.is("season", null).is("episode", null);
+      }
+      // For series without specific ep, check any available audio across all episodes
+
+      const { data } = await query;
+      
+      if (data && data.length > 0) {
+        const audios = new Set(data.map(d => d.audio_type));
+        setAvailableAudios(audios);
+      }
+      setLoading(false);
+    };
+
+    fetchAudios();
+  }, [tmdbId, type, season, episode]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
+
+  // If only 1 audio available and it's not loading, auto-select
+  useEffect(() => {
+    if (!loading && availableAudios.size === 1) {
+      const audio = [...availableAudios][0];
+      localStorage.setItem("cineflow_audio_pref", audio);
+      onSelect(audio);
+    }
+  }, [loading, availableAudios]);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
@@ -73,12 +100,16 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, onSelect, onClose }: 
                   return (
                     <button
                       key={opt.key}
-                      onClick={() => { if (!isAvailable) return; localStorage.setItem("cineflow_audio_pref", opt.key); onSelect(opt.key); }}
+                      onClick={() => {
+                        if (!isAvailable) return;
+                        localStorage.setItem("cineflow_audio_pref", opt.key);
+                        onSelect(opt.key);
+                      }}
                       disabled={!isAvailable}
                       className={`w-full flex items-center gap-4 p-4 rounded-2xl border transition-all duration-200 group ${
                         isAvailable
                           ? "bg-white/[0.03] border-white/10 hover:bg-white/[0.08] hover:border-primary/30 cursor-pointer"
-                          : "bg-white/[0.01] border-white/5 opacity-40 cursor-not-allowed"
+                          : "bg-white/[0.01] border-white/5 opacity-30 cursor-not-allowed"
                       }`}
                     >
                       <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
@@ -87,9 +118,11 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, onSelect, onClose }: 
                         <Icon className={`w-6 h-6 ${isAvailable ? "text-primary" : "text-muted-foreground/50"}`} />
                       </div>
                       <div className="text-left flex-1">
-                        <p className={`font-semibold text-sm ${isAvailable ? "text-foreground" : "text-muted-foreground/50"}`}>{opt.label}</p>
+                        <p className={`font-semibold text-sm ${isAvailable ? "text-foreground" : "text-muted-foreground/50"}`}>
+                          {opt.label}
+                        </p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          {isAvailable ? opt.description : "Indisponível no momento"}
+                          {isAvailable ? opt.description : "Indisponível — sem fonte indexada"}
                         </p>
                       </div>
                       {isAvailable ? (
@@ -109,14 +142,24 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, onSelect, onClose }: 
               </div>
             )}
 
-            <div className="mt-5 pt-5 border-t border-white/10">
-              <button
-                onClick={() => { localStorage.setItem("cineflow_audio_pref", "legendado"); onSelect("legendado"); }}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-muted-foreground hover:bg-white/10 transition-colors"
-              >
-                <Globe className="w-4 h-4" /> Pular e assistir legendado
-              </button>
-            </div>
+            {/* Only show skip button if there are available audios and user might want to skip selection */}
+            {!loading && availableAudios.size > 1 && (
+              <div className="mt-5 pt-5 border-t border-white/10">
+                <button
+                  onClick={() => {
+                    // Auto-select first available
+                    const first = AUDIO_OPTIONS.find(o => availableAudios.has(o.key));
+                    if (first) {
+                      localStorage.setItem("cineflow_audio_pref", first.key);
+                      onSelect(first.key);
+                    }
+                  }}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-muted-foreground hover:bg-white/10 transition-colors"
+                >
+                  <Globe className="w-4 h-4" /> Assistir qualquer disponível
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
