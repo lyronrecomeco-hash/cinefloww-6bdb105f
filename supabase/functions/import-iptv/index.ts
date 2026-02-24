@@ -43,7 +43,7 @@ function parseEntry(infoLine: string, url: string): ParsedEntry | null {
   const tvgIdMatch = infoLine.match(/tvg-id="(?:movie|tv|series):(\d+)"/);
   if (tvgIdMatch) {
     tmdbId = parseInt(tvgIdMatch[1]);
-    if (infoLine.match(/tvg-id="tv:/)) contentType = "series";
+    if (infoLine.match(/tvg-id="(?:tv|series):/)) contentType = "series";
   }
 
   // Fallback: extract from URL
