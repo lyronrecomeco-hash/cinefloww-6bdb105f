@@ -51,19 +51,13 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [showAdGate, setShowAdGate] = useState(false);
   const [adGateCallback, setAdGateCallback] = useState<(() => void) | null>(null);
-  const [isAdUser, setIsAdUser] = useState(false);
 
-  // Load active profile + check if ad user
+  // Load active profile
   useEffect(() => {
     const stored = localStorage.getItem("lyneflix_active_profile");
     if (stored) {
       try { setActiveProfileId(JSON.parse(stored).id); } catch {}
     }
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user?.email === "admin-st@gmail.com") {
-        setIsAdUser(true);
-      }
-    });
   }, []);
 
   useEffect(() => {
@@ -176,21 +170,16 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   };
 
   const handleWatchClick = () => {
-    if (isAdUser) {
-      // Check if ad was already viewed this session for this content
-      const adKey = `ad_viewed_${type}_${id}`;
-      if (sessionStorage.getItem(adKey)) {
-        proceedToWatch();
-        return;
-      }
-      setAdGateCallback(() => () => {
-        sessionStorage.setItem(adKey, "1");
-        proceedToWatch();
-      });
-      setShowAdGate(true);
+    // Check if ad was already completed this session
+    const completedKey = `ad_completed_${type}_${id}`;
+    if (sessionStorage.getItem(completedKey)) {
+      proceedToWatch();
       return;
     }
-    proceedToWatch();
+    setAdGateCallback(() => () => {
+      proceedToWatch();
+    });
+    setShowAdGate(true);
   };
 
   // Prefetch: check if video is cached (existence only, no URL exposed)
@@ -499,6 +488,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         <AdGateModal
           contentTitle={getDisplayTitle(detail)}
           tmdbId={detail.id}
+          contentType={type}
           onContinue={() => {
             setShowAdGate(false);
             adGateCallback?.();
