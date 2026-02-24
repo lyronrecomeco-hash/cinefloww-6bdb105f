@@ -138,7 +138,8 @@ const WatchPage = () => {
         if (episode) query = query.eq("episode", episode);
         else query = query.is("episode", null);
 
-        const { data: cached } = await query.maybeSingle();
+        const { data: cachedRows } = await query.order("created_at", { ascending: false }).limit(5);
+        const cached = cachedRows?.[0] || null;
         if (cached?.video_url) {
           console.log("[WatchPage] Cache hit - instant play!");
           if (cached.video_type === "iframe-proxy") {
