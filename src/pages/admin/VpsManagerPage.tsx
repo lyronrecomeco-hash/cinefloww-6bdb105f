@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Server, Copy, Check, Terminal, RefreshCw, Play, FileCode, Download, Zap } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 const SCRIPTS = [
   {
@@ -45,15 +48,16 @@ PKGJSON
 
 npm install
 
-# Criar .env
+# Criar .env (credenciais já preenchidas)
 cat > .env << 'ENVFILE'
-SUPABASE_URL=SUA_URL_AQUI
-SUPABASE_SERVICE_ROLE_KEY=SUA_KEY_AQUI
+SUPABASE_URL=\${SUPABASE_URL}
+SUPABASE_SERVICE_ROLE_KEY=COLE_SUA_SERVICE_ROLE_KEY_AQUI
 BATCH_SIZE=1000
 CONCURRENCY=40
 ENVFILE
 
-echo "✅ Instalação concluída! Edite ~/lyneflix-vps/.env com suas credenciais."
+echo "✅ Instalação concluída!"
+echo "⚠️  Edite ~/lyneflix-vps/.env e preencha a SERVICE_ROLE_KEY"
 echo "📌 Depois execute: cd ~/lyneflix-vps && npm start"`,
   },
   {
@@ -271,12 +275,38 @@ update().catch(console.error);`,
 const VpsManagerPage = () => {
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>("install");
+  const [serviceRoleKey, setServiceRoleKey] = useState<string>("");
+
+  useEffect(() => {
+    // Try to load the service role key from site_settings if stored
+    supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "vps_service_key")
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) {
+          const val = data.value as any;
+          setServiceRoleKey(typeof val === "string" ? val.replace(/^"|"$/g, '') : val.key || "");
+        }
+      });
+  }, []);
 
   const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
+    // Replace placeholders with actual values
+    let finalText = text
+      .replace(/\$\{SUPABASE_URL\}/g, SUPABASE_URL)
+      .replace(/COLE_SUA_SERVICE_ROLE_KEY_AQUI/g, serviceRoleKey || "COLE_SUA_SERVICE_ROLE_KEY_AQUI");
+    navigator.clipboard.writeText(finalText);
     setCopiedId(id);
     toast.success("Copiado para área de transferência!");
     setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const getDisplayCode = (code: string) => {
+    return code
+      .replace(/\$\{SUPABASE_URL\}/g, SUPABASE_URL)
+      .replace(/COLE_SUA_SERVICE_ROLE_KEY_AQUI/g, serviceRoleKey || "COLE_SUA_SERVICE_ROLE_KEY_AQUI");
   };
 
   return (
@@ -331,9 +361,8 @@ const VpsManagerPage = () => {
       {/* Quick Start */}
       <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10">
         <p className="text-xs text-primary/80">
-          🚀 <strong>Quick Start:</strong> Copie o script de <strong>Instalação Completa</strong>, 
-          cole no terminal da VPS e execute. Depois edite o <code className="bg-primary/10 px-1 rounded">.env</code> com 
-          suas credenciais e rode <code className="bg-primary/10 px-1 rounded">npm start</code>.
+          🚀 <strong>Quick Start:</strong> Copie o script de <strong>Instalação Completa</strong> (credenciais já preenchidas), 
+          cole no terminal da VPS e execute. Rode <code className="bg-primary/10 px-1 rounded">npm start</code> e pronto.
           Para atualizar scripts remotamente, use <code className="bg-primary/10 px-1 rounded">npm run update</code>.
         </p>
       </div>
@@ -372,8 +401,8 @@ const VpsManagerPage = () => {
 
               {isExpanded && (
                 <div className="border-t border-white/5">
-                  <pre className="p-4 text-xs text-foreground/80 overflow-x-auto max-h-[400px] overflow-y-auto font-mono leading-relaxed bg-black/20">
-                    {script.code}
+                  <pre className="p-4 text-xs text-foreground/80 overflow-x-auto max-h-[400px] overflow-y-auto font-mono leading-relaxed bg-transparent scrollbar-transparent">
+                    {getDisplayCode(script.code)}
                   </pre>
                 </div>
               )}

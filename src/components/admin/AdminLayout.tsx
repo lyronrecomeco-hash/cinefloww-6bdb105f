@@ -185,7 +185,7 @@ const AdminLayout = () => {
       </div>
 
       {/* Nav */}
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+      <nav className="flex-1 p-3 space-y-1 overflow-y-auto scrollbar-transparent">
         {visibleMenuItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (
