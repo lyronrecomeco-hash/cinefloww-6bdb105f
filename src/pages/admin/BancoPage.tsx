@@ -38,7 +38,7 @@ const BancoPage = () => {
   const cancelRef = useRef(false);
   const autoResolveStarted = useRef(false);
   const { toast } = useToast();
-  const [stats, setStats] = useState({ total: 0, withVideo: 0, withoutVideo: 0 });
+  const [stats, setStats] = useState({ total: 0, withVideo: 0, withoutVideo: 0, byProvider: {} as Record<string, number> });
   const [playerItem, setPlayerItem] = useState<ContentItem | null>(null);
   const [providerMenu, setProviderMenu] = useState<string | null>(null);
   const [resolvingItems, setResolvingItems] = useState<Set<string>>(new Set());
@@ -97,18 +97,41 @@ const BancoPage = () => {
   };
 
   const fetchStats = useCallback(async () => {
-    const { count: total } = await supabase
-      .from("content")
-      .select("*", { count: "exact", head: true });
-    const { count: withVideo } = await supabase
-      .from("video_cache")
-      .select("*", { count: "exact", head: true })
-      .gt("expires_at", new Date().toISOString());
-    setStats({
-      total: total || 0,
-      withVideo: withVideo || 0,
-      withoutVideo: Math.max(0, (total || 0) - (withVideo || 0)),
-    });
+    const [
+      { count: total },
+      { data: providerData },
+    ] = await Promise.all([
+      supabase.from("content").select("*", { count: "exact", head: true }),
+      supabase.rpc("get_video_stats_by_provider" as any),
+    ]);
+
+    // Fallback if RPC doesn't exist yet
+    if (providerData && Array.isArray(providerData)) {
+      const byProvider: Record<string, number> = {};
+      let uniqueWithVideo = 0;
+      for (const row of providerData as any[]) {
+        byProvider[row.provider] = Number(row.cnt);
+        uniqueWithVideo += Number(row.cnt);
+      }
+      setStats({
+        total: total || 0,
+        withVideo: uniqueWithVideo,
+        withoutVideo: Math.max(0, (total || 0) - uniqueWithVideo),
+        byProvider,
+      });
+    } else {
+      // Simple fallback
+      const { count: withVideo } = await supabase
+        .from("video_cache")
+        .select("tmdb_id", { count: "exact", head: true })
+        .gt("expires_at", new Date().toISOString());
+      setStats({
+        total: total || 0,
+        withVideo: withVideo || 0,
+        withoutVideo: Math.max(0, (total || 0) - (withVideo || 0)),
+        byProvider: {},
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -397,7 +420,7 @@ const BancoPage = () => {
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <div className="glass p-3 sm:p-4 rounded-xl text-center">
           <p className="text-lg sm:text-2xl font-bold text-primary">{stats.total.toLocaleString()}</p>
-          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Total</p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Total Catálogo</p>
         </div>
         <div className="glass p-3 sm:p-4 rounded-xl text-center">
           <p className="text-lg sm:text-2xl font-bold text-emerald-400">{stats.withVideo.toLocaleString()}</p>
@@ -408,6 +431,23 @@ const BancoPage = () => {
           <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Sem Vídeo</p>
         </div>
       </div>
+
+      {/* Provider Breakdown */}
+      {Object.keys(stats.byProvider).length > 0 && (
+        <div className="glass p-3 sm:p-4 rounded-xl">
+          <p className="text-xs font-semibold text-muted-foreground mb-2">📊 Links por Provedor</p>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(stats.byProvider)
+              .sort((a, b) => b[1] - a[1])
+              .map(([provider, count]) => (
+                <div key={provider} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10">
+                  <span className="text-[10px] font-medium text-foreground">{provider}</span>
+                  <span className="text-[10px] font-bold text-primary">{count.toLocaleString()}</span>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       {/* VisionCine Import */}
       <div className="glass p-3 sm:p-4 rounded-xl">
