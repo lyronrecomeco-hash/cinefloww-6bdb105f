@@ -21,7 +21,7 @@ interface ResolveLog {
 const providerLabels: Record<string, string> = {
   cineveo: "CDN Prime",
   "cineveo-embed": "Cineveo Embed",
-  megaembed: "Fonte B",
+  "cineveo-iptv": "IPTV CiineVeo",
   embedplay: "Fonte C",
   playerflix: "Fonte D",
   superflix: "SuperFlix",

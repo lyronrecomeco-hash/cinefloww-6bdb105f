@@ -36,7 +36,18 @@ const SeasonsModal = forwardRef<HTMLDivElement, SeasonsModalProps>(({ seriesId, 
   }, [seriesId, selectedSeason]);
 
   useEffect(() => {
-    getEpisodeProgress(seriesId, "tv").then(setProgressMap);
+    // Check both "tv" and "series" content_type since player saves as "series"
+    Promise.all([
+      getEpisodeProgress(seriesId, "tv"),
+      getEpisodeProgress(seriesId, "series"),
+    ]).then(([tvMap, seriesMap]) => {
+      const merged = new Map(tvMap);
+      seriesMap.forEach((v, k) => {
+        const existing = merged.get(k);
+        if (!existing || v.progress > existing.progress) merged.set(k, v);
+      });
+      setProgressMap(merged);
+    });
   }, [seriesId]);
 
   useEffect(() => {

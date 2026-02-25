@@ -1009,23 +1009,42 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 2. Try providers - PRIORITY ORDER: E (fastest) → A → B → C → D → F (SuperFlix)
+    // 2. Try providers - PRIORITY ORDER: IPTV (instant) → E (fastest) → A → C → D → F (SuperFlix)
     // Each provider has a hard timeout to fail-fast
-    const _pMap: Record<string, string> = { "cineveo": "src-a", "cineveo-embed": "src-e", "megaembed": "src-b", "embedplay": "src-c", "playerflix": "src-d", "superflix": "src-f" };
+    const _pMap: Record<string, string> = { "cineveo": "src-a", "cineveo-embed": "src-e", "cineveo-iptv": "src-iptv", "embedplay": "src-c", "playerflix": "src-d", "superflix": "src-f" };
     let videoUrl: string | null = null;
     let videoType: "mp4" | "m3u8" = "mp4";
     let provider = "cineveo-embed";
 
     const shouldTry = (p: string) => (!force_provider || force_provider === p) && !skipProviders.includes(p);
 
-    // ── Fonte E (Primevício) - FIRST, fastest ──
+    // ── IPTV CiineVeo (instant DB lookup) - FIRST PRIORITY ──
+    if (shouldTry("cineveo-iptv") && !videoUrl) {
+      try {
+        const supabase2 = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+        let iptvQuery = supabase2.from("video_cache")
+          .select("video_url, video_type")
+          .eq("tmdb_id", tmdb_id)
+          .eq("provider", "cineveo-iptv")
+          .gt("expires_at", new Date().toISOString());
+        if (season) iptvQuery = iptvQuery.eq("season", season);
+        if (episode) iptvQuery = iptvQuery.eq("episode", episode);
+        const { data: iptvRows } = await iptvQuery.order("created_at", { ascending: false }).limit(1);
+        if (iptvRows?.[0]) {
+          videoUrl = iptvRows[0].video_url;
+          videoType = iptvRows[0].video_type === "mp4" ? "mp4" : "m3u8";
+          provider = "cineveo-iptv";
+          console.log(`[extract] IPTV hit for tmdb_id=${tmdb_id}`);
+        }
+      } catch (err) { console.log(`[extract] IPTV lookup error: ${err}`); }
+    }
+
+    // ── Fonte E (Primevício) - fastest embed ──
     if (shouldTry("cineveo-embed") && !videoUrl) {
       try {
         const ce = await withTimeout(tryCineveoEmbed(tmdb_id, isMovie, s, e), 8000, "src-e");
         if (ce) {
           if ((ce.type as string) === "iframe-proxy") {
-            // Don't return iframe-proxy yet, try other providers for direct links first
-            // unless it's forced
             if (force_provider === "cineveo-embed") {
               return new Response(JSON.stringify({
                 url: ce.url, type: "iframe-proxy", provider: "cineveo-embed", cached: false,
@@ -1044,34 +1063,6 @@ Deno.serve(async (req) => {
         const cv = await withTimeout(tryPrimarySource(tmdb_id, cType, season, episode), 8000, "src-a");
         if (cv) { videoUrl = cv.url; videoType = cv.type; provider = "cineveo"; }
       } catch (err) { console.log(`[extract] Provider A error: ${err}`); }
-    }
-
-    // ── Fonte B (MegaEmbed) - 15s timeout ──
-    if (shouldTry("megaembed") && !videoUrl) {
-      try {
-        const me = await withTimeout(tryMegaEmbed(tmdb_id, isMovie, s, e), 15000, "src-b");
-        if (me) {
-          if ((me.type as string) === "iframe-proxy") {
-            // MegaEmbed returned iframe-proxy (SuperFlix), cache and return it
-            const supabase2 = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-            await supabase2.from("video_cache").upsert({
-              tmdb_id, content_type: cType, audio_type: aType,
-              season: season || 0, episode: episode || 0,
-              video_url: me.url, video_type: "iframe-proxy", provider: "megaembed",
-              expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-            }, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
-            await supabase2.from("resolve_logs").insert({
-              tmdb_id, title: reqTitle || `TMDB ${tmdb_id}`, content_type: cType,
-              season: season || 0, episode: episode || 0,
-              provider: "megaembed", video_url: me.url, video_type: "iframe-proxy", success: true,
-            });
-            return new Response(JSON.stringify({
-              url: me.url, type: "iframe-proxy", provider: "megaembed", cached: false,
-            }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-          }
-          videoUrl = me.url; videoType = me.type; provider = "megaembed";
-        }
-      } catch (err) { console.log(`[extract] Provider B error: ${err}`); }
     }
 
     // ── Fonte C (EmbedPlay) - 6s timeout ──
