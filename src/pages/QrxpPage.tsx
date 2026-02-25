@@ -3,7 +3,7 @@ import { Film, Tv, Sparkles, Popcorn } from "lucide-react";
 import LyneflixLogo from "@/components/LyneflixLogo";
 import heroBanner from "@/assets/hero-banner.jpg";
 
-const SITE_URL = "https://lyneflix.online";
+const SITE_URL = "https://lyneflix.online/";
 
 const QrxpPage = () => {
   return (
