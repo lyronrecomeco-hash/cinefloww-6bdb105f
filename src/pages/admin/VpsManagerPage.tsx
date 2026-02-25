@@ -66,7 +66,7 @@ function isHeartbeatOnline(hb: VpsHeartbeat | null): boolean {
 
 // ── Install script (uses string concat — NO template literals in .mjs) ──
 
-function buildInstallScript(supabaseUrl: string, serviceKey: string): string {
+function buildInstallScript(supabaseUrl: string, serviceKey: string, vpsPort: string = "3377"): string {
   const keyOrPlaceholder = serviceKey || "COLE_SUA_SERVICE_ROLE_KEY_AQUI";
   return `#!/bin/bash
 set -e
@@ -87,7 +87,7 @@ mkdir -p ~/lyneflix-vps && cd ~/lyneflix-vps
 cat > package.json << 'PKGJSON'
 {
   "name": "lyneflix-vps",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "start": "pm2 start ecosystem.config.cjs",
@@ -111,12 +111,14 @@ SUPABASE_URL=${supabaseUrl}
 SUPABASE_SERVICE_ROLE_KEY=${keyOrPlaceholder}
 BATCH_SIZE=1000
 CONCURRENCY=40
+VPS_API_PORT=${vpsPort}
 ENVFILE
 
 # ecosystem.config.cjs
 cat > ecosystem.config.cjs << 'ECOFILE'
 module.exports = {
   apps: [
+    { name: "api-server", script: "scripts/api-server.mjs", autorestart: true, max_memory_restart: "512M" },
     { name: "heartbeat", script: "scripts/heartbeat.mjs", cron_restart: "*/2 * * * *", autorestart: false },
     { name: "batch-resolve", script: "scripts/batch-resolve.mjs", cron_restart: "0 */3 * * *", autorestart: false, max_memory_restart: "512M" },
     { name: "turbo-resolve", script: "scripts/turbo-resolve.mjs", cron_restart: "30 */2 * * *", autorestart: false, max_memory_restart: "512M" },
@@ -127,6 +129,171 @@ module.exports = {
 ECOFILE
 
 mkdir -p scripts
+
+# ── api-server.mjs — VPS API Server with in-memory cache ──
+cat > scripts/api-server.mjs << 'SCRIPTEOF'
+import http from "http";
+import { createClient } from "@supabase/supabase-js";
+import { config } from "dotenv";
+config();
+
+var sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+var PORT = parseInt(process.env.VPS_API_PORT || "3377");
+
+// ── In-memory catalog cache ──
+var catalogCache = { data: [], updated: 0, ttl: 5 * 60 * 1000 };
+var videoStatusCache = new Map(); // tmdb_id -> { url, type, provider, expires }
+
+async function refreshCatalog() {
+  try {
+    var all = [];
+    var page = 0;
+    var pageSize = 1000;
+    while (true) {
+      var r = await sb.from("content").select("tmdb_id, title, content_type, poster_path, backdrop_path, overview, release_date, vote_average, featured, audio_type, imdb_id, number_of_seasons, number_of_episodes").range(page * pageSize, (page + 1) * pageSize - 1);
+      if (r.error) break;
+      all = all.concat(r.data);
+      if (r.data.length < pageSize) break;
+      page++;
+    }
+    catalogCache.data = all;
+    catalogCache.updated = Date.now();
+    console.log("[api-server] Catalog refreshed: " + all.length + " items");
+  } catch (e) { console.error("[api-server] Catalog refresh error:", e.message); }
+}
+
+async function refreshVideoStatuses() {
+  try {
+    var all = [];
+    var page = 0;
+    var pageSize = 1000;
+    while (true) {
+      var r = await sb.from("video_cache").select("tmdb_id, content_type, video_url, video_type, provider, season, episode, expires_at").gt("expires_at", new Date().toISOString()).range(page * pageSize, (page + 1) * pageSize - 1);
+      if (r.error) break;
+      all = all.concat(r.data);
+      if (r.data.length < pageSize) break;
+      page++;
+    }
+    videoStatusCache.clear();
+    for (var v of all) {
+      var key = v.tmdb_id + "_" + v.content_type + "_" + (v.season || 0) + "_" + (v.episode || 0);
+      videoStatusCache.set(key, v);
+    }
+    console.log("[api-server] Video cache loaded: " + all.length + " links");
+  } catch (e) { console.error("[api-server] Video cache refresh error:", e.message); }
+}
+
+// Initial load + periodic refresh
+refreshCatalog();
+refreshVideoStatuses();
+setInterval(refreshCatalog, 5 * 60 * 1000);
+setInterval(refreshVideoStatuses, 3 * 60 * 1000);
+
+// ── HTTP Server ──
+function parseBody(req) {
+  return new Promise(function(resolve) {
+    var body = "";
+    req.on("data", function(c) { body += c; });
+    req.on("end", function() {
+      try { resolve(JSON.parse(body)); } catch { resolve({}); }
+    });
+  });
+}
+
+function sendJson(res, data, status) {
+  res.writeHead(status || 200, {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Headers": "content-type, authorization",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  });
+  res.end(JSON.stringify(data));
+}
+
+var server = http.createServer(async function(req, res) {
+  // CORS preflight
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "content-type, authorization",
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    });
+    return res.end();
+  }
+
+  var url = new URL(req.url, "http://localhost");
+  var path = url.pathname;
+
+  // ── Health ──
+  if (path === "/health") {
+    return sendJson(res, {
+      status: "ok",
+      uptime: process.uptime(),
+      catalog_size: catalogCache.data.length,
+      video_cache_size: videoStatusCache.size,
+      catalog_age_seconds: Math.round((Date.now() - catalogCache.updated) / 1000),
+    });
+  }
+
+  // ── Catalog list ──
+  if (path === "/api/catalog" && req.method === "GET") {
+    var type = url.searchParams.get("type");
+    var items = catalogCache.data;
+    if (type) items = items.filter(function(i) { return i.content_type === type; });
+    return sendJson(res, { items: items, total: items.length, cached: true });
+  }
+
+  // ── Catalog detail ──
+  if (path.startsWith("/api/catalog/") && req.method === "GET") {
+    var tmdbId = parseInt(path.split("/")[3]);
+    var ctype = url.searchParams.get("type") || "movie";
+    var item = catalogCache.data.find(function(i) { return i.tmdb_id === tmdbId && i.content_type === ctype; });
+    if (!item) return sendJson(res, { error: "Not found" }, 404);
+    // Attach video status
+    var vkey = tmdbId + "_" + ctype + "_0_0";
+    var vs = videoStatusCache.get(vkey) || null;
+    return sendJson(res, { ...item, video_status: vs });
+  }
+
+  // ── Extract video (proxy to Edge Function with long timeout) ──
+  if (path === "/api/extract-video" && req.method === "POST") {
+    var params = await parseBody(req);
+    try {
+      var r2 = await fetch(process.env.SUPABASE_URL + "/functions/v1/extract-video", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + process.env.SUPABASE_SERVICE_ROLE_KEY,
+        },
+        body: JSON.stringify(params),
+        signal: AbortSignal.timeout(300000), // 5 min timeout
+      });
+      var data = await r2.json();
+      // Update local video cache if successful
+      if (data && data.url) {
+        var cacheKey = (params.tmdb_id || 0) + "_" + (params.content_type || "movie") + "_" + (params.season || 0) + "_" + (params.episode || 0);
+        videoStatusCache.set(cacheKey, { video_url: data.url, video_type: data.type, provider: data.provider, tmdb_id: params.tmdb_id });
+      }
+      return sendJson(res, data);
+    } catch (e) {
+      return sendJson(res, { error: e.message || "Timeout" }, 500);
+    }
+  }
+
+  // ── Force refresh caches ──
+  if (path === "/api/refresh-cache" && req.method === "POST") {
+    await Promise.all([refreshCatalog(), refreshVideoStatuses()]);
+    return sendJson(res, { message: "Caches refreshed", catalog: catalogCache.data.length, videos: videoStatusCache.size });
+  }
+
+  // ── 404 ──
+  sendJson(res, { error: "Not found" }, 404);
+});
+
+server.listen(PORT, "0.0.0.0", function() {
+  console.log("[api-server] 🚀 VPS API Server rodando na porta " + PORT);
+});
+SCRIPTEOF
 
 # ── heartbeat.mjs ──
 cat > scripts/heartbeat.mjs << 'SCRIPTEOF'
@@ -288,6 +455,7 @@ pm2 startup
 
 echo ""
 echo "✅ Instalação completa! VPS rodando."
+echo "   API Server: http://$(hostname -I | awk '{print $1}'):${vpsPort}"
 echo "   pm2 status  — ver workers"
 echo "   pm2 logs    — ver logs"`;
 }
@@ -315,6 +483,10 @@ const VpsManagerPage = () => {
   const [runningCmd, setRunningCmd] = useState<string | null>(null);
   const [cmdResults, setCmdResults] = useState<Record<string, any>>({});
 
+  // VPS API URL state
+  const [vpsApiUrl, setVpsApiUrl] = useState("");
+  const [savingUrl, setSavingUrl] = useState(false);
+
   // Links tab state
   const [links, setLinks] = useState<CachedLink[]>([]);
   const [linksLoading, setLinksLoading] = useState(false);
@@ -337,14 +509,19 @@ const VpsManagerPage = () => {
     };
 
     const load = async () => {
-      const [keyRes, hbRes] = await Promise.all([
+      const [keyRes, hbRes, urlRes] = await Promise.all([
         supabase.from("site_settings").select("value").eq("key", "vps_service_key").maybeSingle(),
         supabase.from("site_settings").select("value").eq("key", "vps_heartbeat").maybeSingle(),
+        supabase.from("site_settings").select("value").eq("key", "vps_api_url").maybeSingle(),
       ]);
       if (!mounted) return;
       if (keyRes.data?.value) {
         const val = keyRes.data.value as any;
         setServiceRoleKey(typeof val === "string" ? val.replace(/^"|"$/g, "") : val.key || "");
+      }
+      if (urlRes.data?.value) {
+        const val = urlRes.data.value as any;
+        setVpsApiUrl(typeof val === "string" ? val.replace(/^"|"$/g, "") : val.url || "");
       }
       apply(hbRes.data?.value);
     };
@@ -375,6 +552,20 @@ const VpsManagerPage = () => {
     setSavingKey(false);
     if (error) toast.error("Erro: " + error.message);
     else toast.success("Service Role Key salva!");
+  };
+
+  // ── Save VPS API URL ──
+  const saveVpsUrl = async () => {
+    if (!vpsApiUrl.trim()) return;
+    setSavingUrl(true);
+    const url = vpsApiUrl.trim().replace(/\/+$/, "");
+    const { error } = await supabase.from("site_settings").upsert(
+      { key: "vps_api_url", value: JSON.stringify(url) },
+      { onConflict: "key" }
+    );
+    setSavingUrl(false);
+    if (error) toast.error("Erro: " + error.message);
+    else toast.success("✅ VPS API URL salva! O site agora roteia chamadas pesadas pela VPS.");
   };
 
   // ── Auto-fetch key from backend ──
@@ -804,6 +995,33 @@ const VpsManagerPage = () => {
             </div>
           </div>
 
+          {/* VPS API URL */}
+          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 space-y-3">
+            <p className="text-xs font-semibold flex items-center gap-2">
+              🌐 VPS API URL
+              <span className="text-muted-foreground font-normal">(o site usará a VPS para chamadas pesadas)</span>
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              Após instalar o script, cole a URL do API Server. Ex: <code className="text-primary/70">http://SEU_IP:3377</code>
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={vpsApiUrl}
+                onChange={(e) => setVpsApiUrl(e.target.value)}
+                placeholder="http://123.456.789.0:3377"
+                className="flex-1 bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-primary/40"
+              />
+              <button onClick={saveVpsUrl} disabled={savingUrl || !vpsApiUrl.trim()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 disabled:opacity-40">
+                <Save className="w-3 h-3" />{savingUrl ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+            {vpsApiUrl && (
+              <p className="text-[10px] text-emerald-400">
+                ✅ O frontend detectará automaticamente se a VPS está online e roteará extract-video e catálogo por lá.
+              </p>
+            )}
+          </div>
           {/* Quick Start */}
           <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10">
             <p className="text-xs text-primary/80">
