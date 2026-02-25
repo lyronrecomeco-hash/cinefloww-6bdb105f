@@ -28,16 +28,17 @@ const QrxpPage = () => {
         {/* Headline estilo Toguro */}
         <div className="space-y-3">
           <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-black text-foreground leading-tight">
-            Não tem Netflix?{" "}
-            <span className="text-primary">Não precisa.</span>
+            Sem plano. Sem assinatura.{" "}
+            <br />
+            <span className="text-primary">Sabor Preço.</span>
           </h1>
           <p className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-xs mx-auto font-medium">
-            Aqui não tem taxa, não tem plano, não tem pegadinha.
+            Não tem mensalidade, não tem cartão, não tem pegadinha.
             <br />
-            <span className="text-foreground/90 font-bold">É entretenimento.</span>
+            <span className="text-foreground/90 font-bold">Só aperta o play e assiste.</span>
           </p>
           <p className="text-xs text-muted-foreground/70 italic">
-            "Não é sobre preço, é sobre sabor." 🔥
+            "Netflix cobra, Lyneflix entrega." 🔥
           </p>
         </div>
 
