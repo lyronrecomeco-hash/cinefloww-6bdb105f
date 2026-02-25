@@ -120,6 +120,7 @@ module.exports = {
   apps: [
     { name: "api-server", script: "scripts/api-server.mjs", autorestart: true, max_memory_restart: "512M" },
     { name: "heartbeat", script: "scripts/heartbeat.mjs", cron_restart: "*/2 * * * *", autorestart: false },
+    { name: "iptv-indexer", script: "scripts/iptv-indexer.mjs", autorestart: true, max_memory_restart: "512M" },
     { name: "batch-resolve", script: "scripts/batch-resolve.mjs", cron_restart: "0 */3 * * *", autorestart: false, max_memory_restart: "512M" },
     { name: "turbo-resolve", script: "scripts/turbo-resolve.mjs", cron_restart: "30 */2 * * *", autorestart: false, max_memory_restart: "512M" },
     { name: "refresh-links", script: "scripts/refresh-links.mjs", cron_restart: "0 4 * * *", autorestart: false, max_memory_restart: "256M" },
@@ -445,6 +446,307 @@ async function main() {
 main().catch(console.error);
 SCRIPTEOF
 
+# ── iptv-indexer.mjs — 24/7 IPTV M3U Indexer + MegaEmbed Replacer + Cache Cleaner ──
+cat > scripts/iptv-indexer.mjs << 'SCRIPTEOF'
+import { createClient } from "@supabase/supabase-js";
+import { config } from "dotenv";
+config();
+
+var sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+var CYCLE_HOURS = 6;
+var BATCH_INSERT = 500;
+var TMDB_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI1MDFiOWNkYjllNDQ0NjkxMDJiODk5YjQ0YjU2MWQ5ZCIsIm5iZiI6MTc3MTIzMDg1My43NjYsInN1YiI6IjY5OTJkNjg1NzZjODAxNTdmMjFhZjMxMSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.c47JvphccOz_oyaUuQWCHQ1mXAsSH01OB14vKE2uenw";
+
+function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
+
+async function saveProgress(phase, data) {
+  await sb.from("site_settings").upsert({
+    key: "iptv_indexer_progress",
+    value: { phase: phase, updated_at: new Date().toISOString(), ...data },
+  }, { onConflict: "key" });
+}
+
+function parseM3U(text) {
+  var lines = text.split("\\n");
+  var entries = [];
+  var infoLine = "";
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (line.startsWith("#EXTINF:")) { infoLine = line; continue; }
+    if (line.startsWith("#") || !line) continue;
+    if (infoLine) {
+      var entry = parseEntry(infoLine, line);
+      if (entry) entries.push(entry);
+      infoLine = "";
+    }
+  }
+  return entries;
+}
+
+function parseEntry(info, url) {
+  var groupMatch = info.match(/group-title="([^"]*)"/);
+  var nameMatch = info.match(/,\\s*(.+)$/);
+  var title = nameMatch ? nameMatch[1].trim() : "";
+  if (!title || !url) return null;
+  var group = groupMatch ? groupMatch[1] : "";
+
+  var tmdbId = null;
+  var contentType = "movie";
+  var tvgMatch = info.match(/tvg-id="(?:movie|tv|series):(\\d+)"/);
+  if (tvgMatch) {
+    tmdbId = parseInt(tvgMatch[1]);
+    if (info.match(/tvg-id="(?:tv|series):/)) contentType = "series";
+  }
+  if (!tmdbId) {
+    var fMatch = url.match(/\\/(\\d+)\\.(?:mp4|m3u8|mkv|ts)/);
+    if (fMatch) tmdbId = parseInt(fMatch[1]);
+  }
+  if (!tmdbId) {
+    var pMatch = url.match(/\\/(?:movie|tv|embed)\\/.*?\\/(\\d+)/);
+    if (pMatch) tmdbId = parseInt(pMatch[1]);
+  }
+
+  var season = null, episode = null;
+  var seMatch = title.match(/S(\\d+)\\s*E(\\d+)/i) || url.match(/\\/(\\d+)\\/(\\d+)\\/?$/);
+  if (seMatch) { season = parseInt(seMatch[1]); episode = parseInt(seMatch[2]); }
+
+  var gl = group.toLowerCase();
+  if (gl.includes("serie") || gl.includes("séri") || gl.includes("novela") || season !== null) contentType = "series";
+  else if (gl.includes("dorama")) contentType = "dorama";
+  else if (gl.includes("anime")) contentType = "anime";
+
+  return { title: title, url: url, group: group, tmdbId: tmdbId, season: season, episode: episode, contentType: contentType };
+}
+
+function detectVideoType(url) {
+  if (url.includes(".m3u8") || url.includes("/hls/")) return "m3u8";
+  if (url.includes(".mp4")) return "mp4";
+  return "m3u8";
+}
+
+function detectAudio(title, group) {
+  var c = (title + " " + group).toLowerCase();
+  if (c.includes("leg") || c.includes("legendado")) return "legendado";
+  return "dublado";
+}
+
+// ── Phase 1: Replace all megaembed entries with cineveo-iptv ──
+async function replaceMegaembed() {
+  console.log("[iptv-indexer] Phase 1: Replacing megaembed entries...");
+  var total = 0;
+  while (true) {
+    var r = await sb.from("video_cache").select("id, tmdb_id").eq("provider", "megaembed").limit(500);
+    if (r.error || !r.data || r.data.length === 0) break;
+    var ids = r.data.map(function(x) { return x.id; });
+    await sb.from("video_cache").delete().in("id", ids);
+    total += ids.length;
+    console.log("[iptv-indexer] Deleted " + total + " megaembed entries so far...");
+  }
+  // Also check megaembed in backup
+  while (true) {
+    var r2 = await sb.from("video_cache_backup").select("id").eq("provider", "megaembed").limit(500);
+    if (r2.error || !r2.data || r2.data.length === 0) break;
+    var ids2 = r2.data.map(function(x) { return x.id; });
+    await sb.from("video_cache_backup").delete().in("id", ids2);
+  }
+  console.log("[iptv-indexer] Megaembed cleanup done: " + total + " removed from cache.");
+  return total;
+}
+
+// ── Phase 2: Clean expired cache ──
+async function cleanExpiredCache() {
+  console.log("[iptv-indexer] Phase 2: Cleaning expired cache...");
+  var now = new Date().toISOString();
+  var r = await sb.from("video_cache").delete().lt("expires_at", now);
+  // Clean old logs
+  var weekAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+  await sb.from("resolve_logs").delete().lt("created_at", weekAgo);
+  var threeDaysAgo = new Date(Date.now() - 3 * 86400000).toISOString();
+  await sb.from("resolve_failures").delete().lt("attempted_at", threeDaysAgo);
+  console.log("[iptv-indexer] Cache cleanup done.");
+}
+
+// ── Phase 3: Download and index M3U ──
+async function indexM3U() {
+  console.log("[iptv-indexer] Phase 3: Fetching M3U URL from settings...");
+  var r = await sb.from("site_settings").select("value").eq("key", "iptv_m3u_url").maybeSingle();
+  if (!r.data || !r.data.value) { console.log("[iptv-indexer] No M3U URL configured. Skipping."); return 0; }
+  var m3uUrl = typeof r.data.value === "string" ? r.data.value.replace(/^"|"$/g, "") : r.data.value.url || "";
+  if (!m3uUrl) { console.log("[iptv-indexer] M3U URL empty. Skipping."); return 0; }
+
+  console.log("[iptv-indexer] Downloading M3U: " + m3uUrl.substring(0, 80) + "...");
+  await saveProgress("downloading", { url: m3uUrl });
+
+  var res = await fetch(m3uUrl, {
+    headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
+  });
+  if (!res.ok) { console.error("[iptv-indexer] Failed to fetch M3U: " + res.status); return 0; }
+  var text = await res.text();
+  console.log("[iptv-indexer] Downloaded " + Math.round(text.length / 1024) + " KB");
+
+  var entries = parseM3U(text);
+  console.log("[iptv-indexer] Parsed " + entries.length + " entries");
+
+  var valid = entries.filter(function(e) { return e.tmdbId && e.tmdbId > 100; });
+  console.log("[iptv-indexer] " + valid.length + " valid with TMDB IDs");
+
+  if (valid.length === 0) return 0;
+
+  await saveProgress("importing_cache", { total: valid.length, imported: 0 });
+
+  // Delete old cineveo-iptv entries for these IDs
+  var tmdbIds = [...new Set(valid.map(function(e) { return e.tmdbId; }))];
+  for (var i = 0; i < tmdbIds.length; i += 500) {
+    await sb.from("video_cache").delete().eq("provider", "cineveo-iptv").in("tmdb_id", tmdbIds.slice(i, i + 500));
+  }
+
+  // Insert new cache rows
+  var validTypes = new Set(["movie", "series", "dorama", "anime"]);
+  var imported = 0;
+  for (var i = 0; i < valid.length; i += BATCH_INSERT) {
+    var batch = valid.slice(i, i + BATCH_INSERT).map(function(e) {
+      return {
+        tmdb_id: e.tmdbId,
+        content_type: validTypes.has(e.contentType) ? e.contentType : "movie",
+        audio_type: detectAudio(e.title, e.group),
+        video_url: e.url,
+        video_type: detectVideoType(e.url),
+        provider: "cineveo-iptv",
+        season: e.season,
+        episode: e.episode,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      };
+    });
+    var ins = await sb.from("video_cache").insert(batch);
+    if (ins.error) console.error("[iptv-indexer] Insert error:", ins.error.message);
+    else imported += batch.length;
+    if (imported % 2000 === 0) await saveProgress("importing_cache", { total: valid.length, imported: imported });
+  }
+  console.log("[iptv-indexer] Cache imported: " + imported + " entries");
+
+  // ── Phase 4: Enrich missing content with TMDB ──
+  await saveProgress("enriching", { imported: imported });
+
+  var allCacheIds = new Set();
+  var offset = 0;
+  while (true) {
+    var cb = await sb.from("video_cache").select("tmdb_id").eq("provider", "cineveo-iptv").range(offset, offset + 999);
+    if (!cb.data || cb.data.length === 0) break;
+    cb.data.forEach(function(r) { allCacheIds.add(r.tmdb_id); });
+    offset += 1000;
+    if (cb.data.length < 1000) break;
+  }
+
+  var existingIds = new Set();
+  var allIds = [...allCacheIds];
+  for (var i = 0; i < allIds.length; i += 500) {
+    var ex = await sb.from("content").select("tmdb_id").in("tmdb_id", allIds.slice(i, i + 500));
+    if (ex.data) ex.data.forEach(function(e) { existingIds.add(e.tmdb_id); });
+  }
+
+  var newIds = allIds.filter(function(id) { return !existingIds.has(id); });
+  console.log("[iptv-indexer] " + newIds.length + " new content to enrich from TMDB");
+
+  if (newIds.length > 0) {
+    // Get type mapping
+    var typeMap = new Map();
+    for (var i = 0; i < newIds.length; i += 500) {
+      var tr = await sb.from("video_cache").select("tmdb_id, content_type").eq("provider", "cineveo-iptv").in("tmdb_id", newIds.slice(i, i + 500));
+      if (tr.data) tr.data.forEach(function(r) { typeMap.set(r.tmdb_id, r.content_type); });
+    }
+
+    // TMDB enrichment with 5 parallel workers
+    var queue = [...newIds];
+    var tmdbDetails = new Map();
+    var CONC = 5;
+
+    async function enrichWorker() {
+      while (queue.length > 0) {
+        var id = queue.shift();
+        if (!id) break;
+        var ct = typeMap.get(id) || "movie";
+        var type = (ct === "series" || ct === "dorama" || ct === "anime") ? "tv" : "movie";
+        try {
+          var r = await fetch("https://api.themoviedb.org/3/" + type + "/" + id + "?language=pt-BR&append_to_response=external_ids", {
+            headers: { "Authorization": "Bearer " + TMDB_TOKEN, "Content-Type": "application/json" },
+          });
+          if (r.ok) tmdbDetails.set(id, await r.json());
+        } catch(e) { /* skip */ }
+        if (tmdbDetails.size % 50 === 0) console.log("[iptv-indexer] Enriched " + tmdbDetails.size + "/" + newIds.length);
+      }
+    }
+
+    await Promise.all(Array.from({ length: Math.min(CONC, newIds.length) }, function() { return enrichWorker(); }));
+
+    var contentRows = newIds.filter(function(id) { return tmdbDetails.has(id); }).map(function(id) {
+      var d = tmdbDetails.get(id);
+      var ct = typeMap.get(id) || "movie";
+      return {
+        tmdb_id: id,
+        imdb_id: d.imdb_id || (d.external_ids ? d.external_ids.imdb_id : null) || null,
+        content_type: validTypes.has(ct) ? ct : "movie",
+        title: d.title || d.name || ("TMDB " + id),
+        original_title: d.original_title || d.original_name || null,
+        overview: d.overview || "",
+        poster_path: d.poster_path || null,
+        backdrop_path: d.backdrop_path || null,
+        release_date: d.release_date || d.first_air_date || null,
+        vote_average: d.vote_average || 0,
+        runtime: d.runtime || null,
+        number_of_seasons: d.number_of_seasons || null,
+        number_of_episodes: d.number_of_episodes || null,
+        status: "published",
+        featured: false,
+        audio_type: ["dublado"],
+      };
+    });
+
+    var contentImported = 0;
+    for (var i = 0; i < contentRows.length; i += 200) {
+      var batch = contentRows.slice(i, i + 200);
+      var ur = await sb.from("content").upsert(batch, { onConflict: "tmdb_id,content_type" });
+      if (ur.error) console.error("[iptv-indexer] Content error:", ur.error.message);
+      else contentImported += batch.length;
+    }
+    console.log("[iptv-indexer] Content enriched: " + contentImported + " items");
+  }
+
+  return imported;
+}
+
+// ── Main loop (24/7) ──
+async function runCycle() {
+  var start = Date.now();
+  console.log("[iptv-indexer] ═══════ Cycle starting at " + new Date().toISOString() + " ═══════");
+
+  try {
+    await saveProgress("starting", {});
+    var megaRemoved = await replaceMegaembed();
+    await cleanExpiredCache();
+    var imported = await indexM3U();
+
+    var elapsed = Math.round((Date.now() - start) / 1000);
+    await saveProgress("idle", {
+      last_run: new Date().toISOString(),
+      mega_removed: megaRemoved,
+      imported: imported,
+      elapsed_seconds: elapsed,
+      next_run: new Date(Date.now() + CYCLE_HOURS * 3600000).toISOString(),
+    });
+    console.log("[iptv-indexer] ═══════ Cycle done in " + elapsed + "s. Next in " + CYCLE_HOURS + "h ═══════");
+  } catch (e) {
+    console.error("[iptv-indexer] Cycle error:", e.message || e);
+    await saveProgress("error", { error: e.message || String(e) });
+  }
+}
+
+// Run immediately, then every CYCLE_HOURS
+runCycle();
+setInterval(runCycle, CYCLE_HOURS * 3600 * 1000);
+// Keep alive
+setInterval(function() {}, 60000);
+SCRIPTEOF
+
 # Primeiro heartbeat
 node scripts/heartbeat.mjs
 
@@ -487,6 +789,10 @@ const VpsManagerPage = () => {
   const [vpsApiUrl, setVpsApiUrl] = useState("");
   const [savingUrl, setSavingUrl] = useState(false);
 
+  // IPTV M3U URL state
+  const [iptvM3uUrl, setIptvM3uUrl] = useState("");
+  const [savingIptv, setSavingIptv] = useState(false);
+
   // Links tab state
   const [links, setLinks] = useState<CachedLink[]>([]);
   const [linksLoading, setLinksLoading] = useState(false);
@@ -522,6 +828,12 @@ const VpsManagerPage = () => {
       if (urlRes.data?.value) {
         const val = urlRes.data.value as any;
         setVpsApiUrl(typeof val === "string" ? val.replace(/^"|"$/g, "") : val.url || "");
+      }
+      // Load IPTV M3U URL
+      const iptvRes = await supabase.from("site_settings").select("value").eq("key", "iptv_m3u_url").maybeSingle();
+      if (iptvRes.data?.value) {
+        const val = iptvRes.data.value as any;
+        setIptvM3uUrl(typeof val === "string" ? val.replace(/^"|"$/g, "") : val.url || "");
       }
       apply(hbRes.data?.value);
     };
@@ -566,6 +878,19 @@ const VpsManagerPage = () => {
     setSavingUrl(false);
     if (error) toast.error("Erro: " + error.message);
     else toast.success("✅ VPS API URL salva! O site agora roteia chamadas pesadas pela VPS.");
+  };
+
+  // ── Save IPTV M3U URL ──
+  const saveIptvUrl = async () => {
+    if (!iptvM3uUrl.trim()) return;
+    setSavingIptv(true);
+    const { error } = await supabase.from("site_settings").upsert(
+      { key: "iptv_m3u_url", value: JSON.stringify(iptvM3uUrl.trim()) },
+      { onConflict: "key" }
+    );
+    setSavingIptv(false);
+    if (error) toast.error("Erro: " + error.message);
+    else toast.success("✅ URL M3U salva! O worker IPTV na VPS usará este link automaticamente.");
   };
 
   // ── Auto-fetch key from backend ──
@@ -993,6 +1318,34 @@ const VpsManagerPage = () => {
                 </button>
               )}
             </div>
+          </div>
+
+          {/* IPTV M3U URL */}
+          <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5 space-y-3">
+            <p className="text-xs font-semibold flex items-center gap-2">
+              📺 URL da Lista IPTV (M3U)
+              <span className="text-muted-foreground font-normal">(o worker 24/7 sincroniza automaticamente)</span>
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              Cole a URL da lista M3U. O worker na VPS roda a cada 6h: baixa a lista, indexa os links no banco como <code className="text-primary/70">cineveo-iptv</code>, substitui links <code className="text-primary/70">megaembed</code> antigos e limpa cache expirado.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={iptvM3uUrl}
+                onChange={(e) => setIptvM3uUrl(e.target.value)}
+                placeholder="https://exemplo.com/lista.m3u"
+                className="flex-1 bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-primary/40"
+              />
+              <button onClick={saveIptvUrl} disabled={savingIptv || !iptvM3uUrl.trim()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 disabled:opacity-40">
+                <Save className="w-3 h-3" />{savingIptv ? "Salvando..." : "Salvar"}
+              </button>
+            </div>
+            {iptvM3uUrl && (
+              <p className="text-[10px] text-emerald-400">
+                ✅ O worker <strong>iptv-indexer</strong> na VPS usará esta URL automaticamente a cada ciclo (6h).
+              </p>
+            )}
           </div>
 
           {/* VPS API URL */}
