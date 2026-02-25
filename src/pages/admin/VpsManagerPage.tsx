@@ -125,6 +125,8 @@ module.exports = {
     { name: "turbo-resolve", script: "scripts/turbo-resolve.mjs", cron_restart: "30 */2 * * *", autorestart: false, max_memory_restart: "512M" },
     { name: "refresh-links", script: "scripts/refresh-links.mjs", cron_restart: "0 4 * * *", autorestart: false, max_memory_restart: "256M" },
     { name: "cleanup", script: "scripts/cleanup.mjs", cron_restart: "0 5 * * *", autorestart: false },
+    { name: "content-watcher", script: "scripts/content-watcher.mjs", autorestart: true, max_memory_restart: "256M" },
+    { name: "backup-sync", script: "scripts/backup-sync.mjs", cron_restart: "0 */6 * * *", autorestart: false, max_memory_restart: "256M" },
   ],
 };
 ECOFILE
@@ -746,6 +748,133 @@ runCycle();
 setInterval(runCycle, CYCLE_HOURS * 3600 * 1000);
 // Keep alive
 setInterval(function() {}, 60000);
+SCRIPTEOF
+
+# ── content-watcher.mjs — Realtime watcher: auto-resolve new content ──
+cat > scripts/content-watcher.mjs << 'SCRIPTEOF'
+import { createClient } from "@supabase/supabase-js";
+import { config } from "dotenv";
+config();
+
+var sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+var CONC = parseInt(process.env.CONCURRENCY || "10");
+var resolveQueue = [];
+var processing = false;
+
+async function resolveItem(item) {
+  try {
+    console.log("[content-watcher] Resolving: " + item.title + " (" + item.tmdb_id + ")");
+    var res = await fetch(process.env.SUPABASE_URL + "/functions/v1/extract-video", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + process.env.SUPABASE_SERVICE_ROLE_KEY },
+      body: JSON.stringify({ tmdb_id: item.tmdb_id, imdb_id: item.imdb_id || null, content_type: item.content_type, title: item.title }),
+      signal: AbortSignal.timeout(120000),
+    });
+    var data = await res.json();
+    if (data && data.url && data.type !== "iframe-proxy") {
+      console.log("[content-watcher] ✅ " + item.title + " -> " + data.provider);
+    } else {
+      console.log("[content-watcher] ❌ " + item.title + " sem link direto");
+    }
+  } catch(e) {
+    console.error("[content-watcher] Erro " + item.title + ":", e.message);
+  }
+}
+
+async function processQueue() {
+  if (processing || resolveQueue.length === 0) return;
+  processing = true;
+  console.log("[content-watcher] Queue: " + resolveQueue.length + " itens");
+  while (resolveQueue.length > 0) {
+    var batch = resolveQueue.splice(0, CONC);
+    await Promise.all(batch.map(resolveItem));
+  }
+  processing = false;
+}
+
+function startWatcher() {
+  console.log("[content-watcher] 👀 Watching for new content via Realtime...");
+  var channel = sb.channel("content-changes")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "content" }, function(payload) {
+      var row = payload.new;
+      console.log("[content-watcher] 🆕 Novo conteúdo: " + row.title + " (tmdb:" + row.tmdb_id + ")");
+      resolveQueue.push({ tmdb_id: row.tmdb_id, imdb_id: row.imdb_id, content_type: row.content_type, title: row.title });
+      processQueue();
+    })
+    .subscribe(function(status) {
+      console.log("[content-watcher] Realtime status:", status);
+    });
+}
+
+// Also do initial sweep for unresolved
+async function initialSweep() {
+  console.log("[content-watcher] Initial sweep for unresolved content...");
+  var r = await sb.rpc("get_unresolved_content", { batch_limit: 200 });
+  if (r.error) { console.error("[content-watcher] Sweep error:", r.error.message); return; }
+  var items = r.data || [];
+  if (items.length === 0) { console.log("[content-watcher] All resolved!"); return; }
+  console.log("[content-watcher] " + items.length + " unresolved found, queueing...");
+  resolveQueue.push(...items);
+  processQueue();
+}
+
+startWatcher();
+initialSweep();
+// Keep alive
+setInterval(function() {}, 60000);
+SCRIPTEOF
+
+# ── backup-sync.mjs — Backup video_cache to video_cache_backup periodically ──
+cat > scripts/backup-sync.mjs << 'SCRIPTEOF'
+import { createClient } from "@supabase/supabase-js";
+import { config } from "dotenv";
+config();
+
+var sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+
+async function main() {
+  console.log("[backup-sync] Starting full backup...");
+  var total = 0;
+  var offset = 0;
+  var pageSize = 500;
+
+  while (true) {
+    var r = await sb.from("video_cache").select("tmdb_id, content_type, audio_type, video_url, video_type, provider, season, episode").gt("expires_at", new Date().toISOString()).range(offset, offset + pageSize - 1);
+    if (r.error) { console.error("[backup-sync] Read error:", r.error.message); break; }
+    if (!r.data || r.data.length === 0) break;
+
+    var rows = r.data.map(function(v) {
+      return {
+        tmdb_id: v.tmdb_id,
+        content_type: v.content_type,
+        audio_type: v.audio_type || "legendado",
+        video_url: v.video_url,
+        video_type: v.video_type || "m3u8",
+        provider: v.provider || "unknown",
+        season: v.season || 0,
+        episode: v.episode || 0,
+      };
+    });
+
+    for (var i = 0; i < rows.length; i += 100) {
+      var batch = rows.slice(i, i + 100);
+      var ur = await sb.from("video_cache_backup").upsert(batch, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
+      if (ur.error) console.error("[backup-sync] Upsert error:", ur.error.message);
+    }
+
+    total += r.data.length;
+    offset += pageSize;
+    if (r.data.length < pageSize) break;
+  }
+
+  console.log("[backup-sync] ✅ Backup concluído: " + total + " links salvos.");
+
+  // Stats
+  var statsR = await sb.from("video_cache_backup").select("id", { count: "exact", head: true });
+  console.log("[backup-sync] Total no backup: " + (statsR.count || "?"));
+}
+
+main().catch(console.error);
 SCRIPTEOF
 
 # Primeiro heartbeat
