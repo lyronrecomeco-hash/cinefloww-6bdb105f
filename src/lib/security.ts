@@ -124,6 +124,11 @@ const preventFraming = () => {
 export const initSecurity = () => {
   if (typeof window === "undefined") return;
 
+  // Skip ALL security in dev/preview environments (Lovable iframe, localhost, etc.)
+  const h = window.location.hostname;
+  const isDev = h === "localhost" || h.includes("127.0.0.1") || h.endsWith(".lovable.app") || h.endsWith(".lovableproject.com") || h.endsWith(".app") || h.endsWith(".dev");
+  if (isDev) return;
+
   document.addEventListener("keydown", blockKeys, true);
   document.addEventListener("contextmenu", blockContextMenu, true);
 
