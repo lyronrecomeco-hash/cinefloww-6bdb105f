@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Server, Copy, Check, Terminal, RefreshCw, Play, Download, Zap, Wifi, WifiOff,
   Activity, Clock, Cpu, HardDrive, Eye, EyeOff, Save, Trash2, Search,
-  Database, Link2, RotateCcw, Loader2, ChevronLeft, ChevronRight, Filter
+  Database, Link2, RotateCcw, Loader2, ChevronLeft, ChevronRight, Filter,
+  Square, MonitorUp
 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -135,11 +136,41 @@ mkdir -p scripts
 cat > scripts/api-server.mjs << 'SCRIPTEOF'
 import http from "http";
 import { createClient } from "@supabase/supabase-js";
+import { spawn } from "child_process";
 import { config } from "dotenv";
 config();
 
 var sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 var PORT = parseInt(process.env.VPS_API_PORT || "3377");
+
+// ── In-memory log buffer (ring buffer 500 lines) ──
+var logBuffer = [];
+var LOG_MAX = 500;
+var logClients = new Set();
+
+function pushLog(line) {
+  var ts = new Date().toISOString().substring(11, 19);
+  var entry = "[" + ts + "] " + line;
+  logBuffer.push(entry);
+  if (logBuffer.length > LOG_MAX) logBuffer.shift();
+  for (var client of logClients) {
+    try { client.write("data: " + entry + "\\n\\n"); } catch { logClients.delete(client); }
+  }
+}
+
+// Capture pm2 logs in real-time
+try {
+  var pm2Log = spawn("pm2", ["logs", "--raw", "--lines", "0"], { shell: true });
+  pm2Log.stdout.on("data", function(d) {
+    var lines = d.toString().split("\\n");
+    for (var l of lines) { if (l.trim()) pushLog(l.trim()); }
+  });
+  pm2Log.stderr.on("data", function(d) {
+    var lines = d.toString().split("\\n");
+    for (var l of lines) { if (l.trim()) pushLog(l.trim()); }
+  });
+  pm2Log.on("error", function(e) { pushLog("pm2 logs error: " + e.message); });
+} catch(e) { pushLog("Failed to start pm2 logs: " + e.message); }
 
 // ── In-memory catalog cache ──
 var catalogCache = { data: [], updated: 0, ttl: 5 * 60 * 1000 };
@@ -285,6 +316,21 @@ var server = http.createServer(async function(req, res) {
   if (path === "/api/refresh-cache" && req.method === "POST") {
     await Promise.all([refreshCatalog(), refreshVideoStatuses()]);
     return sendJson(res, { message: "Caches refreshed", catalog: catalogCache.data.length, videos: videoStatusCache.size });
+  }
+
+  // ── Live logs (SSE) ──
+  if (path === "/api/logs" && req.method === "GET") {
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      "Access-Control-Allow-Origin": "*",
+    });
+    // Send buffer history
+    for (var li of logBuffer) { res.write("data: " + li + "\\n\\n"); }
+    logClients.add(res);
+    req.on("close", function() { logClients.delete(res); });
+    return;
   }
 
   // ── 404 ──
@@ -803,6 +849,39 @@ const VpsManagerPage = () => {
   const [typeFilter, setTypeFilter] = useState("all");
   const [providerStats, setProviderStats] = useState<{ provider: string; cnt: number }[]>([]);
 
+  // Live logs state
+  const [logsActive, setLogsActive] = useState(false);
+  const [logLines, setLogLines] = useState<string[]>([]);
+  const logRef = useRef<HTMLPreElement>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  const startLogs = useCallback(() => {
+    if (!vpsApiUrl) { toast.error("Configure a VPS API URL primeiro"); return; }
+    const es = new EventSource(vpsApiUrl.replace(/\/+$/, "") + "/api/logs");
+    eventSourceRef.current = es;
+    setLogsActive(true);
+    setLogLines(["[terminal] Conectando à VPS..."]);
+    es.onmessage = (ev) => {
+      setLogLines(prev => {
+        const next = [...prev, ev.data].slice(-500);
+        return next;
+      });
+      setTimeout(() => { if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight; }, 50);
+    };
+    es.onerror = () => {
+      setLogLines(prev => [...prev, "[terminal] ⚠ Conexão perdida. Reconectando..."]);
+    };
+  }, [vpsApiUrl]);
+
+  const stopLogs = useCallback(() => {
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
+    setLogsActive(false);
+    setLogLines(prev => [...prev, "[terminal] Desconectado."]);
+  }, []);
+
+  useEffect(() => { return () => { eventSourceRef.current?.close(); }; }, []);
+
   // ── Heartbeat ──
   useEffect(() => {
     let mounted = true;
@@ -1154,6 +1233,59 @@ const VpsManagerPage = () => {
                 );
               })}
             </div>
+          </div>
+
+          {/* Live Terminal */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                <MonitorUp className="w-4 h-4 text-primary" /> Terminal ao Vivo
+              </h2>
+              <div className="flex items-center gap-2">
+                {logsActive && (
+                  <span className="flex items-center gap-1.5 text-[10px] text-emerald-400">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Streaming
+                  </span>
+                )}
+                {!logsActive ? (
+                  <button
+                    onClick={startLogs}
+                    disabled={!vpsApiUrl}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-medium hover:bg-emerald-500/20 disabled:opacity-40 border border-emerald-500/20"
+                  >
+                    <Play className="w-3 h-3" /> Ativar Logs
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopLogs}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-400 text-xs font-medium hover:bg-red-500/20 border border-red-500/20"
+                  >
+                    <Square className="w-3 h-3" /> Parar
+                  </button>
+                )}
+                {logLines.length > 0 && (
+                  <button
+                    onClick={() => setLogLines([])}
+                    className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-white/[0.03] text-muted-foreground text-xs hover:bg-white/[0.06] border border-white/5"
+                  >
+                    <Trash2 className="w-3 h-3" /> Limpar
+                  </button>
+                )}
+              </div>
+            </div>
+            <pre
+              ref={logRef}
+              className="bg-black/60 border border-white/10 rounded-xl p-4 text-[11px] font-mono text-emerald-300/90 h-[300px] overflow-y-auto overflow-x-hidden whitespace-pre-wrap scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10"
+            >
+              {logLines.length === 0 ? (
+                <span className="text-muted-foreground">Clique em "Ativar Logs" para ver os logs do PM2 em tempo real...</span>
+              ) : (
+                logLines.map((line, i) => (
+                  <div key={i} className={line.includes("error") || line.includes("Error") ? "text-red-400" : line.includes("✅") || line.includes("ok") ? "text-emerald-400" : ""}>{line}</div>
+                ))
+              )}
+            </pre>
           </div>
         </TabsContent>
 
