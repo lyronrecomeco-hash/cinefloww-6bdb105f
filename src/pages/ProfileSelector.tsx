@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Plus, Pencil, Loader2, LogOut, Copy, Check } from "lucide-react";
+import { Plus, Pencil, Loader2, LogOut, Copy, Check, Tv, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { QRCodeSVG } from "qrcode.react";
 
 import avatar1 from "@/assets/avatars/avatar-1.png";
 import avatar2 from "@/assets/avatars/avatar-2.png";
@@ -41,6 +42,7 @@ const ProfileSelector = () => {
   const [mounted, setMounted] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [avatarTab, setAvatarTab] = useState<"classic" | "anime">("classic");
+  const [showTvQr, setShowTvQr] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -314,7 +316,14 @@ const ProfileSelector = () => {
           )}
         </div>
 
-        <div className="flex justify-center">
+        <div className="flex justify-center gap-3">
+          <button
+            onClick={() => setShowTvQr(true)}
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-4 py-2 rounded-lg hover:bg-white/5"
+          >
+            <Tv className="w-4 h-4" />
+            Assistir na TV
+          </button>
           <button
             onClick={handleLogout}
             className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-4 py-2 rounded-lg hover:bg-white/5"
@@ -324,6 +333,49 @@ const ProfileSelector = () => {
           </button>
         </div>
       </div>
+
+      {/* TV QR Code Modal */}
+      {showTvQr && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowTvQr(false)}>
+          <div className="bg-card border border-white/10 rounded-2xl p-6 sm:p-8 max-w-sm w-full relative animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+            <button onClick={() => setShowTvQr(false)} className="absolute top-3 right-3 text-muted-foreground hover:text-foreground transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+            <div className="text-center">
+              <div className="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center mx-auto mb-4">
+                <Tv className="w-6 h-6 text-primary" />
+              </div>
+              <h3 className="font-display text-lg font-bold mb-1">Assistir na TV</h3>
+              <p className="text-sm text-muted-foreground mb-5">
+                Escaneie o QR Code com o navegador da sua Smart TV
+              </p>
+              <div className="bg-white rounded-xl p-4 inline-block mb-5">
+                <QRCodeSVG
+                  value={window.location.origin}
+                  size={180}
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                  level="M"
+                />
+              </div>
+              <div className="space-y-3 text-left">
+                <div className="flex gap-3 items-start">
+                  <span className="w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+                  <p className="text-sm text-muted-foreground">Abra o <strong className="text-foreground">navegador da sua Smart TV</strong></p>
+                </div>
+                <div className="flex gap-3 items-start">
+                  <span className="w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+                  <p className="text-sm text-muted-foreground">Escaneie o QR Code ou acesse <strong className="text-foreground">{window.location.host}</strong></p>
+                </div>
+                <div className="flex gap-3 items-start">
+                  <span className="w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+                  <p className="text-sm text-muted-foreground">Faça login com sua conta e aproveite na <strong className="text-foreground">tela grande!</strong></p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
