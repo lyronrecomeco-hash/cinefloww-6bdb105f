@@ -334,7 +334,7 @@ const ProfileSelector = () => {
         </div>
       </div>
 
-      {/* TV QR Code Modal */}
+      {/* TV Access Modal */}
       {showTvQr && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowTvQr(false)}>
           <div className="bg-card border border-white/10 rounded-2xl p-6 sm:p-8 max-w-sm w-full relative animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
@@ -347,25 +347,29 @@ const ProfileSelector = () => {
               </div>
               <h3 className="font-display text-lg font-bold mb-1">Assistir na TV</h3>
               <p className="text-sm text-muted-foreground mb-5">
-                Escaneie o QR Code com o navegador da sua Smart TV
+                Siga os passos abaixo para acessar no navegador da sua Smart TV
               </p>
-              <div className="bg-white rounded-xl p-4 inline-block mb-5">
-                <QRCodeSVG
-                  value={window.location.origin}
-                  size={180}
-                  bgColor="#ffffff"
-                  fgColor="#000000"
-                  level="M"
-                />
+
+              {/* URL Display */}
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 mb-5">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground/60 mb-1">Digite na TV</p>
+                <p className="text-lg font-mono font-bold text-primary tracking-wide select-all">{window.location.host}</p>
               </div>
+
+              {/* QR Code for phone scanning */}
+              <p className="text-xs text-muted-foreground mb-2">Ou escaneie com o celular e envie para a TV:</p>
+              <div className="bg-white rounded-xl p-3 inline-block mb-5">
+                <QRCodeSVG value={window.location.origin} size={140} bgColor="#ffffff" fgColor="#000000" level="M" />
+              </div>
+
               <div className="space-y-3 text-left">
                 <div className="flex gap-3 items-start">
                   <span className="w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
-                  <p className="text-sm text-muted-foreground">Abra o <strong className="text-foreground">navegador da sua Smart TV</strong></p>
+                  <p className="text-sm text-muted-foreground">Abra o <strong className="text-foreground">navegador da Smart TV</strong> (Samsung Internet, LG Browser, etc.)</p>
                 </div>
                 <div className="flex gap-3 items-start">
                   <span className="w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
-                  <p className="text-sm text-muted-foreground">Escaneie o QR Code ou acesse <strong className="text-foreground">{window.location.host}</strong></p>
+                  <p className="text-sm text-muted-foreground">Digite o endereço <strong className="text-foreground">{window.location.host}</strong> na barra de URL</p>
                 </div>
                 <div className="flex gap-3 items-start">
                   <span className="w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</span>

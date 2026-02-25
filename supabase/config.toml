@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.push-notify]
 verify_jwt = false
+
+[functions.upload-r2]
+verify_jwt = false
