@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import {
   LayoutDashboard, Film, Tv, Sparkles, Drama, FolderOpen, ScrollText,
-  Settings, LogOut, Menu, X, ChevronRight, Database, MessageSquare, Bell, Shield, Bot, Flag, Radio, Users, Wrench, Server
+  Settings, LogOut, Menu, X, ChevronRight, Database, MessageSquare, Bell, Shield, Bot, Flag, Radio, Users, Wrench, Server, Cloud
 } from "lucide-react";
 
 const menuItems = [
@@ -20,6 +20,7 @@ const menuItems = [
   { label: "Integrações", path: "/admin/integracoes", icon: Bot },
   { label: "Logs", path: "/admin/logs", icon: ScrollText },
   { label: "VPS Manager", path: "/admin/vps", icon: Server },
+  { label: "R2 CDN", path: "/admin/r2", icon: Cloud },
   { label: "Segurança", path: "/admin/seguranca", icon: Shield },
   { label: "Usuários", path: "/admin/usuarios", icon: Users },
   { label: "Avisos", path: "/admin/avisos", icon: Bell },
