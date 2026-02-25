@@ -567,18 +567,19 @@ const BancoPage = () => {
         )}
       </div>
 
-      {/* CineVeo API Import (prioritário) */}
+      {/* CineVeo API Import (automático a cada 4h) */}
       <div className="glass p-3 sm:p-4 rounded-xl border border-primary/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-primary" />
             <span className="text-xs sm:text-sm font-semibold">CineVeo API</span>
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30 font-semibold">PRIORITÁRIO</span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold">AUTOMÁTICO</span>
+            <span className="text-[9px] text-muted-foreground">a cada 4h</span>
           </div>
           {!cineveoImporting ? (
             <button onClick={startCineveoImport}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors">
-              <RefreshCw className="w-3.5 h-3.5" /> Atualizar Catálogo
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-muted-foreground text-xs font-medium hover:bg-white/10 transition-colors">
+              <RefreshCw className="w-3.5 h-3.5" /> Forçar Atualização
             </button>
           ) : (
             <span className="flex items-center gap-1.5 text-xs text-primary"><Loader2 className="w-3.5 h-3.5 animate-spin" />Importando...</span>
@@ -602,7 +603,7 @@ const BancoPage = () => {
         )}
         {!cineveoImporting && (
           <p className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1">
-            <CheckCircle className="w-3 h-3" />{cineveoDbStats.links.toLocaleString()} links via CineVeo API
+            <CheckCircle className="w-3 h-3" />{cineveoDbStats.links.toLocaleString()} links via CineVeo API — atualização automática ativa
           </p>
         )}
       </div>
