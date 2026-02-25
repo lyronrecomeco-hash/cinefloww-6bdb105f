@@ -1,16 +1,23 @@
 /**
  * VPS-aware API client.
- * Detects if the VPS API server is online and routes heavy calls there.
+ * In production, routes through Vercel proxy (/vps/*) to avoid mixed content.
  * Falls back to Cloud (Edge Functions) transparently.
  */
 
 import { supabase } from "@/integrations/supabase/client";
 
 const VPS_HEALTH_CACHE_MS = 30_000; // re-check every 30s
-let _vpsUrl: string | null = null;
+let _vpsBaseUrl: string | null = null; // raw IP URL from DB
+let _vpsProxyUrl: string | null = null; // resolved proxy or direct URL
 let _vpsOnline = false;
 let _lastCheck = 0;
 let _initPromise: Promise<void> | null = null;
+
+/** Detect if we're on a production domain (not localhost/preview) */
+function isProd(): boolean {
+  const h = window.location.hostname;
+  return !h.includes("localhost") && !h.includes("lovableproject.com") && !h.includes("lovable.app") && !h.includes("127.0.0.1");
+}
 
 /** Load VPS API URL from site_settings and check health */
 export function initVpsClient(): Promise<void> {
@@ -24,10 +31,16 @@ export function initVpsClient(): Promise<void> {
         .maybeSingle();
       if (data?.value) {
         const val = data.value as any;
-        _vpsUrl = typeof val === "string" ? val.replace(/^"|"$/g, "") : val.url || null;
-        if (_vpsUrl) {
-          // Remove trailing slash
-          _vpsUrl = _vpsUrl.replace(/\/+$/, "");
+        _vpsBaseUrl = typeof val === "string" ? val.replace(/^"|"$/g, "") : val.url || null;
+        if (_vpsBaseUrl) {
+          _vpsBaseUrl = _vpsBaseUrl.replace(/\/+$/, "");
+          // In production: use Vercel proxy to avoid mixed content
+          if (isProd()) {
+            _vpsProxyUrl = `${window.location.origin}/vps`;
+          } else {
+            // Dev/preview: try direct (may fail due to mixed content)
+            _vpsProxyUrl = _vpsBaseUrl;
+          }
           await checkVpsHealth();
         }
       }
@@ -37,10 +50,10 @@ export function initVpsClient(): Promise<void> {
 }
 
 async function checkVpsHealth(): Promise<boolean> {
-  if (!_vpsUrl) return false;
+  if (!_vpsProxyUrl) return false;
   if (Date.now() - _lastCheck < VPS_HEALTH_CACHE_MS) return _vpsOnline;
   try {
-    const res = await fetch(`${_vpsUrl}/health`, {
+    const res = await fetch(`${_vpsProxyUrl}/health`, {
       signal: AbortSignal.timeout(3000),
     });
     _vpsOnline = res.ok;
@@ -58,7 +71,7 @@ export function isVpsOnline(): boolean {
 
 /** Get the configured VPS URL (or null) */
 export function getVpsUrl(): string | null {
-  return _vpsUrl;
+  return _vpsProxyUrl;
 }
 
 /**
@@ -75,11 +88,11 @@ export async function vpsExtractVideo(params: {
 }): Promise<{ url: string; type: string; provider: string } | null> {
   if (!(await checkVpsHealth())) return null;
   try {
-    const res = await fetch(`${_vpsUrl}/api/extract-video`, {
+    const res = await fetch(`${_vpsProxyUrl}/api/extract-video`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
-      signal: AbortSignal.timeout(120_000), // 2 min — VPS has no timeout
+      signal: AbortSignal.timeout(120_000),
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -97,8 +110,8 @@ export async function vpsCatalog(contentType?: string): Promise<any[] | null> {
   if (!(await checkVpsHealth())) return null;
   try {
     const url = contentType
-      ? `${_vpsUrl}/api/catalog?type=${contentType}`
-      : `${_vpsUrl}/api/catalog`;
+      ? `${_vpsProxyUrl}/api/catalog?type=${contentType}`
+      : `${_vpsProxyUrl}/api/catalog`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return null;
     const data = await res.json();
@@ -116,7 +129,7 @@ export async function vpsCatalogDetail(tmdbId: number, contentType: string): Pro
   if (!(await checkVpsHealth())) return null;
   try {
     const res = await fetch(
-      `${_vpsUrl}/api/catalog/${tmdbId}?type=${contentType}`,
+      `${_vpsProxyUrl}/api/catalog/${tmdbId}?type=${contentType}`,
       { signal: AbortSignal.timeout(5000) }
     );
     if (!res.ok) return null;
@@ -138,7 +151,7 @@ export async function vpsNotifyNewContent(items: Array<{
 }>): Promise<void> {
   if (!(await checkVpsHealth())) return;
   try {
-    fetch(`${_vpsUrl}/api/notify-new-content`, {
+    fetch(`${_vpsProxyUrl}/api/notify-new-content`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ items }),
