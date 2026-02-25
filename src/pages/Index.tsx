@@ -4,7 +4,7 @@ import Navbar from "@/components/Navbar";
 import HeroSlider from "@/components/HeroSlider";
 import ContentRow from "@/components/ContentRow";
 import Footer from "@/components/Footer";
-import { supabase } from "@/integrations/supabase/client";
+import { fetchCatalogRow } from "@/lib/catalogFetcher";
 import {
   TMDBMovie,
   getTrending,
@@ -33,51 +33,24 @@ const Index = () => {
   const [sectionsReady, setSectionsReady] = useState(false);
 
   useEffect(() => {
-    const loadDoramas = async () => {
-      const { data } = await supabase
-        .from("content")
-        .select("tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type")
-        .eq("content_type", "dorama")
-        .eq("status", "published")
-        .order("release_date", { ascending: false, nullsFirst: false })
-        .limit(20);
-      if (data) {
-        setDoramas(data.map((d: any) => ({
-          id: d.tmdb_id,
-          name: d.title,
-          poster_path: d.poster_path,
-          backdrop_path: d.backdrop_path,
-          overview: "",
-          vote_average: d.vote_average || 0,
-          first_air_date: d.release_date,
-          genre_ids: [],
-          media_type: "tv",
-        })));
-      }
-    };
+    const mapToTMDB = (items: any[]): TMDBMovie[] =>
+      items.map((d) => ({
+        id: d.tmdb_id,
+        name: d.title,
+        poster_path: d.poster_path,
+        backdrop_path: d.backdrop_path,
+        overview: "",
+        vote_average: d.vote_average || 0,
+        first_air_date: d.release_date,
+        genre_ids: [],
+        media_type: "tv" as const,
+      }));
 
-    const loadAnimes = async () => {
-      const { data } = await supabase
-        .from("content")
-        .select("tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type")
-        .eq("content_type", "anime")
-        .eq("status", "published")
-        .order("release_date", { ascending: false, nullsFirst: false })
-        .limit(20);
-      if (data) {
-        setAnimes(data.map((d: any) => ({
-          id: d.tmdb_id,
-          name: d.title,
-          poster_path: d.poster_path,
-          backdrop_path: d.backdrop_path,
-          overview: "",
-          vote_average: d.vote_average || 0,
-          first_air_date: d.release_date,
-          genre_ids: [],
-          media_type: "tv",
-        })));
-      }
-    };
+    const loadDoramas = () =>
+      fetchCatalogRow("dorama", 20).then((items) => setDoramas(mapToTMDB(items)));
+
+    const loadAnimes = () =>
+      fetchCatalogRow("anime", 20).then((items) => setAnimes(mapToTMDB(items)));
 
     // Load hero first for fast perceived load
     getTrending().then((t) => {
