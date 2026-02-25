@@ -51,6 +51,10 @@ const BancoPage = () => {
   const [iptvImporting, setIptvImporting] = useState(false);
   const [iptvProgress, setIptvProgress] = useState<{ phase: string; entries: number; valid: number; cache: number; content: number; done: boolean } | null>(null);
   const [iptvDbStats, setIptvDbStats] = useState<{ links: number; content: number }>({ links: 0, content: 0 });
+  // CineVeo API import state
+  const [cineveoImporting, setCineveoImporting] = useState(false);
+  const [cineveoProgress, setCineveoProgress] = useState<any>(null);
+  const [cineveoDbStats, setCineveoDbStats] = useState<{ links: number; content: number }>({ links: 0, content: 0 });
 
   // Load everything in ONE parallel blast
   const fetchAll = useCallback(async () => {
@@ -412,6 +416,46 @@ const BancoPage = () => {
   }, []);
   useEffect(() => { loadIptvDbStats(); }, [loadIptvDbStats]);
 
+  // CineVeo API stats
+  const loadCineveoDbStats = useCallback(async () => {
+    const { count: linkCount } = await supabase.from("video_cache").select("*", { count: "exact", head: true }).eq("provider", "cineveo-api");
+    setCineveoDbStats({ links: linkCount || 0, content: 0 });
+  }, []);
+  useEffect(() => { loadCineveoDbStats(); }, [loadCineveoDbStats]);
+
+  // CineVeo API import
+  const startCineveoImport = async () => {
+    setCineveoImporting(true);
+    setCineveoProgress({ phase: "fetching_catalog", total: 0, imported_content: 0, imported_cache: 0 });
+    supabase.functions.invoke("import-cineveo-catalog", {
+      body: { types: ["movies", "series"] },
+    }).catch(() => {});
+  };
+
+  // Poll CineVeo progress
+  useEffect(() => {
+    if (!cineveoImporting) return;
+    const interval = setInterval(async () => {
+      const { data } = await supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle();
+      if (data?.value) {
+        const p = data.value as any;
+        setCineveoProgress(p);
+        if (p.done) {
+          clearInterval(interval);
+          setCineveoImporting(false);
+          if (p.phase === "error") {
+            toast({ title: "Erro CineVeo API", description: p.error || "Falha na importação", variant: "destructive" });
+          } else {
+            toast({ title: "✅ Importação CineVeo API concluída", description: `${p.imported_content || 0} conteúdos, ${p.imported_cache || 0} links` });
+          }
+          fetchAll();
+          loadCineveoDbStats();
+        }
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [cineveoImporting]);
+
   // IPTV CiineVeo — fire once, auto-chains server-side, UI polls progress
   const IPTV_URL = "https://cineveo.site/api/generate_iptv_list.php?user=lyneflix-vods";
   const startIptvImport = async () => {
@@ -595,6 +639,46 @@ const BancoPage = () => {
         )}
       </div>
 
+      {/* CineVeo API Import (prioritário) */}
+      <div className="glass p-3 sm:p-4 rounded-xl border border-primary/20">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-primary" />
+            <span className="text-xs sm:text-sm font-semibold">CineVeo API</span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30 font-semibold">PRIORITÁRIO</span>
+          </div>
+          {!cineveoImporting ? (
+            <button onClick={startCineveoImport}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-colors">
+              <RefreshCw className="w-3.5 h-3.5" /> Atualizar Catálogo
+            </button>
+          ) : (
+            <span className="flex items-center gap-1.5 text-xs text-primary"><Loader2 className="w-3.5 h-3.5 animate-spin" />Importando...</span>
+          )}
+        </div>
+        {cineveoImporting && cineveoProgress && (
+          <div className="mt-2 space-y-1">
+            <div className="relative h-1.5 rounded-full bg-muted overflow-hidden">
+              <div className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all"
+                style={{ width: cineveoProgress.total > 0 ? `${Math.round(((cineveoProgress.imported_content || 0) + (cineveoProgress.imported_cache || 0)) / Math.max(cineveoProgress.total * 2, 1) * 100)}%` : '10%' }} />
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              {cineveoProgress.phase === "fetching_catalog" ? "Buscando catálogo da API..." :
+               cineveoProgress.phase === "processing" ? `Processando ${cineveoProgress.total} itens...` :
+               cineveoProgress.phase === "importing_content" ? `Importando conteúdo... ${cineveoProgress.imported_content || 0}` :
+               cineveoProgress.phase === "done" ? `✅ ${cineveoProgress.imported_content || 0} conteúdos, ${cineveoProgress.imported_cache || 0} links` :
+               cineveoProgress.phase === "error" ? `❌ ${cineveoProgress.error}` :
+               "Processando..."}
+            </p>
+          </div>
+        )}
+        {!cineveoImporting && (
+          <p className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1">
+            <CheckCircle className="w-3 h-3" />{cineveoDbStats.links.toLocaleString()} links via CineVeo API
+          </p>
+        )}
+      </div>
+
       {/* Resolve progress */}
       {resolving && resolveProgress.total > 0 && (
         <div className="glass p-3 sm:p-4 rounded-xl space-y-2">
@@ -693,10 +777,9 @@ const BancoPage = () => {
                     </button>
                     {providerMenu === item.id && (
                       <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-xl shadow-xl p-1.5 min-w-[130px] animate-fade-in">
-                        <button onClick={() => handleProviderSelect(item, "cineveo")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CDN Prime</button>
-                        <button onClick={() => handleProviderSelect(item, "cineveo-iptv")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">IPTV CiineVeo</button>
-                        <button onClick={() => handleProviderSelect(item, "embedplay")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">Fonte C</button>
-                        <button onClick={() => handleProviderSelect(item, "playerflix")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">Fonte D</button>
+                        <button onClick={() => handleProviderSelect(item, "cineveo-api")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CineVeo API</button>
+                        <button onClick={() => handleProviderSelect(item, "cineveo-iptv")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CineVeo IPTV</button>
+                        <button onClick={() => handleProviderSelect(item, "mega")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">Mega.nz</button>
                       </div>
                     )}
                     {status?.has_video && (
@@ -774,10 +857,9 @@ const BancoPage = () => {
                               </button>
                               {providerMenu === item.id && (
                                 <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-xl shadow-xl p-1.5 min-w-[130px] animate-fade-in">
-                                  <button onClick={() => handleProviderSelect(item, "cineveo")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CDN Prime</button>
-                                  <button onClick={() => handleProviderSelect(item, "cineveo-iptv")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">IPTV CiineVeo</button>
-                                  <button onClick={() => handleProviderSelect(item, "embedplay")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">Fonte C</button>
-                                  <button onClick={() => handleProviderSelect(item, "playerflix")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">Fonte D</button>
+                                  <button onClick={() => handleProviderSelect(item, "cineveo-api")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CineVeo API</button>
+                                  <button onClick={() => handleProviderSelect(item, "cineveo-iptv")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CineVeo IPTV</button>
+                                  <button onClick={() => handleProviderSelect(item, "mega")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">Mega.nz</button>
                                 </div>
                               )}
                             </div>
