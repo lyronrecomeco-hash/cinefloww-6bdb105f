@@ -195,11 +195,11 @@ const EpisodeCard = forwardRef<HTMLDivElement, {
   };
 
   return (
-    <div ref={ref} className={`flex gap-2.5 sm:gap-4 p-2 sm:p-3 rounded-xl sm:rounded-2xl border transition-all group ${
-      isWatched ? "bg-white/[0.01] border-white/5 opacity-60" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-white/10"
-    }`}>
+    <div ref={ref} className={`flex gap-2.5 sm:gap-4 p-2 sm:p-3 rounded-xl sm:rounded-2xl border transition-all group cursor-pointer ${
+      isWatched ? "bg-white/[0.01] border-white/5 opacity-40" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-white/10"
+    }`} onClick={onPlay}>
       {/* Thumbnail */}
-      <div className="flex-shrink-0 w-20 sm:w-36 aspect-video rounded-lg sm:rounded-xl overflow-hidden bg-muted relative cursor-pointer" onClick={onPlay}>
+      <div className="flex-shrink-0 w-20 sm:w-36 aspect-video rounded-lg sm:rounded-xl overflow-hidden bg-muted relative">
         {episode.still_path ? (
           <img src={posterUrl(episode.still_path, "w300")} alt={episode.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />
         ) : (

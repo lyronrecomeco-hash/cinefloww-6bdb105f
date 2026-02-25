@@ -180,11 +180,14 @@ const UsersPage = () => {
           .limit(50)
       : Promise.resolve({ data: [] as SiteActivity[] });
 
-    const watchPromise = supabase
-      .from("watch_progress")
-      .select("tmdb_id, content_type, progress_seconds, duration_seconds, season, episode, updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(30);
+    // Get device_id from user's ip_hash to find their watch progress
+    const watchPromise = profile.ip_hash
+      ? supabase
+          .from("watch_progress")
+          .select("tmdb_id, content_type, progress_seconds, duration_seconds, season, episode, updated_at, device_id")
+          .order("updated_at", { ascending: false })
+          .limit(50)
+      : Promise.resolve({ data: [] as WatchActivity[] });
 
     const [authRes, siteRes, watchRes] = await Promise.all([authPromise, sitePromise, watchPromise]);
 

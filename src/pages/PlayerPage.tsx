@@ -254,6 +254,14 @@ const PlayerPage = () => {
   const [savedTime, setSavedTime] = useState(0);
   const [ccEnabled, setCcEnabled] = useState(false);
   const [ccTracks, setCcTracks] = useState<TextTrack[]>([]);
+  const [seekIndicator, setSeekIndicator] = useState<{ time: number; direction: "fwd" | "bwd" } | null>(null);
+  const seekIndicatorTimer = useRef<ReturnType<typeof setTimeout>>();
+
+  const showSeekIndicator = useCallback((time: number, direction: "fwd" | "bwd") => {
+    setSeekIndicator({ time, direction });
+    clearTimeout(seekIndicatorTimer.current);
+    seekIndicatorTimer.current = setTimeout(() => setSeekIndicator(null), 1200);
+  }, []);
 
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
   const source = sources[currentSourceIdx];
@@ -487,8 +495,16 @@ const PlayerPage = () => {
       if (!video) return;
       switch (e.key) {
         case " ": e.preventDefault(); playing ? video.pause() : video.play(); break;
-        case "ArrowLeft": video.currentTime = Math.max(0, video.currentTime - 10); break;
-        case "ArrowRight": video.currentTime = Math.min(duration, video.currentTime + 10); break;
+        case "ArrowLeft": {
+          video.currentTime = Math.max(0, video.currentTime - 10);
+          showSeekIndicator(video.currentTime, "bwd");
+          break;
+        }
+        case "ArrowRight": {
+          video.currentTime = Math.min(duration, video.currentTime + 10);
+          showSeekIndicator(video.currentTime, "fwd");
+          break;
+        }
         case "ArrowUp": e.preventDefault(); setVolume(v => { const nv = Math.min(1, v + 0.1); video.volume = nv; return nv; }); break;
         case "ArrowDown": e.preventDefault(); setVolume(v => { const nv = Math.max(0, v - 0.1); video.volume = nv; return nv; }); break;
         case "m": case "M": setMuted(m => { video.muted = !m; return !m; }); break;
@@ -820,6 +836,19 @@ const PlayerPage = () => {
         </div>
       )}
 
+      {/* Seek Indicator */}
+      {seekIndicator && (
+        <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none animate-fade-in">
+          <div className="flex flex-col items-center gap-2 bg-black/60 backdrop-blur-md rounded-2xl px-6 py-4">
+            <div className="flex items-center gap-2">
+              {seekIndicator.direction === "bwd" ? <SkipBack className="w-5 h-5 text-white" /> : <SkipForward className="w-5 h-5 text-white" />}
+              <span className="text-white text-xl sm:text-2xl font-bold font-mono tabular-nums">{formatTime(seekIndicator.time)}</span>
+            </div>
+            <span className="text-white/60 text-xs sm:text-sm font-medium truncate max-w-[200px]">{bankTitle}</span>
+          </div>
+        </div>
+      )}
+
       {/* Controls */}
       <div data-controls className={`absolute inset-0 z-10 transition-opacity duration-500 ${showControls ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
         {/* Top */}
@@ -858,10 +887,10 @@ const PlayerPage = () => {
               <button onClick={togglePlay} className="p-2 sm:p-2.5 hover:bg-white/10 rounded-xl transition-colors">
                 {playing ? <Pause className="w-5 h-5 sm:w-6 sm:h-6 text-white" /> : <Play className="w-5 h-5 sm:w-6 sm:h-6 text-white fill-white" />}
               </button>
-              <button onClick={() => { if (videoRef.current) videoRef.current.currentTime -= 10; }} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-xl transition-colors">
+              <button onClick={() => { if (videoRef.current) { videoRef.current.currentTime -= 10; showSeekIndicator(videoRef.current.currentTime, "bwd"); } }} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-xl transition-colors">
                 <SkipBack className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
               </button>
-              <button onClick={() => { if (videoRef.current) videoRef.current.currentTime += 10; }} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-xl transition-colors">
+              <button onClick={() => { if (videoRef.current) { videoRef.current.currentTime += 10; showSeekIndicator(videoRef.current.currentTime, "fwd"); } }} className="p-1.5 sm:p-2 hover:bg-white/10 rounded-xl transition-colors">
                 <SkipForward className="w-4 h-4 sm:w-5 sm:h-5 text-white" />
               </button>
               {!isMobile && (
@@ -882,7 +911,7 @@ const PlayerPage = () => {
             </div>
 
             <div className="flex items-center gap-0.5 sm:gap-1">
-              {/* CC / Subtitles toggle */}
+              {/* Subtitles toggle */}
               <button onClick={toggleCC} className={`p-1.5 sm:p-2 hover:bg-white/10 rounded-xl transition-colors ${ccEnabled ? "text-primary" : "text-white"}`} title={ccEnabled ? "Desativar legendas" : "Ativar legendas"}>
                 <Subtitles className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
@@ -930,7 +959,11 @@ const PlayerPage = () => {
                           <button onClick={() => changeQuality(-1)}
                             className={`w-full flex items-center justify-between px-2.5 sm:px-3 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-xs transition-colors ${currentLevel === -1 ? "bg-primary/15 text-primary" : "text-white/70 hover:bg-white/10"}`}>
                             <span className="font-medium">Auto</span>
-                            {currentLevel === -1 && <div className="w-2 h-2 rounded-full bg-primary" />}
+                            <span className="text-[10px] text-white/30">
+                              {currentLevel === -1 && hlsLevels.length > 0 && hlsRef.current
+                                ? `${hlsLevels[hlsRef.current.currentLevel]?.height || "—"}p`
+                                : ""}
+                            </span>
                           </button>
                           {hlsLevels.map((l, i) => (
                             <button key={i} onClick={() => changeQuality(i)}
