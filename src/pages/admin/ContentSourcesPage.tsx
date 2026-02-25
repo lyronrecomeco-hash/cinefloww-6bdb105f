@@ -73,10 +73,13 @@ const NoVideo2026Tab = () => {
 
     let finalUrl = linkUrl;
     let finalType: string = linkType;
-    if (finalType === "iframe-proxy" || (!finalUrl.includes(".m3u8") && !finalUrl.includes(".mp4"))) {
+    const isMegaLink = finalUrl.includes("mega.nz") || finalUrl.includes("mega.co.nz");
+    const providerName = isMegaLink ? "mega" : "manual";
+    if (finalType === "iframe-proxy" || (!finalUrl.includes(".m3u8") && !finalUrl.includes(".mp4") && !isMegaLink)) {
       finalUrl = `https://${PROJECT_ID}.supabase.co/functions/v1/proxy-player?url=${encodeURIComponent(finalUrl)}`;
       finalType = "iframe-proxy";
     }
+    if (isMegaLink) finalType = "mp4";
 
     const isMovie = modalItem.content_type === "movie";
     const contentType = isMovie ? "movie" : "tv";
@@ -86,7 +89,7 @@ const NoVideo2026Tab = () => {
       content_type: contentType,
       video_url: finalUrl,
       video_type: finalType,
-      provider: "manual",
+      provider: providerName,
       audio_type: "legendado",
       season: isMovie ? 0 : parseInt(epSeason) || 1,
       episode: isMovie ? 0 : parseInt(epEpisode) || 1,

@@ -11,15 +11,12 @@ interface ExtractionResult {
   error?: string;
 }
 
-type ProviderOption = "cineveo" | "cineveo-iptv" | "embedplay" | "playerflix" | "cineveo-embed" | "all";
+type ProviderOption = "cineveo-api" | "mega" | "all";
 
 const providerOptions: { value: ProviderOption; label: string; desc: string }[] = [
-  { value: "cineveo", label: "CDN Prime", desc: "CDN principal (mp4 direto)" },
-  { value: "cineveo-embed", label: "Fonte E", desc: "Primevício Embed (mp4/m3u8)" },
-  { value: "cineveo-iptv", label: "IPTV CiineVeo", desc: "Links diretos IPTV (mp4)" },
-  { value: "embedplay", label: "Fonte C", desc: "EmbedPlay API (m3u8/mp4)" },
-  { value: "playerflix", label: "Fonte D", desc: "PlayerFlix API (m3u8/mp4)" },
-  { value: "all", label: "Todos", desc: "Tenta todas as fontes em sequência" },
+  { value: "cineveo-api", label: "CineVeo API", desc: "Catálogo CineVeo (fonte única)" },
+  { value: "mega", label: "Mega.nz", desc: "Link manual Mega (mp4 direto)" },
+  { value: "all", label: "Automático", desc: "CineVeo API + fallback proxy" },
 ];
 
 const CineveoTester = () => {
@@ -29,7 +26,7 @@ const CineveoTester = () => {
   const [audioType, setAudioType] = useState("legendado");
   const [season, setSeason] = useState("1");
   const [episode, setEpisode] = useState("1");
-  const [selectedProvider, setSelectedProvider] = useState<ProviderOption>("cineveo");
+  const [selectedProvider, setSelectedProvider] = useState<ProviderOption>("cineveo-api");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<ExtractionResult | null>(null);
 
@@ -206,7 +203,7 @@ const CineveoTester = () => {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="p-3 rounded-xl bg-white/5 border border-white/10">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Fonte</p>
-                  <p className="text-sm font-medium mt-0.5">{result.provider === "cineveo" ? "CDN Prime" : result.provider === "cineveo-iptv" ? "IPTV CiineVeo" : result.provider === "embedplay" ? "Fonte C" : result.provider === "playerflix" ? "Fonte D" : result.provider === "cineveo-embed" ? "Fonte E" : result.provider}</p>
+                  <p className="text-sm font-medium mt-0.5">{result.provider === "cineveo-api" ? "CineVeo API" : result.provider === "mega" ? "Mega.nz" : result.provider === "cineveo-embed" ? "Proxy Embed" : result.provider}</p>
                 </div>
                 <div className="p-3 rounded-xl bg-white/5 border border-white/10">
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Tipo</p>
