@@ -290,6 +290,33 @@ var server = http.createServer(async function(req, res) {
   }
 
 
+  // ── Notify new content (webhook from admin/imports) ──
+  if (path === "/api/notify-new-content" && req.method === "POST") {
+    var payload = await parseBody(req);
+    var items = payload.items || [];
+    if (items.length === 0 && payload.tmdb_id) items = [payload];
+    console.log("[api-server] 🆕 Notified of " + items.length + " new content items to resolve");
+    // Queue them for resolution in background
+    (async function() {
+      var ok = 0, fail = 0;
+      for (var item of items) {
+        try {
+          var r3 = await fetch(process.env.SUPABASE_URL + "/functions/v1/extract-video", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + process.env.SUPABASE_SERVICE_ROLE_KEY },
+            body: JSON.stringify({ tmdb_id: item.tmdb_id, imdb_id: item.imdb_id || null, content_type: item.content_type || "movie", title: item.title || "" }),
+            signal: AbortSignal.timeout(120000),
+          });
+          var d3 = await r3.json();
+          if (d3 && d3.url) { ok++; var ck = item.tmdb_id + "_" + (item.content_type || "movie") + "_0_0"; videoStatusCache.set(ck, d3); }
+          else fail++;
+        } catch(e) { fail++; }
+      }
+      console.log("[api-server] Resolve done: ok=" + ok + " fail=" + fail);
+    })();
+    return sendJson(res, { queued: items.length, message: "Processing in background" });
+  }
+
   // ── 404 ──
   sendJson(res, { error: "Not found" }, 404);
 });
