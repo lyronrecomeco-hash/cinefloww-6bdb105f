@@ -2,25 +2,15 @@ import { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { supabase } from "@/integrations/supabase/client";
+import { fetchCatalog, CatalogItem } from "@/lib/catalogFetcher";
 import { Heart, ChevronLeft, ChevronRight } from "lucide-react";
 import { toSlug } from "@/lib/slugify";
 
 const ITEMS_PER_PAGE = 42;
 const IMG_BASE = "https://image.tmdb.org/t/p/w342";
 
-interface DoramaItem {
-  id: string;
-  tmdb_id: number;
-  title: string;
-  poster_path: string | null;
-  release_date: string | null;
-  vote_average: number | null;
-  content_type: string;
-}
-
 const DoramasPage = () => {
-  const [items, setItems] = useState<DoramaItem[]>([]);
+  const [items, setItems] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
@@ -30,19 +20,17 @@ const DoramasPage = () => {
 
   const fetchPage = useCallback(async (p: number) => {
     setLoading(true);
-    const from = (p - 1) * ITEMS_PER_PAGE;
-    const to = from + ITEMS_PER_PAGE - 1;
+    const offset = (p - 1) * ITEMS_PER_PAGE;
 
-    const { data, count } = await supabase
-      .from("content")
-      .select("id, tmdb_id, title, poster_path, release_date, vote_average, content_type", { count: "exact" })
-      .eq("content_type", "dorama")
-      .eq("status", "published")
-      .order("release_date", { ascending: false, nullsFirst: false })
-      .range(from, to);
+    try {
+      const result = await fetchCatalog("dorama", { limit: ITEMS_PER_PAGE, offset });
+      setItems(result.items);
+      setTotal(result.total);
+    } catch {
+      setItems([]);
+      setTotal(0);
+    }
 
-    setItems(data || []);
-    setTotal(count || 0);
     setPage(p);
     setLoading(false);
   }, []);
