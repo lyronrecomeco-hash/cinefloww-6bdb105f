@@ -17,14 +17,6 @@ interface AdGateModalProps {
 }
 
 const AdGateModal = forwardRef<HTMLDivElement, AdGateModalProps>(({ onContinue, onClose, contentTitle, tmdbId, contentType = "movie" }, ref) => {
-  // ADS disabled — always skip immediately
-  useEffect(() => {
-    onContinue();
-  }, [onContinue]);
-
-  return null;
-
-  // --- below code kept for future re-enable ---
   const [smartlink, setSmartlink] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [clickCount, setClickCount] = useState(0);
