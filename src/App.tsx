@@ -54,7 +54,7 @@ const ContentSourcesPage = lazy(() => import("./pages/admin/ContentSourcesPage")
 const TVManager = lazy(() => import("./pages/admin/TVManager"));
 const VpsManagerPage = lazy(() => import("./pages/admin/VpsManagerPage"));
 const PublicLogsPage = lazy(() => import("./pages/PublicLogsPage"));
-
+const QrxpPage = lazy(() => import("./pages/QrxpPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -106,6 +106,7 @@ const App = () => (
             <Route path="/importar-lista" element={<ImportListPage />} />
             <Route path="/extrator" element={<CineveoTester />} />
             <Route path="/logs" element={<PublicLogsPage />} />
+            <Route path="/qrxp" element={<QrxpPage />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
