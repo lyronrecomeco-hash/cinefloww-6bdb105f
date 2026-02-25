@@ -45,11 +45,30 @@ const PartnersModal = ({ onClose }: PartnersModalProps) => {
         </div>
 
         <p className="text-muted-foreground text-sm leading-relaxed">
-          Conheça os parceiros que fazem parte do ecossistema LyneFlix.
+          Quer ser parceiro oficial do LyneFlix? Entre em contato com nossa equipe e saiba como integrar seu serviço ao nosso ecossistema.
         </p>
 
-        {partners.length > 0 ? (
+        <div className="glass p-4 space-y-3">
+          <h3 className="text-sm font-semibold">Como ser parceiro?</h3>
+          <ul className="text-muted-foreground text-xs leading-relaxed space-y-2">
+            <li className="flex items-start gap-2">
+              <span className="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 text-[10px] font-bold mt-0.5">1</span>
+              <span>Tenha um serviço ou plataforma relacionada a streaming, entretenimento ou tecnologia.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 text-[10px] font-bold mt-0.5">2</span>
+              <span>Entre em contato através do nosso e-mail ou redes sociais informando seu interesse.</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="w-5 h-5 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 text-[10px] font-bold mt-0.5">3</span>
+              <span>Nossa equipe avaliará e retornará com os detalhes da parceria.</span>
+            </li>
+          </ul>
+        </div>
+
+        {partners.length > 0 && (
           <div className="space-y-3">
+            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Parceiros atuais</h3>
             {partners.map(p => (
               <div key={p.id} className="glass p-4 space-y-3">
                 <div className="flex items-center gap-3">
@@ -75,8 +94,6 @@ const PartnersModal = ({ onClose }: PartnersModalProps) => {
               </div>
             ))}
           </div>
-        ) : (
-          <p className="text-center text-muted-foreground text-sm py-4">Nenhum parceiro no momento.</p>
         )}
       </div>
     </div>,
