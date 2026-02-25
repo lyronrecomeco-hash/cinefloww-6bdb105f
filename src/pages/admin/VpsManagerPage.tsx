@@ -121,6 +121,7 @@ module.exports = {
     { name: "api-server", script: "scripts/api-server.mjs", autorestart: true, max_memory_restart: "512M" },
     { name: "heartbeat", script: "scripts/heartbeat.mjs", cron_restart: "*/2 * * * *", autorestart: false },
     { name: "iptv-indexer", script: "scripts/iptv-indexer.mjs", autorestart: true, max_memory_restart: "512M" },
+    { name: "cineveo-catalog", script: "scripts/cineveo-catalog.mjs", cron_restart: "0 */4 * * *", autorestart: false, max_memory_restart: "512M" },
     { name: "batch-resolve", script: "scripts/batch-resolve.mjs", cron_restart: "0 */3 * * *", autorestart: false, max_memory_restart: "512M" },
     { name: "turbo-resolve", script: "scripts/turbo-resolve.mjs", cron_restart: "30 */2 * * *", autorestart: false, max_memory_restart: "512M" },
     { name: "refresh-links", script: "scripts/refresh-links.mjs", cron_restart: "0 4 * * *", autorestart: false, max_memory_restart: "256M" },
@@ -899,6 +900,133 @@ async function main() {
   // Stats
   var statsR = await sb.from("video_cache_backup").select("id", { count: "exact", head: true });
   console.log("[backup-sync] Total no backup: " + (statsR.count || "?"));
+}
+
+main().catch(console.error);
+SCRIPTEOF
+
+# ── cineveo-catalog.mjs — Auto-sync CineVeo API catalog every 4h ──
+cat > scripts/cineveo-catalog.mjs << 'SCRIPTEOF'
+import { createClient } from "@supabase/supabase-js";
+import { config } from "dotenv";
+config();
+
+var sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+var CINEVEO_API = "https://cinetvembed.cineveo.site/api/catalog.php";
+var CINEVEO_USER = "lyneflix-vods";
+var CINEVEO_PASS = "uVljs2d";
+var TMDB_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI1MDFiOWNkYjllNDQ0NjkxMDJiODk5YjQ0YjU2MWQ5ZCIsIm5iZiI6MTc3MTIzMDg1My43NjYsInN1YiI6IjY5OTJkNjg1NzZjODAxNTdmMjFhZjMxMSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.c47JvphccOz_oyaUuQWCHQ1mXAsSH01OB14vKE2uenw";
+
+async function main() {
+  console.log("[cineveo-catalog] Starting catalog sync...");
+  var allItems = [];
+
+  for (var apiType of ["movies", "series"]) {
+    try {
+      var url = CINEVEO_API + "?username=" + CINEVEO_USER + "&password=" + CINEVEO_PASS + "&type=" + apiType;
+      console.log("[cineveo-catalog] Fetching " + apiType + "...");
+      var res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" }, signal: AbortSignal.timeout(30000) });
+      if (!res.ok) { console.log("[cineveo-catalog] " + apiType + " returned " + res.status); continue; }
+      var data = await res.json();
+      var items = Array.isArray(data) ? data : (data.results || data.data || data.items || []);
+      console.log("[cineveo-catalog] " + apiType + ": " + items.length + " items");
+
+      for (var item of items) {
+        var tmdbId = item.tmdb_id || item.tmdbId || item.id;
+        if (!tmdbId) continue;
+        allItems.push({
+          tmdb_id: Number(tmdbId),
+          content_type: apiType === "movies" ? "movie" : "series",
+          stream_url: item.stream_url || item.streamUrl || item.url || item.video_url || item.link || null,
+          title: item.title || item.name || ("TMDB " + tmdbId),
+          poster_path: item.poster_path || null,
+          backdrop_path: item.backdrop_path || null,
+          overview: item.overview || "",
+          vote_average: item.vote_average || 0,
+          release_date: item.release_date || item.first_air_date || null,
+          imdb_id: item.imdb_id || null,
+        });
+      }
+    } catch(e) { console.error("[cineveo-catalog] Error:", e.message); }
+  }
+
+  console.log("[cineveo-catalog] Total: " + allItems.length + " items");
+  if (allItems.length === 0) return;
+
+  // Get existing
+  var existingIds = new Set();
+  var off = 0;
+  while (true) {
+    var r = await sb.from("content").select("tmdb_id").range(off, off + 999);
+    if (!r.data || r.data.length === 0) break;
+    r.data.forEach(function(x) { existingIds.add(x.tmdb_id); });
+    off += 1000;
+    if (r.data.length < 1000) break;
+  }
+
+  var newItems = allItems.filter(function(i) { return !existingIds.has(i.tmdb_id); });
+  console.log("[cineveo-catalog] " + newItems.length + " new items to enrich");
+
+  // TMDB enrichment
+  var tmdbDetails = new Map();
+  var queue = newItems.slice();
+  async function worker() {
+    while (queue.length > 0) {
+      var item = queue.shift();
+      if (!item) break;
+      var type = item.content_type === "movie" ? "movie" : "tv";
+      try {
+        var r = await fetch("https://api.themoviedb.org/3/" + type + "/" + item.tmdb_id + "?language=pt-BR&append_to_response=external_ids", {
+          headers: { "Authorization": "Bearer " + TMDB_TOKEN }
+        });
+        if (r.ok) tmdbDetails.set(item.tmdb_id, await r.json());
+      } catch {}
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(5, newItems.length) }, function() { return worker(); }));
+  console.log("[cineveo-catalog] Enriched " + tmdbDetails.size + " from TMDB");
+
+  // Insert content
+  var contentRows = newItems.map(function(item) {
+    var d = tmdbDetails.get(item.tmdb_id) || {};
+    return {
+      tmdb_id: item.tmdb_id, content_type: item.content_type,
+      title: d.title || d.name || item.title,
+      original_title: d.original_title || d.original_name || null,
+      overview: d.overview || item.overview || "",
+      poster_path: d.poster_path || item.poster_path, backdrop_path: d.backdrop_path || item.backdrop_path,
+      release_date: d.release_date || d.first_air_date || item.release_date || null,
+      vote_average: d.vote_average || item.vote_average || 0,
+      imdb_id: d.imdb_id || (d.external_ids ? d.external_ids.imdb_id : null) || item.imdb_id || null,
+      runtime: d.runtime || null, number_of_seasons: d.number_of_seasons || null, number_of_episodes: d.number_of_episodes || null,
+      status: "published", featured: false, audio_type: ["dublado"],
+    };
+  });
+  var ci = 0;
+  for (var i = 0; i < contentRows.length; i += 200) {
+    var batch = contentRows.slice(i, i + 200);
+    var ur = await sb.from("content").upsert(batch, { onConflict: "tmdb_id,content_type" });
+    if (!ur.error) ci += batch.length;
+  }
+  console.log("[cineveo-catalog] Content imported: " + ci);
+
+  // Import video cache
+  var cacheRows = allItems.filter(function(i) { return i.stream_url; }).map(function(i) {
+    return {
+      tmdb_id: i.tmdb_id, content_type: i.content_type, audio_type: "dublado",
+      video_url: i.stream_url, video_type: i.stream_url.includes(".m3u8") ? "m3u8" : "mp4",
+      provider: "cineveo-api", season: 0, episode: 0,
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    };
+  });
+  var vi = 0;
+  for (var i = 0; i < cacheRows.length; i += 200) {
+    var batch = cacheRows.slice(i, i + 200);
+    var ur = await sb.from("video_cache").upsert(batch, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
+    if (!ur.error) vi += batch.length;
+  }
+  console.log("[cineveo-catalog] Video cache: " + vi + " links");
+  console.log("[cineveo-catalog] ✅ Sync complete!");
 }
 
 main().catch(console.error);
