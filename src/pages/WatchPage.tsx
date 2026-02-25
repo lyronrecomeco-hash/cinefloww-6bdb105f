@@ -14,7 +14,7 @@ interface VideoSource {
   type: "mp4" | "m3u8";
 }
 
-type Phase = "audio-select" | "loading" | "playing" | "iframe-intercept" | "unavailable";
+type Phase = "audio-select" | "loading" | "playing" | "iframe-intercept" | "mega-embed" | "unavailable";
 
 const AUDIO_OPTIONS = [
   { key: "dublado", icon: Mic, label: "Dublado PT-BR", description: "Áudio em português brasileiro" },
@@ -55,6 +55,7 @@ const WatchPage = () => {
   }, []);
 
   const [iframeProxyUrl, setIframeProxyUrl] = useState<string | null>(null);
+  const [megaEmbedUrl, setMegaEmbedUrl] = useState<string | null>(null);
   const [selectedAudio, setSelectedAudio] = useState(audioParam || "");
   const [audioTypes, setAudioTypes] = useState<string[]>([]);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
@@ -147,6 +148,11 @@ const WatchPage = () => {
             setPhase("iframe-intercept");
             return;
           }
+          if (cached.video_type === "mega-embed") {
+            setMegaEmbedUrl(cached.video_url);
+            setPhase("mega-embed");
+            return;
+          }
           const result = { url: cached.video_url, type: cached.video_type || "m3u8", provider: cached.provider || "cache" };
           extractionResult.current = result;
           if (introComplete) {
@@ -185,6 +191,11 @@ const WatchPage = () => {
         if (data.type === "iframe-proxy") {
           setIframeProxyUrl(data.url);
           setPhase("iframe-intercept");
+          return;
+        }
+        if (data.type === "mega-embed") {
+          setMegaEmbedUrl(data.url);
+          setPhase("mega-embed");
           return;
         }
         const result = { url: data.url, type: data.type || "m3u8", provider: data.provider || "banco" };
@@ -326,6 +337,26 @@ const WatchPage = () => {
             <button onClick={() => handleResumeChoice(true)} className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors">Continuar</button>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  // ===== MEGA EMBED =====
+  if (phase === "mega-embed" && megaEmbedUrl) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-black">
+        <button
+          onClick={goBack}
+          className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-2 rounded-xl bg-black/60 text-white text-sm hover:bg-black/80 transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" /> Voltar
+        </button>
+        <iframe
+          src={megaEmbedUrl}
+          className="w-full h-full border-0"
+          allow="autoplay; encrypted-media; fullscreen"
+          allowFullScreen
+        />
       </div>
     );
   }

@@ -125,47 +125,47 @@ async function tryCineveoCatalog(
 }
 
 // ── Mega.nz link handling ────────────────────────────────────────────
-// Mega.nz uses client-side encryption, so we can't extract the raw MP4.
-// Instead, we store the mega.nz link as-is and serve it through our proxy
-// or as a direct link for the user to open/stream.
-async function tryMegaExtract(megaUrl: string): Promise<{ url: string; type: "mp4" | "m3u8" } | null> {
+// Mega.nz uses client-side encryption — we convert file links to embed links
+// so the Mega player handles decryption and playback natively in an iframe.
+function convertMegaToEmbed(megaUrl: string): string | null {
+  // mega.nz/file/ID#KEY → mega.nz/embed/ID#KEY
+  const fileMatch = megaUrl.match(/mega\.nz\/file\/([^#]+)(#.+)?/);
+  if (fileMatch) {
+    return `https://mega.nz/embed/${fileMatch[1]}${fileMatch[2] || ""}`;
+  }
+  // Legacy: mega.nz/#!ID!KEY → mega.nz/embed#!ID!KEY
+  const legacyMatch = megaUrl.match(/mega\.nz\/#!([^!]+)!(.+)/);
+  if (legacyMatch) {
+    return `https://mega.nz/embed#!${legacyMatch[1]}!${legacyMatch[2]}`;
+  }
+  // Already embed
+  if (megaUrl.includes("mega.nz/embed")) return megaUrl;
+  return null;
+}
+
+async function tryMegaExtract(megaUrl: string): Promise<{ url: string; type: "mp4" | "m3u8" | "mega-embed" } | null> {
   if (!megaUrl) return null;
   
-  // Accept any mega.nz URL format
   const isMega = megaUrl.includes("mega.nz") || megaUrl.includes("mega.co.nz");
   if (!isMega) return null;
 
   console.log(`[mega] Processing Mega.nz link`);
 
-  // Mega.nz links are encrypted client-side — we store them as-is.
-  // The frontend will handle opening them appropriately.
-  // Supported formats:
-  // - mega.nz/file/XXXX#key
-  // - mega.nz/folder/XXXX#key  
-  // - mega.nz/#!XXXX!key (legacy)
-  
-  // Validate it looks like a real mega link
-  const megaPatterns = [
-    /mega\.nz\/file\//,
-    /mega\.nz\/folder\//,
-    /mega\.nz\/#!/,
-    /mega\.nz\/embed/,
-    /mega\.co\.nz/,
-  ];
-  
-  const isValidMega = megaPatterns.some(p => p.test(megaUrl));
-  if (!isValidMega) {
-    // If it's a direct download URL from mega (already decrypted), use as mp4
-    if (megaUrl.includes("mega") && (megaUrl.includes(".mp4") || megaUrl.includes(".m3u8"))) {
-      console.log(`[mega] Direct media URL detected`);
-      return { url: megaUrl, type: megaUrl.includes(".m3u8") ? "m3u8" : "mp4" };
-    }
-    console.log(`[mega] URL doesn't match known Mega patterns`);
-    return null;
+  // If it's a direct media URL already decrypted
+  if (megaUrl.includes(".mp4") || megaUrl.includes(".m3u8")) {
+    console.log(`[mega] Direct media URL detected`);
+    return { url: megaUrl, type: megaUrl.includes(".m3u8") ? "m3u8" : "mp4" };
   }
 
-  console.log(`[mega] Valid Mega.nz link stored`);
-  return { url: megaUrl, type: "mp4" };
+  // Convert to embed URL for native Mega player
+  const embedUrl = convertMegaToEmbed(megaUrl);
+  if (embedUrl) {
+    console.log(`[mega] Converted to embed: ${embedUrl}`);
+    return { url: embedUrl, type: "mega-embed" as any };
+  }
+
+  console.log(`[mega] Could not convert Mega URL`);
+  return null;
 }
 
 // ── Iframe proxy fallback ───────────────────────────────────────────
@@ -220,22 +220,25 @@ Deno.serve(async (req) => {
     if (mega_url) {
       const megaResult = await tryMegaExtract(mega_url);
       if (megaResult) {
+        const isMegaEmbed = megaResult.type === "mega-embed";
+        const saveType = isMegaEmbed ? "mega-embed" : megaResult.type;
+        
         // Save to cache
         await supabase.from("video_cache").upsert({
           tmdb_id, content_type: cType, audio_type: aType,
           season: season || 0, episode: episode || 0,
-          video_url: megaResult.url, video_type: megaResult.type, provider: "mega",
-          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days for manual
+          video_url: megaResult.url, video_type: saveType, provider: "mega",
+          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         }, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
 
         await supabase.from("resolve_logs").insert({
           tmdb_id, title: reqTitle || `TMDB ${tmdb_id}`, content_type: cType,
           season: season || 0, episode: episode || 0,
-          provider: "mega", video_url: megaResult.url, video_type: megaResult.type, success: true,
+          provider: "mega", video_url: megaResult.url, video_type: saveType, success: true,
         });
 
         return new Response(JSON.stringify({
-          url: megaResult.url, type: megaResult.type, provider: "mega", cached: false,
+          url: megaResult.url, type: saveType, provider: "mega", cached: false,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
     }
