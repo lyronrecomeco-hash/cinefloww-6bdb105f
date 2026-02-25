@@ -43,10 +43,7 @@ const BancoPage = () => {
   const [playerItem, setPlayerItem] = useState<ContentItem | null>(null);
   const [providerMenu, setProviderMenu] = useState<string | null>(null);
   const [resolvingItems, setResolvingItems] = useState<Set<string>>(new Set());
-  // VisionCine import state
-  const [vcImporting, setVcImporting] = useState(false);
-  const [vcProgress, setVcProgress] = useState<any>(null);
-  const [vcStats, setVcStats] = useState<{ total: number; valid: number } | null>(null);
+  // VisionCine removed
   // IPTV CiineVeo import state
   const [iptvImporting, setIptvImporting] = useState(false);
   const [iptvProgress, setIptvProgress] = useState<{ phase: string; entries: number; valid: number; cache: number; content: number; done: boolean } | null>(null);
@@ -361,48 +358,7 @@ const BancoPage = () => {
     return `/player/${item.content_type}/${item.tmdb_id}`;
   };
 
-  // VisionCine import functions
-  const loadVcStats = useCallback(async () => {
-    try {
-      const res = await fetch("/data/visioncine_1.json");
-      const data = await res.json();
-      const valid = data.filter((item: any) => {
-        const links = item["{links}"] || [];
-        return item["{titulo}"] && links.some((l: any) => l.url && l.url.startsWith("http") && (l.url.includes(".mp4") || l.url.includes(".m3u8")));
-      });
-      setVcStats({ total: data.length, valid: valid.length });
-      return data;
-    } catch { return []; }
-  }, []);
-
-  const startVcImport = async () => {
-    setVcImporting(true);
-    setVcProgress(null);
-    const items = await loadVcStats();
-    if (!items.length) { setVcImporting(false); return; }
-    try {
-      await supabase.functions.invoke("import-visioncine", {
-        body: { items, offset: 0, batch_size: 100, auto: true },
-      });
-    } catch { setVcImporting(false); }
-  };
-
-  // Poll VC progress
-  useEffect(() => {
-    if (!vcImporting) return;
-    const interval = setInterval(async () => {
-      const { data } = await supabase.from("site_settings").select("value").eq("key", "visioncine_import_progress").maybeSingle();
-      if (data?.value) {
-        const p = data.value as any;
-        setVcProgress(p);
-        if (p.done) { setVcImporting(false); clearInterval(interval); fetchAll(); }
-      }
-    }, 3000);
-    return () => clearInterval(interval);
-  }, [vcImporting]);
-
-  // Load VC stats on mount
-  useEffect(() => { loadVcStats(); }, [loadVcStats]);
+  // VisionCine removed
 
   // Load IPTV DB stats on mount
   const loadIptvDbStats = useCallback(async () => {
@@ -571,35 +527,7 @@ const BancoPage = () => {
         </div>
       )}
 
-      {/* VisionCine Import */}
-      <div className="glass p-3 sm:p-4 rounded-xl">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-primary" />
-            <span className="text-xs sm:text-sm font-semibold">VisionCine</span>
-            {vcStats && <span className="text-[10px] text-muted-foreground">({vcStats.valid.toLocaleString()} itens válidos)</span>}
-          </div>
-          {!vcImporting ? (
-            <button onClick={startVcImport} disabled={!vcStats || vcStats.valid === 0}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/15 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/25 transition-colors disabled:opacity-40">
-              <Upload className="w-3.5 h-3.5" /> Importar
-            </button>
-          ) : (
-            <span className="flex items-center gap-1.5 text-xs text-primary"><Loader2 className="w-3.5 h-3.5 animate-spin" />Importando...</span>
-          )}
-        </div>
-        {vcImporting && vcProgress && (
-          <div className="mt-2 space-y-1">
-            <div className="relative h-1.5 rounded-full bg-muted overflow-hidden">
-              <div className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all" style={{ width: `${Math.round((vcProgress.offset / vcProgress.total) * 100)}%` }} />
-            </div>
-            <p className="text-[10px] text-muted-foreground">{vcProgress.offset}/{vcProgress.total} — {vcProgress.indexed} indexados</p>
-          </div>
-        )}
-        {vcProgress?.done && !vcImporting && (
-          <p className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1"><CheckCircle className="w-3 h-3" />{vcProgress.indexed} vídeos indexados com sucesso</p>
-        )}
-      </div>
+      {/* VisionCine removed */}
 
       {/* CiineVeo IPTV Import */}
       <div className="glass p-3 sm:p-4 rounded-xl">

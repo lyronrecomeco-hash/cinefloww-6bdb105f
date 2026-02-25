@@ -124,35 +124,47 @@ async function tryCineveoCatalog(
   }
 }
 
-// ── Mega.nz link extraction ─────────────────────────────────────────
-// Mega links stored manually in video_cache are used as-is.
-// For actual mega.nz URLs, we try to get the direct download link.
+// ── Mega.nz link handling ────────────────────────────────────────────
+// Mega.nz uses client-side encryption, so we can't extract the raw MP4.
+// Instead, we store the mega.nz link as-is and serve it through our proxy
+// or as a direct link for the user to open/stream.
 async function tryMegaExtract(megaUrl: string): Promise<{ url: string; type: "mp4" | "m3u8" } | null> {
-  if (!megaUrl || !megaUrl.includes("mega.nz")) return null;
+  if (!megaUrl) return null;
+  
+  // Accept any mega.nz URL format
+  const isMega = megaUrl.includes("mega.nz") || megaUrl.includes("mega.co.nz");
+  if (!isMega) return null;
 
-  console.log(`[mega] Processing Mega link`);
+  console.log(`[mega] Processing Mega.nz link`);
 
-  // Mega direct download via their API
-  // mega.nz/file/XXXX#key format
-  try {
-    // Try fetching as direct link first
-    const headRes = await fetchWithTimeout(megaUrl, {
-      method: "HEAD",
-      timeout: 5000,
-      headers: { "User-Agent": UA },
-      redirect: "follow",
-    });
-
-    const contentType = headRes.headers.get("content-type") || "";
-    if (contentType.includes("video") || contentType.includes("octet-stream")) {
-      console.log(`[mega] Direct video URL confirmed`);
-      return { url: megaUrl, type: "mp4" };
+  // Mega.nz links are encrypted client-side — we store them as-is.
+  // The frontend will handle opening them appropriately.
+  // Supported formats:
+  // - mega.nz/file/XXXX#key
+  // - mega.nz/folder/XXXX#key  
+  // - mega.nz/#!XXXX!key (legacy)
+  
+  // Validate it looks like a real mega link
+  const megaPatterns = [
+    /mega\.nz\/file\//,
+    /mega\.nz\/folder\//,
+    /mega\.nz\/#!/,
+    /mega\.nz\/embed/,
+    /mega\.co\.nz/,
+  ];
+  
+  const isValidMega = megaPatterns.some(p => p.test(megaUrl));
+  if (!isValidMega) {
+    // If it's a direct download URL from mega (already decrypted), use as mp4
+    if (megaUrl.includes("mega") && (megaUrl.includes(".mp4") || megaUrl.includes(".m3u8"))) {
+      console.log(`[mega] Direct media URL detected`);
+      return { url: megaUrl, type: megaUrl.includes(".m3u8") ? "m3u8" : "mp4" };
     }
-  } catch {}
+    console.log(`[mega] URL doesn't match known Mega patterns`);
+    return null;
+  }
 
-  // If it's a mega.nz sharing link, the video needs client-side decryption
-  // Return as-is since manual links should already be direct URLs
-  console.log(`[mega] Using as direct link`);
+  console.log(`[mega] Valid Mega.nz link stored`);
   return { url: megaUrl, type: "mp4" };
 }
 

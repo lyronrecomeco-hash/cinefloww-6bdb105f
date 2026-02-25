@@ -152,6 +152,7 @@ const ALLOWED_DOMAINS = [
   "vidsrc.cc", "vidsrc.net", "vidsrc.xyz", "vidsrc.icu",
   "megaembed.com", "megaembed.xyz",
   "superflixapi.help",
+  "mega.nz", "mega.co.nz",
 ];
 
 function isAllowedUrl(url: string): boolean {
