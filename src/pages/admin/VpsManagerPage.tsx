@@ -311,6 +311,7 @@ const VpsManagerPage = () => {
   const [isOnline, setIsOnline] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
+  const [fetchingKey, setFetchingKey] = useState(false);
   const [runningCmd, setRunningCmd] = useState<string | null>(null);
   const [cmdResults, setCmdResults] = useState<Record<string, any>>({});
 
@@ -374,6 +375,30 @@ const VpsManagerPage = () => {
     setSavingKey(false);
     if (error) toast.error("Erro: " + error.message);
     else toast.success("Service Role Key salva!");
+  };
+
+  // ── Auto-fetch key from backend ──
+  const fetchKeyAuto = async () => {
+    setFetchingKey(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("get-service-key", {});
+      if (error) throw error;
+      if (data?.success) {
+        // Reload from site_settings
+        const { data: saved } = await supabase.from("site_settings").select("value").eq("key", "vps_service_key").maybeSingle();
+        if (saved?.value) {
+          const val = saved.value as any;
+          setServiceRoleKey(typeof val === "string" ? val.replace(/^"|"$/g, "") : val.key || "");
+        }
+        toast.success("✅ Service Role Key capturada e salva automaticamente!");
+      } else {
+        toast.error(data?.error || "Erro ao buscar chave");
+      }
+    } catch (err: any) {
+      toast.error("Erro: " + (err.message || "Falha ao buscar"));
+    } finally {
+      setFetchingKey(false);
+    }
   };
 
   // ── Run remote command ──
@@ -742,13 +767,26 @@ const VpsManagerPage = () => {
               🔑 Service Role Key
               <span className="text-muted-foreground font-normal">(necessária para autenticação)</span>
             </p>
+
+            {/* Auto-fetch button */}
+            {!serviceRoleKey && (
+              <button
+                onClick={fetchKeyAuto}
+                disabled={fetchingKey}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-emerald-500/10 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 transition-colors border border-emerald-500/20 disabled:opacity-40"
+              >
+                {fetchingKey ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+                {fetchingKey ? "Capturando automaticamente..." : "⚡ Capturar Service Role Key Automaticamente"}
+              </button>
+            )}
+
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <input
                   type={showKey ? "text" : "password"}
                   value={serviceRoleKey}
                   onChange={(e) => setServiceRoleKey(e.target.value)}
-                  placeholder="Cole sua Service Role Key aqui..."
+                  placeholder="Cole manualmente ou use o botão acima..."
                   className="w-full bg-white/[0.03] border border-white/10 rounded-lg px-3 py-2 text-xs font-mono pr-8 focus:outline-none focus:border-primary/40"
                 />
                 <button onClick={() => setShowKey(!showKey)} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
@@ -758,6 +796,11 @@ const VpsManagerPage = () => {
               <button onClick={saveKey} disabled={savingKey || !serviceRoleKey.trim()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 text-primary text-xs font-medium hover:bg-primary/20 disabled:opacity-40">
                 <Save className="w-3 h-3" />{savingKey ? "Salvando..." : "Salvar"}
               </button>
+              {serviceRoleKey && (
+                <button onClick={fetchKeyAuto} disabled={fetchingKey} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 text-xs font-medium hover:bg-emerald-500/20 disabled:opacity-40" title="Re-capturar">
+                  {fetchingKey ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                </button>
+              )}
             </div>
           </div>
 
