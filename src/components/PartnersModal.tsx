@@ -1,28 +1,11 @@
 import { createPortal } from "react-dom";
-import { useEffect, useState } from "react";
-import { X, Handshake, ExternalLink } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
-
-interface Partner {
-  id: string;
-  name: string;
-  description: string | null;
-  website_url: string | null;
-  logo_url: string | null;
-}
+import { X, Handshake } from "lucide-react";
 
 interface PartnersModalProps {
   onClose: () => void;
 }
 
 const PartnersModal = ({ onClose }: PartnersModalProps) => {
-  const [partners, setPartners] = useState<Partner[]>([]);
-
-  useEffect(() => {
-    supabase.from("partners").select("id, name, description, website_url, logo_url")
-      .eq("active", true).order("sort_order")
-      .then(({ data }) => { if (data) setPartners(data); });
-  }, []);
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -66,35 +49,6 @@ const PartnersModal = ({ onClose }: PartnersModalProps) => {
           </ul>
         </div>
 
-        {partners.length > 0 && (
-          <div className="space-y-3">
-            <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Parceiros atuais</h3>
-            {partners.map(p => (
-              <div key={p.id} className="glass p-4 space-y-3">
-                <div className="flex items-center gap-3">
-                  {p.logo_url && (
-                    <img src={p.logo_url} alt={p.name} className="h-8 object-contain" />
-                  )}
-                  <h3 className="text-sm font-semibold">{p.name}</h3>
-                </div>
-                {p.description && (
-                  <p className="text-muted-foreground text-xs leading-relaxed">{p.description}</p>
-                )}
-                {p.website_url && (
-                  <a
-                    href={p.website_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
-                  >
-                    <ExternalLink className="w-3.5 h-3.5" />
-                    Visitar site
-                  </a>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>,
     document.body

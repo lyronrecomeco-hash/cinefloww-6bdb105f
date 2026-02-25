@@ -250,6 +250,7 @@ const PlayerPage = () => {
   const [hoverX, setHoverX] = useState(0);
   const [hlsLevels, setHlsLevels] = useState<{ height: number; bitrate: number }[]>([]);
   const [currentLevel, setCurrentLevel] = useState(-1);
+  const [activePlayingLevel, setActivePlayingLevel] = useState(-1);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
   const [savedTime, setSavedTime] = useState(0);
   const [ccEnabled, setCcEnabled] = useState(false);
@@ -385,7 +386,7 @@ const PlayerPage = () => {
           if (ccEnabled) hls.subtitleTrack = 0;
         }
       });
-      hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setCurrentLevel(data.level));
+      hls.on(Hls.Events.LEVEL_SWITCHED, (_e, data) => setActivePlayingLevel(data.level));
       hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
         if (hls.subtitleTracks?.length > 0) {
           setCcTracks(Array.from(video.textTracks));
@@ -657,12 +658,12 @@ const PlayerPage = () => {
       onMouseMove={resetControlsTimer} onTouchStart={resetControlsTimer}
       onClick={(e) => {
         const target = e.target as HTMLElement;
-        if (target.closest('button') || target.closest('input') || target.closest('[data-controls]')) return;
+        if (target.closest('button') || target.closest('input') || target.tagName === 'INPUT') return;
         togglePlay();
       }}
       onDoubleClick={(e) => {
         const target = e.target as HTMLElement;
-        if (target.closest('button') || target.closest('input') || target.closest('[data-controls]')) return;
+        if (target.closest('button') || target.closest('input') || target.tagName === 'INPUT') return;
         toggleFullscreen();
       }}
       style={{ cursor: showControls ? "default" : "none" }}>
@@ -839,12 +840,13 @@ const PlayerPage = () => {
       {/* Seek Indicator */}
       {seekIndicator && (
         <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none animate-fade-in">
-          <div className="flex flex-col items-center gap-2 bg-black/60 backdrop-blur-md rounded-2xl px-6 py-4">
-            <div className="flex items-center gap-2">
+          <div className="flex flex-col items-center gap-2 bg-black/60 backdrop-blur-md rounded-2xl px-8 py-5">
+            <span className="text-white text-sm sm:text-base font-bold truncate max-w-[280px]">{bankTitle}</span>
+            {season && episode && <span className="text-white/50 text-xs">T{season} • E{episode}</span>}
+            <div className="flex items-center gap-2 mt-1">
               {seekIndicator.direction === "bwd" ? <SkipBack className="w-5 h-5 text-white" /> : <SkipForward className="w-5 h-5 text-white" />}
-              <span className="text-white text-xl sm:text-2xl font-bold font-mono tabular-nums">{formatTime(seekIndicator.time)}</span>
+              <span className="text-white text-2xl sm:text-3xl font-bold font-mono tabular-nums">{formatTime(seekIndicator.time)}</span>
             </div>
-            <span className="text-white/60 text-xs sm:text-sm font-medium truncate max-w-[200px]">{bankTitle}</span>
           </div>
         </div>
       )}
@@ -959,9 +961,9 @@ const PlayerPage = () => {
                           <button onClick={() => changeQuality(-1)}
                             className={`w-full flex items-center justify-between px-2.5 sm:px-3 py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-xs transition-colors ${currentLevel === -1 ? "bg-primary/15 text-primary" : "text-white/70 hover:bg-white/10"}`}>
                             <span className="font-medium">Auto</span>
-                            <span className="text-[10px] text-white/30">
-                              {currentLevel === -1 && hlsLevels.length > 0 && hlsRef.current
-                                ? `${hlsLevels[hlsRef.current.currentLevel]?.height || "—"}p`
+                            <span className="text-[10px] text-white/40">
+                              {currentLevel === -1 && hlsLevels.length > 0 && activePlayingLevel >= 0
+                                ? `(${hlsLevels[activePlayingLevel]?.height || "—"}p)`
                                 : ""}
                             </span>
                           </button>
