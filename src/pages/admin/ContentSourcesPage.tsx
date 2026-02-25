@@ -3,11 +3,273 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   Wrench, Search, Film, Tv, Loader2, CheckCircle, XCircle, Play, RefreshCw,
   Plus, Link2, ChevronDown, ChevronRight, Star, X, ExternalLink, Save, Pencil, Trash2,
-  Database
+  Database, Sparkles, AlertCircle
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { searchMulti, getMovieDetails, getSeriesDetails, getSeasonDetails, posterUrl, TMDBMovie, TMDBMovieDetail } from "@/services/tmdb";
 import CustomPlayer from "@/components/CustomPlayer";
+
+/* ──────────── Sem Vídeo 2026 Tab ──────────── */
+interface NoVideoItem {
+  id: string;
+  tmdb_id: number;
+  title: string;
+  poster_path: string | null;
+  content_type: string;
+  release_date: string | null;
+  vote_average: number | null;
+}
+
+const NoVideo2026Tab = () => {
+  const [movies, setMovies] = useState<NoVideoItem[]>([]);
+  const [series, setSeries] = useState<NoVideoItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [subTab, setSubTab] = useState<"movies" | "series">("movies");
+  const [modalItem, setModalItem] = useState<NoVideoItem | null>(null);
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkType, setLinkType] = useState<"m3u8" | "mp4" | "iframe-proxy">("m3u8");
+  const [saving, setSaving] = useState(false);
+  // Series episode fields
+  const [epSeason, setEpSeason] = useState("1");
+  const [epEpisode, setEpEpisode] = useState("1");
+  const [savedEps, setSavedEps] = useState<string[]>([]);
+  const { toast } = useToast();
+  const PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    // Content from 2026 that has no video_cache entry
+    const { data: allContent } = await supabase
+      .from("content")
+      .select("id, tmdb_id, title, poster_path, content_type, release_date, vote_average")
+      .gte("release_date", "2026-01-01")
+      .lte("release_date", "2026-12-31")
+      .eq("status", "published")
+      .order("release_date", { ascending: false })
+      .limit(500);
+
+    if (!allContent || allContent.length === 0) { setLoading(false); return; }
+
+    const tmdbIds = allContent.map(c => c.tmdb_id);
+    const { data: cached } = await supabase
+      .from("video_cache")
+      .select("tmdb_id")
+      .in("tmdb_id", tmdbIds)
+      .gt("expires_at", new Date().toISOString());
+
+    const cachedSet = new Set(cached?.map(c => c.tmdb_id) || []);
+    const noVideo = allContent.filter(c => !cachedSet.has(c.tmdb_id));
+
+    setMovies(noVideo.filter(c => c.content_type === "movie"));
+    setSeries(noVideo.filter(c => c.content_type === "series" || c.content_type === "tv"));
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleSaveLink = async () => {
+    if (!modalItem || !linkUrl) return;
+    setSaving(true);
+
+    let finalUrl = linkUrl;
+    let finalType: string = linkType;
+    if (finalType === "iframe-proxy" || (!finalUrl.includes(".m3u8") && !finalUrl.includes(".mp4"))) {
+      finalUrl = `https://${PROJECT_ID}.supabase.co/functions/v1/proxy-player?url=${encodeURIComponent(finalUrl)}`;
+      finalType = "iframe-proxy";
+    }
+
+    const isMovie = modalItem.content_type === "movie";
+    const contentType = isMovie ? "movie" : "tv";
+
+    const { error } = await supabase.from("video_cache").upsert({
+      tmdb_id: modalItem.tmdb_id,
+      content_type: contentType,
+      video_url: finalUrl,
+      video_type: finalType,
+      provider: "manual",
+      audio_type: "legendado",
+      season: isMovie ? 0 : parseInt(epSeason) || 1,
+      episode: isMovie ? 0 : parseInt(epEpisode) || 1,
+      expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    }, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
+
+    if (error) {
+      toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "✅ Link salvo!" });
+      if (isMovie) {
+        // Remove from list
+        setMovies(prev => prev.filter(m => m.tmdb_id !== modalItem.tmdb_id));
+        setModalItem(null);
+        setLinkUrl("");
+      } else {
+        // For series, keep modal open for more episodes
+        const epKey = `T${epSeason}E${epEpisode}`;
+        setSavedEps(prev => [...prev, epKey]);
+        setEpEpisode(String((parseInt(epEpisode) || 1) + 1));
+        setLinkUrl("");
+      }
+    }
+    setSaving(false);
+  };
+
+  const openModal = (item: NoVideoItem) => {
+    setModalItem(item);
+    setLinkUrl("");
+    setLinkType("m3u8");
+    setEpSeason("1");
+    setEpEpisode("1");
+    setSavedEps([]);
+  };
+
+  const items = subTab === "movies" ? movies : series;
+
+  return (
+    <div className="space-y-4">
+      {/* Sub-tabs */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setSubTab("movies")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+            subTab === "movies" ? "bg-blue-500/20 text-blue-400 border border-blue-500/30" : "bg-white/5 text-muted-foreground border border-white/10 hover:bg-white/10"
+          }`}
+        >
+          <Film className="w-4 h-4" /> Filmes ({movies.length})
+        </button>
+        <button
+          onClick={() => setSubTab("series")}
+          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+            subTab === "series" ? "bg-purple-500/20 text-purple-400 border border-purple-500/30" : "bg-white/5 text-muted-foreground border border-white/10 hover:bg-white/10"
+          }`}
+        >
+          <Tv className="w-4 h-4" /> Séries ({series.length})
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-10"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
+      ) : items.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground">
+          <CheckCircle className="w-8 h-8 text-emerald-400" />
+          <p className="text-sm">Todos os {subTab === "movies" ? "filmes" : "séries"} de 2026 já possuem vídeo!</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+          {items.map(item => (
+            <button
+              key={item.id}
+              onClick={() => openModal(item)}
+              className="glass rounded-xl overflow-hidden border border-transparent hover:border-primary/30 transition-all group text-left relative"
+            >
+              <div className="aspect-[2/3] bg-muted/30 overflow-hidden">
+                {item.poster_path ? (
+                  <img src={posterUrl(item.poster_path, "w342")} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" loading="lazy" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Film className="w-8 h-8 text-muted-foreground/30" />
+                  </div>
+                )}
+              </div>
+              <div className="p-2">
+                <p className="text-xs font-medium line-clamp-2">{item.title}</p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  {item.release_date && <span className="text-[9px] text-muted-foreground">{new Date(item.release_date).toLocaleDateString("pt-BR")}</span>}
+                  {item.vote_average != null && item.vote_average > 0 && (
+                    <span className="flex items-center gap-0.5 text-[9px] text-muted-foreground">
+                      <Star className="w-2.5 h-2.5 text-primary fill-primary" />
+                      {Number(item.vote_average).toFixed(1)}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <div className="absolute top-1.5 right-1.5">
+                <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-red-500/80 text-white font-medium shadow-sm flex items-center gap-0.5">
+                  <AlertCircle className="w-2.5 h-2.5" /> Sem vídeo
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Add Link Modal */}
+      {modalItem && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={() => setModalItem(null)}>
+          <div className="absolute inset-0 bg-background/80 backdrop-blur-xl" />
+          <div className="relative w-full max-w-lg glass-strong rounded-2xl p-5 space-y-4 animate-scale-in" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start gap-4">
+              {modalItem.poster_path && (
+                <img src={posterUrl(modalItem.poster_path, "w154")} alt="" className="w-16 rounded-xl flex-shrink-0" />
+              )}
+              <div className="flex-1 min-w-0">
+                <h3 className="font-bold font-display">{modalItem.title}</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">TMDB: {modalItem.tmdb_id} • {modalItem.content_type === "movie" ? "Filme" : "Série"}</p>
+                {savedEps.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    {savedEps.map(ep => (
+                      <span key={ep} className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">{ep} ✓</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button onClick={() => setModalItem(null)} className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center hover:bg-white/10">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Season/Episode fields for series */}
+            {modalItem.content_type !== "movie" && (
+              <div className="flex items-center gap-3">
+                <div className="flex-1">
+                  <label className="text-[10px] text-muted-foreground mb-1 block">Temporada</label>
+                  <input value={epSeason} onChange={e => setEpSeason(e.target.value)} type="number" min="1"
+                    className="w-full h-9 px-3 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50" />
+                </div>
+                <div className="flex-1">
+                  <label className="text-[10px] text-muted-foreground mb-1 block">Episódio</label>
+                  <input value={epEpisode} onChange={e => setEpEpisode(e.target.value)} type="number" min="1"
+                    className="w-full h-9 px-3 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50" />
+                </div>
+              </div>
+            )}
+
+            <div>
+              <label className="text-[10px] text-muted-foreground mb-1 block">Link do vídeo</label>
+              <input
+                value={linkUrl}
+                onChange={e => setLinkUrl(e.target.value)}
+                placeholder="Cole o link (m3u8, mp4 ou embed)..."
+                className="w-full h-10 px-3 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50 font-mono"
+              />
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">Tipo:</span>
+              {(["m3u8", "mp4", "iframe-proxy"] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setLinkType(t)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-medium border transition-colors ${
+                    linkType === t ? "bg-primary/20 border-primary/30 text-primary" : "bg-white/5 border-white/10 text-muted-foreground"
+                  }`}
+                >{t}</button>
+              ))}
+            </div>
+
+            <button
+              onClick={handleSaveLink}
+              disabled={!linkUrl || saving}
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {modalItem.content_type === "movie" ? "Salvar link" : `Salvar T${epSeason}E${epEpisode}`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const IMG_BASE = "https://image.tmdb.org/t/p";
 const PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
@@ -467,6 +729,8 @@ const ContentSourcesPage = () => {
     );
   };
 
+  const [activeTab, setActiveTab] = useState<"search" | "noVideo2026">("search");
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -490,6 +754,30 @@ const ContentSourcesPage = () => {
         </button>
       </div>
 
+      {/* Main Tabs */}
+      <div className="flex items-center gap-2 border-b border-white/10 pb-0">
+        <button
+          onClick={() => setActiveTab("search")}
+          className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            activeTab === "search" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Search className="w-4 h-4 inline mr-2" />Busca TMDB
+        </button>
+        <button
+          onClick={() => setActiveTab("noVideo2026")}
+          className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+            activeTab === "noVideo2026" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Sparkles className="w-4 h-4 inline mr-2" />Sem Vídeo 2026
+        </button>
+      </div>
+
+      {activeTab === "noVideo2026" ? (
+        <NoVideo2026Tab />
+      ) : (
+        <div className="space-y-6">
       {/* Sync progress */}
       {syncing && syncProgress && (
         <div className="bg-card/50 border border-white/10 rounded-xl p-4">
@@ -795,6 +1083,8 @@ const ContentSourcesPage = () => {
             onClose={() => setPlayerUrl(null)}
             onError={() => setPlayerUrl(null)}
           />
+        </div>
+      )}
         </div>
       )}
     </div>
