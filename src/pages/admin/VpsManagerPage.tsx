@@ -1487,7 +1487,7 @@ const VpsManagerPage = () => {
               <span className="text-muted-foreground font-normal">(o worker 24/7 sincroniza automaticamente)</span>
             </p>
             <p className="text-[10px] text-muted-foreground">
-              Cole a URL da lista M3U. O worker na VPS roda a cada 6h: baixa a lista, indexa os links no banco como <code className="text-primary/70">cineveo-iptv</code>, substitui links <code className="text-primary/70">megaembed</code> antigos e limpa cache expirado.
+              Cole a URL da lista M3U. O worker na VPS roda a cada 6h: baixa a lista, indexa os links no banco como <code className="text-primary/70">cineveo-iptv</code> e limpa cache expirado.
             </p>
             <div className="flex gap-2">
               <input
