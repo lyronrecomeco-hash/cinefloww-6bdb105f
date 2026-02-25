@@ -51,61 +51,61 @@ const BancoPage = () => {
   const [iptvProgress, setIptvProgress] = useState<{ phase: string; entries: number; valid: number; cache: number; content: number; done: boolean } | null>(null);
   const [iptvDbStats, setIptvDbStats] = useState<{ links: number; content: number }>({ links: 0, content: 0 });
 
-  const fetchContent = useCallback(async () => {
+  // Load everything in ONE parallel blast
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     const from = page * ITEMS_PER_PAGE;
     const to = from + ITEMS_PER_PAGE - 1;
 
-    let query = supabase
+    let contentQuery = supabase
       .from("content")
       .select("id, tmdb_id, imdb_id, title, content_type, poster_path, release_date", { count: "exact" })
       .order("release_date", { ascending: false, nullsFirst: false })
       .range(from, to);
 
-    if (filterType !== "all") query = query.eq("content_type", filterType);
-    if (filterText.trim()) query = query.ilike("title", `%${filterText.trim()}%`);
+    if (filterType !== "all") contentQuery = contentQuery.eq("content_type", filterType);
+    if (filterText.trim()) contentQuery = contentQuery.ilike("title", `%${filterText.trim()}%`);
 
-    const { data, error, count } = await query;
-    if (!error && data) {
-      setItems(data);
-      setTotalCount(count || 0);
-      await checkVideoStatuses(data);
-    }
-    setLoading(false);
-  }, [page, filterType, filterText]);
-
-  const checkVideoStatuses = async (contentItems: ContentItem[]) => {
-    const tmdbIds = contentItems.map(i => i.tmdb_id);
-    const { data: cached } = await supabase
-      .from("video_cache")
-      .select("tmdb_id, video_url, provider, video_type")
-      .in("tmdb_id", tmdbIds)
-      .gt("expires_at", new Date().toISOString());
-
-    const statusMap = new Map<number, VideoStatus>();
-    for (const item of contentItems) {
-      const cachedItem = cached?.find(c => c.tmdb_id === item.tmdb_id);
-      statusMap.set(item.tmdb_id, {
-        tmdb_id: item.tmdb_id,
-        has_video: !!cachedItem,
-        video_url: cachedItem?.video_url,
-        provider: cachedItem?.provider,
-        video_type: cachedItem?.video_type,
-      });
-    }
-    setVideoStatuses(statusMap);
-  };
-
-  const fetchStats = useCallback(async () => {
-    const [
-      { count: total },
-      { data: providerData },
-    ] = await Promise.all([
+    // Fire ALL queries in parallel — zero sequential waits
+    const [contentResult, statsResult, providerResult] = await Promise.all([
+      contentQuery,
       supabase.from("content").select("*", { count: "exact", head: true }),
       supabase.rpc("get_video_stats_by_provider" as any),
     ]);
 
-    // Fallback if RPC doesn't exist yet
+    const { data, count } = contentResult;
+    if (data) {
+      setItems(data);
+      setTotalCount(count || 0);
+
+      // Fetch video statuses in parallel with setting items
+      const tmdbIds = data.map(i => i.tmdb_id);
+      if (tmdbIds.length > 0) {
+        const { data: cached } = await supabase
+          .from("video_cache")
+          .select("tmdb_id, video_url, provider, video_type")
+          .in("tmdb_id", tmdbIds)
+          .gt("expires_at", new Date().toISOString());
+
+        const statusMap = new Map<number, VideoStatus>();
+        const cachedMap = new Map(cached?.map(c => [c.tmdb_id, c]) || []);
+        for (const item of data) {
+          const cachedItem = cachedMap.get(item.tmdb_id);
+          statusMap.set(item.tmdb_id, {
+            tmdb_id: item.tmdb_id,
+            has_video: !!cachedItem,
+            video_url: cachedItem?.video_url,
+            provider: cachedItem?.provider,
+            video_type: cachedItem?.video_type,
+          });
+        }
+        setVideoStatuses(statusMap);
+      }
+    }
+
+    // Process stats
+    const total = statsResult.count || 0;
+    const providerData = providerResult.data;
     if (providerData && Array.isArray(providerData)) {
       const byProvider: Record<string, number> = {};
       let uniqueWithVideo = 0;
@@ -113,31 +113,21 @@ const BancoPage = () => {
         byProvider[row.provider] = Number(row.cnt);
         uniqueWithVideo += Number(row.cnt);
       }
-      setStats({
-        total: total || 0,
-        withVideo: uniqueWithVideo,
-        withoutVideo: Math.max(0, (total || 0) - uniqueWithVideo),
-        byProvider,
-      });
+      setStats({ total, withVideo: uniqueWithVideo, withoutVideo: Math.max(0, total - uniqueWithVideo), byProvider });
     } else {
-      // Simple fallback
       const { count: withVideo } = await supabase
         .from("video_cache")
         .select("tmdb_id", { count: "exact", head: true })
         .gt("expires_at", new Date().toISOString());
-      setStats({
-        total: total || 0,
-        withVideo: withVideo || 0,
-        withoutVideo: Math.max(0, (total || 0) - (withVideo || 0)),
-        byProvider: {},
-      });
+      setStats({ total, withVideo: withVideo || 0, withoutVideo: Math.max(0, total - (withVideo || 0)), byProvider: {} });
     }
-  }, []);
+
+    setLoading(false);
+  }, [page, filterType, filterText]);
 
   useEffect(() => {
-    fetchContent();
-    fetchStats();
-  }, [fetchContent, fetchStats]);
+    fetchAll();
+  }, [fetchAll]);
 
 
   // Realtime subscription for live updates
@@ -297,8 +287,7 @@ const BancoPage = () => {
     }
 
     setResolving(false);
-    fetchStats();
-    fetchContent();
+    fetchAll();
   };
 
   // Build API-style link using hosted URL
@@ -340,7 +329,7 @@ const BancoPage = () => {
       if (data?.value) {
         const p = data.value as any;
         setVcProgress(p);
-        if (p.done) { setVcImporting(false); clearInterval(interval); fetchStats(); }
+        if (p.done) { setVcImporting(false); clearInterval(interval); fetchAll(); }
       }
     }, 3000);
     return () => clearInterval(interval);
@@ -399,8 +388,7 @@ const BancoPage = () => {
               description: `Links importados com sucesso`,
             });
           }
-          fetchStats();
-          fetchContent();
+          fetchAll();
           loadIptvDbStats();
         }
       }
