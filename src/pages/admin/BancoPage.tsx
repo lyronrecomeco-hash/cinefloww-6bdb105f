@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Database, Film, Tv, Loader2, Play, RefreshCw, CheckCircle, XCircle, Search, ExternalLink, Link2, X, Upload, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import CustomPlayer from "@/components/CustomPlayer";
+import { initVpsClient, isVpsOnline, getVpsUrl } from "@/lib/vpsClient";
 
 interface ContentItem {
   id: string;
@@ -212,10 +213,15 @@ const BancoPage = () => {
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  // Resolve ALL links via turbo-resolve + polling (sem travar a UI)
+  // Resolve ALL links — VPS-first, fallback to turbo-resolve
   const resolveAllLinks = async () => {
     setResolving(true);
     cancelRef.current = false;
+
+    // Init VPS and check if online
+    await initVpsClient();
+    const vpsUrl = getVpsUrl();
+    const vpsAvailable = isVpsOnline() && !!vpsUrl;
 
     const { count: totalContent } = await supabase
       .from("content")
@@ -232,57 +238,113 @@ const BancoPage = () => {
     setResolveProgress({ current: 0, total: initialWithout });
 
     try {
-      const launchWave = async () => {
-        const { error } = await supabase.functions.invoke("turbo-resolve");
-        if (error) throw error;
-      };
+      if (vpsAvailable) {
+        // === VPS MODE: trigger batch-resolve on VPS ===
+        toast({ title: "⚡ VPS Online", description: "Resolução sendo executada na VPS..." });
 
-      await launchWave();
+        // Fire batch-resolve on the VPS
+        const launchVpsWave = async () => {
+          try {
+            await fetch(`${vpsUrl}/api/batch-resolve`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ _wave: 0 }),
+              signal: AbortSignal.timeout(10_000),
+            });
+          } catch { /* VPS will process in background */ }
+        };
 
-      let lastRemaining = initialWithout;
-      let stagnantPolls = 0;
-      let elapsedMs = 0;
-      const MAX_DURATION_MS = 15 * 60 * 1000;
+        await launchVpsWave();
 
-      while (!cancelRef.current && elapsedMs < MAX_DURATION_MS) {
-        await sleep(4000);
-        elapsedMs += 4000;
+        // Poll progress
+        let lastRemaining = initialWithout;
+        let stagnantPolls = 0;
+        let elapsedMs = 0;
+        const MAX_DURATION_MS = 15 * 60 * 1000;
 
-        const [{ count: totalNow }, { count: cachedNow }, { count: failedNow }] = await Promise.all([
-          supabase.from("content").select("*", { count: "exact", head: true }),
-          supabase
-            .from("video_cache")
-            .select("*", { count: "exact", head: true })
-            .gt("expires_at", new Date().toISOString()),
-          supabase.from("resolve_failures").select("*", { count: "exact", head: true }),
-        ]);
+        while (!cancelRef.current && elapsedMs < MAX_DURATION_MS) {
+          await sleep(4000);
+          elapsedMs += 4000;
 
-        const remaining = Math.max(0, (totalNow || 0) - (cachedNow || 0) - (failedNow || 0));
-        const current = Math.max(0, initialWithout - remaining);
-        setResolveProgress({ current, total: initialWithout });
+          const [{ count: totalNow }, { count: cachedNow }, { count: failedNow }] = await Promise.all([
+            supabase.from("content").select("*", { count: "exact", head: true }),
+            supabase.from("video_cache").select("*", { count: "exact", head: true }).gt("expires_at", new Date().toISOString()),
+            supabase.from("resolve_failures").select("*", { count: "exact", head: true }),
+          ]);
 
-        if (remaining <= 0) break;
+          const remaining = Math.max(0, (totalNow || 0) - (cachedNow || 0) - (failedNow || 0));
+          const current = Math.max(0, initialWithout - remaining);
+          setResolveProgress({ current, total: initialWithout });
 
-        if (remaining >= lastRemaining) {
-          stagnantPolls += 1;
-        } else {
-          stagnantPolls = 0;
+          if (remaining <= 0) break;
+
+          if (remaining >= lastRemaining) {
+            stagnantPolls += 1;
+          } else {
+            stagnantPolls = 0;
+          }
+
+          // Re-launch VPS wave if stagnant
+          if (stagnantPolls >= 6) {
+            await launchVpsWave();
+            stagnantPolls = 0;
+          }
+
+          lastRemaining = remaining;
         }
+      } else {
+        // === CLOUD FALLBACK: use turbo-resolve edge function ===
+        toast({ title: "☁️ Cloud Mode", description: "VPS offline, usando resolução Cloud..." });
 
-        if (stagnantPolls >= 6) {
-          await launchWave();
-          stagnantPolls = 0;
+        const launchWave = async () => {
+          const { error } = await supabase.functions.invoke("turbo-resolve");
+          if (error) throw error;
+        };
+
+        await launchWave();
+
+        let lastRemaining = initialWithout;
+        let stagnantPolls = 0;
+        let elapsedMs = 0;
+        const MAX_DURATION_MS = 15 * 60 * 1000;
+
+        while (!cancelRef.current && elapsedMs < MAX_DURATION_MS) {
+          await sleep(4000);
+          elapsedMs += 4000;
+
+          const [{ count: totalNow }, { count: cachedNow }, { count: failedNow }] = await Promise.all([
+            supabase.from("content").select("*", { count: "exact", head: true }),
+            supabase.from("video_cache").select("*", { count: "exact", head: true }).gt("expires_at", new Date().toISOString()),
+            supabase.from("resolve_failures").select("*", { count: "exact", head: true }),
+          ]);
+
+          const remaining = Math.max(0, (totalNow || 0) - (cachedNow || 0) - (failedNow || 0));
+          const current = Math.max(0, initialWithout - remaining);
+          setResolveProgress({ current, total: initialWithout });
+
+          if (remaining <= 0) break;
+
+          if (remaining >= lastRemaining) {
+            stagnantPolls += 1;
+          } else {
+            stagnantPolls = 0;
+          }
+
+          if (stagnantPolls >= 6) {
+            await launchWave();
+            stagnantPolls = 0;
+          }
+
+          lastRemaining = remaining;
         }
-
-        lastRemaining = remaining;
       }
 
       toast({
         title: cancelRef.current ? "Resolução cancelada" : "Resolução concluída",
-        description: "Processamento em lote estabilizado e executado.",
+        description: vpsAvailable ? "Processado via VPS ⚡" : "Processado via Cloud ☁️",
       });
     } catch (e) {
-      console.error("[banco] turbo-resolve error:", e);
+      console.error("[banco] resolve error:", e);
       toast({ title: "Erro", description: "Falha na resolução em lote", variant: "destructive" });
     }
 
