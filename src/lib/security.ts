@@ -1,42 +1,40 @@
 /**
  * Advanced anti-DevTools & anti-inspection security layer.
- * Blocks F12, Ctrl+Shift+I/J/C, right-click context menu,
- * and detects DevTools via debugger timing + dimension heuristics.
- * Also prevents source viewing, copy-paste on sensitive elements,
- * and obfuscates network requests.
+ * Detects DevTools and redirects to google.com instantly.
  */
 
 let devtoolsDetected = false;
-let devtoolsWarnings = 0;
 
 const blockKeys = (e: KeyboardEvent) => {
-  // F12
-  if (e.key === "F12") { e.preventDefault(); e.stopPropagation(); return false; }
-  // Ctrl+Shift+I / Ctrl+Shift+J / Ctrl+Shift+C
+  if (e.key === "F12") { e.preventDefault(); e.stopPropagation(); redirectAway(); return false; }
   if (e.ctrlKey && e.shiftKey && ["I", "J", "C", "i", "j", "c"].includes(e.key)) {
-    e.preventDefault(); e.stopPropagation(); return false;
+    e.preventDefault(); e.stopPropagation(); redirectAway(); return false;
   }
-  // Ctrl+U (view source)
   if (e.ctrlKey && (e.key === "u" || e.key === "U")) {
-    e.preventDefault(); e.stopPropagation(); return false;
+    e.preventDefault(); e.stopPropagation(); redirectAway(); return false;
   }
-  // Ctrl+S (save page)
   if (e.ctrlKey && (e.key === "s" || e.key === "S") && !e.altKey) {
     e.preventDefault(); e.stopPropagation(); return false;
   }
-  // Ctrl+P (print)
   if (e.ctrlKey && (e.key === "p" || e.key === "P")) {
     e.preventDefault(); e.stopPropagation(); return false;
   }
-  // Ctrl+Shift+K (Firefox console)
   if (e.ctrlKey && e.shiftKey && (e.key === "K" || e.key === "k")) {
-    e.preventDefault(); e.stopPropagation(); return false;
+    e.preventDefault(); e.stopPropagation(); redirectAway(); return false;
   }
 };
 
 const blockContextMenu = (e: MouseEvent) => {
   e.preventDefault();
   return false;
+};
+
+const redirectAway = () => {
+  try {
+    window.location.replace("https://www.google.com");
+  } catch {
+    window.location.href = "https://www.google.com";
+  }
 };
 
 const detectDevTools = () => {
@@ -47,41 +45,25 @@ const detectDevTools = () => {
   if (widthDiff || heightDiff) {
     if (!devtoolsDetected) {
       devtoolsDetected = true;
-      devtoolsWarnings++;
-      handleDevToolsOpen();
+      redirectAway();
     }
   } else {
     devtoolsDetected = false;
   }
 };
 
-const handleDevToolsOpen = () => {
-  try {
-    const videos = document.querySelectorAll("video");
-    videos.forEach((v) => {
-      v.src = "";
-      v.load();
-    });
-    const iframes = document.querySelectorAll("iframe");
-    iframes.forEach((f) => {
-      f.src = "about:blank";
-    });
-  } catch {}
-};
-
-// Debugger timing detection
+// Debugger timing detection — instant redirect
 const debuggerCheck = () => {
   const start = performance.now();
   // eslint-disable-next-line no-debugger
   debugger;
   const end = performance.now();
-  if (end - start > 100 && !devtoolsDetected) {
-    devtoolsDetected = true;
-    handleDevToolsOpen();
+  if (end - start > 100) {
+    redirectAway();
   }
 };
 
-// Disable console methods
+// Disable console methods in production
 const disableConsole = () => {
   const noop = () => {};
   if (typeof window !== "undefined" && import.meta.env.PROD) {
@@ -92,7 +74,6 @@ const disableConsole = () => {
   }
 };
 
-// Anti text selection on video areas
 const disableTextSelection = () => {
   const style = document.createElement("style");
   style.textContent = `
@@ -107,13 +88,11 @@ const disableTextSelection = () => {
   document.head.appendChild(style);
 };
 
-// Anti copy-paste on body
 const blockCopyPaste = () => {
   document.addEventListener("copy", (e) => { e.preventDefault(); }, true);
   document.addEventListener("cut", (e) => { e.preventDefault(); }, true);
 };
 
-// Obfuscate source links in DOM - hide video src attributes from inspection
 const obfuscateVideoSources = () => {
   const observer = new MutationObserver((mutations) => {
     mutations.forEach((m) => {
@@ -136,7 +115,6 @@ const obfuscateVideoSources = () => {
   observer.observe(document.body, { childList: true, subtree: true });
 };
 
-// Prevent page from being loaded in an iframe (anti-embedding)
 const preventFraming = () => {
   if (window.self !== window.top) {
     try { window.top!.location.href = window.self.location.href; } catch {}
@@ -146,33 +124,23 @@ const preventFraming = () => {
 export const initSecurity = () => {
   if (typeof window === "undefined") return;
 
-  // Block keyboard shortcuts
   document.addEventListener("keydown", blockKeys, true);
-
-  // Block right-click
   document.addEventListener("contextmenu", blockContextMenu, true);
 
-  // DevTools dimension detection
-  const intervalId = setInterval(detectDevTools, 1000);
+  // DevTools dimension detection — every 500ms for faster response
+  const intervalId = setInterval(detectDevTools, 500);
 
-  // Periodic debugger check (less aggressive, every 5s)
-  const debugInterval = setInterval(debuggerCheck, 5000);
+  // Debugger timing check every 3s
+  const debugInterval = setInterval(debuggerCheck, 3000);
 
-  // Disable console in production
   disableConsole();
-
-  // Anti text selection on media
   disableTextSelection();
 
-  // Block copy-paste in production
   if (import.meta.env.PROD) {
     blockCopyPaste();
   }
 
-  // Obfuscate video sources in DOM
   obfuscateVideoSources();
-
-  // Prevent page from being embedded
   preventFraming();
 
   // Anti drag on images
