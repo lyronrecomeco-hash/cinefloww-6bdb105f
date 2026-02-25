@@ -125,3 +125,24 @@ export async function vpsCatalogDetail(tmdbId: number, contentType: string): Pro
     return null;
   }
 }
+
+/**
+ * Notify VPS about new content to auto-resolve links.
+ * Fire-and-forget — does not block caller.
+ */
+export async function vpsNotifyNewContent(items: Array<{
+  tmdb_id: number;
+  content_type: string;
+  title: string;
+  imdb_id?: string | null;
+}>): Promise<void> {
+  if (!(await checkVpsHealth())) return;
+  try {
+    fetch(`${_vpsUrl}/api/notify-new-content`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items }),
+      signal: AbortSignal.timeout(5000),
+    }).catch(() => {});
+  } catch { /* fire and forget */ }
+}
