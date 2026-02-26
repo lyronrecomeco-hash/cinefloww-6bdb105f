@@ -8,7 +8,6 @@ const VPS_HEALTH_CACHE_MS = 30_000;
 const VPS_URL_STORAGE_KEY = "_vps_url";
 
 // Hardcoded fallback VPS URL — used when localStorage is empty
-// This prevents any Cloud DB query during initialization
 const HARDCODED_VPS_URL = "http://147.93.12.83:3377";
 
 let _vpsBaseUrl: string | null = null;
@@ -16,9 +15,11 @@ let _vpsProxyUrl: string | null = null;
 let _vpsOnline = false;
 let _lastCheck = 0;
 let _initPromise: Promise<void> | null = null;
+let _proxyBroken = false; // detected when proxy returns HTML instead of JSON
 
 /** Decide when to force /vps proxy */
 function shouldUseProxy(vpsBaseUrl: string): boolean {
+  if (_proxyBroken) return false;
   const host = window.location.hostname;
   const isLocal = host.includes("localhost") || host.includes("127.0.0.1");
   const isHttpsPage = window.location.protocol === "https:";
@@ -41,22 +42,20 @@ export function initVpsClient(): Promise<void> {
   if (_initPromise) return _initPromise;
   _initPromise = (async () => {
     try {
-      // 1. Try localStorage cache first
       const cached = localStorage.getItem(VPS_URL_STORAGE_KEY);
       const rawUrl = cached || HARDCODED_VPS_URL;
 
       _vpsBaseUrl = rawUrl.replace(/\/+$/, "");
       _vpsProxyUrl = resolveProxyUrl(_vpsBaseUrl);
 
-      // If no cached URL, store the hardcoded one
       if (!cached) {
         localStorage.setItem(VPS_URL_STORAGE_KEY, _vpsBaseUrl);
       }
 
-      // Check health — this is a fast network call to VPS, not Cloud
       await checkVpsHealth();
 
-      // No Cloud DB read here by design (VPS-first strict mode)
+      // Background: update URL from Cloud (non-blocking, won't affect current session)
+      updateVpsUrlFromCloud().catch(() => {});
     } catch { /* silent */ }
   })();
   return _initPromise;
@@ -67,28 +66,69 @@ async function checkVpsHealth(): Promise<boolean> {
   if (!_vpsProxyUrl) return false;
   if (Date.now() - _lastCheck < VPS_HEALTH_CACHE_MS) return _vpsOnline;
 
+  const url = `${_vpsProxyUrl}/health`;
+
   try {
-    const res = await fetch(`${_vpsProxyUrl}/health`, {
+    const res = await fetch(url, {
       signal: AbortSignal.timeout(3000),
     });
-    _vpsOnline = res.ok;
+    if (!res.ok) {
+      _vpsOnline = false;
+    } else {
+      // CRITICAL: Check if response is actual JSON from VPS or HTML from SPA fallback
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("text/html")) {
+        // Proxy is broken — returning SPA HTML instead of VPS response
+        console.warn("[VPS] Proxy returned HTML — marking proxy as broken");
+        _proxyBroken = true;
+        _vpsOnline = false;
+        // Recalculate proxy URL (will now use direct URL)
+        if (_vpsBaseUrl) {
+          _vpsProxyUrl = resolveProxyUrl(_vpsBaseUrl);
+          // Try direct VPS (will fail on HTTPS due to mixed content, but worth trying)
+          if (!shouldUseProxy(_vpsBaseUrl)) {
+            try {
+              const directRes = await fetch(`${_vpsBaseUrl}/health`, {
+                signal: AbortSignal.timeout(3000),
+              });
+              const directCt = directRes.headers.get("content-type") || "";
+              _vpsOnline = directRes.ok && !directCt.includes("text/html");
+              if (_vpsOnline) {
+                _vpsProxyUrl = _vpsBaseUrl;
+              }
+            } catch {
+              _vpsOnline = false;
+            }
+          }
+        }
+      } else {
+        _vpsOnline = true;
+      }
+    }
   } catch {
     _vpsOnline = false;
   }
 
-  // Fallback probe
-  if (!_vpsOnline) {
+  // Fallback probe if first check failed and proxy is not broken
+  if (!_vpsOnline && !_proxyBroken) {
     try {
       const probe = await fetch(`${_vpsProxyUrl}/api/catalog?type=movie`, {
         signal: AbortSignal.timeout(3500),
       });
-      _vpsOnline = probe.ok;
+      const probeCt = probe.headers.get("content-type") || "";
+      if (probeCt.includes("text/html")) {
+        _proxyBroken = true;
+        _vpsOnline = false;
+      } else {
+        _vpsOnline = probe.ok;
+      }
     } catch {
       _vpsOnline = false;
     }
   }
 
   _lastCheck = Date.now();
+  console.log(`[VPS] Health check: online=${_vpsOnline}, proxyBroken=${_proxyBroken}, url=${_vpsProxyUrl}`);
   return _vpsOnline;
 }
 
@@ -111,7 +151,6 @@ export function getVpsUrl(): string | null {
 
 /**
  * Extract video via VPS API.
- * Returns null if VPS is offline — caller should NOT fallback to Cloud for this.
  */
 export async function vpsExtractVideo(params: {
   tmdb_id: number;
@@ -139,7 +178,6 @@ export async function vpsExtractVideo(params: {
 
 /**
  * Fetch catalog from VPS memory cache (instant, no DB query).
- * Returns null if VPS is offline.
  */
 export async function vpsCatalog(contentType?: string): Promise<any[] | null> {
   if (!(await checkVpsHealth())) return null;
@@ -149,6 +187,8 @@ export async function vpsCatalog(contentType?: string): Promise<any[] | null> {
       : `${_vpsProxyUrl}/api/catalog`;
     const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return null;
+    const ct = res.headers.get("content-type") || "";
+    if (ct.includes("text/html")) return null; // proxy returning HTML
     const data = await res.json();
     return data.items || data;
   } catch {
@@ -157,7 +197,7 @@ export async function vpsCatalog(contentType?: string): Promise<any[] | null> {
 }
 
 /**
- * Fetch single catalog item detail + video status from VPS cache.
+ * Fetch single catalog item detail from VPS cache.
  */
 export async function vpsCatalogDetail(tmdbId: number, contentType: string): Promise<any | null> {
   if (!(await checkVpsHealth())) return null;
@@ -167,6 +207,8 @@ export async function vpsCatalogDetail(tmdbId: number, contentType: string): Pro
       { signal: AbortSignal.timeout(5000) }
     );
     if (!res.ok) return null;
+    const ct = res.headers.get("content-type") || "";
+    if (ct.includes("text/html")) return null;
     return res.json();
   } catch {
     return null;
@@ -174,8 +216,7 @@ export async function vpsCatalogDetail(tmdbId: number, contentType: string): Pro
 }
 
 /**
- * Notify VPS about new content to auto-resolve links.
- * Fire-and-forget.
+ * Notify VPS about new content. Fire-and-forget.
  */
 export async function vpsNotifyNewContent(items: Array<{
   tmdb_id: number;
@@ -192,4 +233,24 @@ export async function vpsNotifyNewContent(items: Array<{
       signal: AbortSignal.timeout(5000),
     }).catch(() => {});
   } catch { /* fire and forget */ }
+}
+
+/** Background: fetch VPS URL from Cloud and store for NEXT session */
+async function updateVpsUrlFromCloud(): Promise<void> {
+  try {
+    const { supabase } = await import("@/integrations/supabase/client");
+    const { data } = await supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "vps_api_url")
+      .maybeSingle();
+    if (data?.value) {
+      const url = typeof data.value === "string"
+        ? data.value.replace(/^"|"$/g, "")
+        : String(data.value).replace(/^"|"$/g, "");
+      if (url && url.startsWith("http")) {
+        localStorage.setItem(VPS_URL_STORAGE_KEY, url.replace(/\/+$/, ""));
+      }
+    }
+  } catch { /* non-critical */ }
 }
