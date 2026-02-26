@@ -436,9 +436,9 @@ const BancoPage = () => {
   // CineVeo API import
   const startCineveoImport = async () => {
     setCineveoImporting(true);
-    setCineveoProgress({ phase: "fetching_catalog", total: 0, imported_content: 0, imported_cache: 0 });
+    setCineveoProgress({ phase: "syncing", total: 0, imported_content: 0, imported_cache: 0 });
     supabase.functions.invoke("import-cineveo-catalog", {
-      body: { types: ["movies", "series"] },
+      body: { types: ["movies", "series"], brute: true, reset: true, pages_per_run: 12 },
     }).catch(() => {});
   };
 
