@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/vd/:path*", "destination": "https://cdn.lyneflix.online/vd/:path*" },
+    { "source": "/vd/:path*", "destination": "https://cdf.lyneflix.online/vd/:path*" },
     { "source": "/vps/:path*", "destination": "http://147.93.12.83:3377/:path*" },
     { "source": "/v/a/:path*", "destination": "https://cdn.cineveo.site/:path*" },
     { "source": "/v/b/:path*", "destination": "https://watch.brstream.cc/:path*" },
