@@ -179,7 +179,7 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ error: "filename and content_type required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
-      const key = `videos/${Date.now()}-${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+      const key = `vd/${Date.now()}-${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
       const presignedUrl = await presignPut(key, content_type);
       const publicUrl = getPublicUrl(key);
 
@@ -216,7 +216,7 @@ Deno.serve(async (req) => {
 
     // === LIST: List uploaded files ===
     if (action === "list") {
-      const prefix = body.prefix || "videos/";
+      const prefix = body.prefix || "vd/";
       const items = await r2List(prefix);
       return new Response(JSON.stringify({ items }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
