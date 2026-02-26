@@ -611,9 +611,11 @@ const ContentSourcesPage = () => {
   const openProtectedExternal = async (url: string) => {
     try {
       const safeUrl = await secureVideoUrl(url);
+      const isProtected = safeUrl.includes("action=stream") || safeUrl.includes("video-token");
+      if (!isProtected) throw new Error("Token inválido");
       window.open(safeUrl, "_blank", "noopener,noreferrer");
     } catch {
-      window.open(url, "_blank", "noopener,noreferrer");
+      toast({ title: "Falha ao abrir", description: "Não foi possível gerar o link protegido.", variant: "destructive" });
     }
   };
 
@@ -622,10 +624,16 @@ const ContentSourcesPage = () => {
       window.open(url, "_blank", "noopener,noreferrer");
       return;
     }
-    const safeUrl = await secureVideoUrl(url);
-    setPlayerUrl(safeUrl);
-    setPlayerType(type as "m3u8" | "mp4");
-    setPlayerTitle(title);
+    try {
+      const safeUrl = await secureVideoUrl(url);
+      const isProtected = safeUrl.includes("action=stream") || safeUrl.includes("video-token");
+      if (!isProtected) throw new Error("Token inválido");
+      setPlayerUrl(safeUrl);
+      setPlayerType(type as "m3u8" | "mp4");
+      setPlayerTitle(title);
+    } catch {
+      toast({ title: "Falha no player", description: "Não foi possível gerar o link protegido.", variant: "destructive" });
+    }
   };
 
   const extractAllEpisodes = async (seasonNum: number) => {
