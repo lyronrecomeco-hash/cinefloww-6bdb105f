@@ -33,6 +33,12 @@ function pickStreamUrl(record: any): string | null {
   return record?.stream_url || record?.streamUrl || record?.url || record?.video_url || record?.link || record?.embed_url || null;
 }
 
+function isLikelyBrokenCineveoUrl(url?: string, provider?: string): boolean {
+  if (!url) return true;
+  if ((provider || "").toLowerCase() !== "cineveo-api") return false;
+  return /cdn\.cineveo\.site\/.*%2520/i.test(url);
+}
+
 function pickEpisodeStream(
   episodes: any[],
   season?: number,
@@ -78,10 +84,12 @@ async function tryCineveoCatalog(
   const apiType = isMovie ? "movies" : "series";
 
   let page = 1;
-  let totalPages = 1;
+  let totalPagesFromApi: number | null = null;
+  let emptyStreak = 0;
   const MAX_PAGES = 2500;
+  const MAX_EMPTY_STREAK = 3;
 
-  while (page <= totalPages && page <= MAX_PAGES) {
+  while (page <= MAX_PAGES) {
     const catalogUrl = `${CINEVEO_API_BASE}/catalog.php?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=${apiType}&page=${page}`;
 
     try {
@@ -101,14 +109,18 @@ async function tryCineveoCatalog(
         ? payload
         : payload?.data || payload?.results || payload?.items || [];
 
-      if (payload?.pagination?.total_pages) {
-        totalPages = Number(payload.pagination.total_pages) || totalPages;
-      }
+      const parsedTotal = Number(payload?.pagination?.total_pages || 0);
+      if (parsedTotal > 0) totalPagesFromApi = parsedTotal;
 
       if (!Array.isArray(items) || items.length === 0) {
+        emptyStreak += 1;
+        if (totalPagesFromApi && page >= totalPagesFromApi) break;
+        if (!totalPagesFromApi && emptyStreak >= MAX_EMPTY_STREAK) break;
         page += 1;
         continue;
       }
+
+      emptyStreak = 0;
 
       const tmdbStr = String(tmdbId);
       const match = items.find((item: any) =>
@@ -118,11 +130,12 @@ async function tryCineveoCatalog(
       );
 
       if (!match) {
+        if (totalPagesFromApi && page >= totalPagesFromApi) break;
         page += 1;
         continue;
       }
 
-      console.log(`[cineveo-api] Found tmdb_id=${tmdbId} on page=${page}/${totalPages}`);
+      console.log(`[cineveo-api] Found tmdb_id=${tmdbId} on page=${page}/${totalPagesFromApi || "?"}`);
 
       let streamUrl: string | null = null;
 
@@ -147,7 +160,7 @@ async function tryCineveoCatalog(
     }
   }
 
-  console.log(`[cineveo-api] tmdb_id=${tmdbId} not found after scanning ${Math.min(totalPages, MAX_PAGES)} pages`);
+  console.log(`[cineveo-api] tmdb_id=${tmdbId} not found after scanning up to page=${Math.min(page, MAX_PAGES)}`);
   return null;
 }
 
@@ -259,7 +272,7 @@ Deno.serve(async (req) => {
       };
 
       const pickBest = (rows: any[]) => (rows || [])
-        .filter((row: any) => row?.video_url && row?.video_type !== "mega-embed")
+        .filter((row: any) => row?.video_url && row?.video_type !== "mega-embed" && !isLikelyBrokenCineveoUrl(row?.video_url, row?.provider))
         .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
 
       const baseQuery = supabase
