@@ -466,16 +466,15 @@ const BancoPage = () => {
     return () => clearInterval(interval);
   }, [cineveoImporting]);
 
-  // IPTV CiineVeo — fire once, auto-chains server-side, UI polls progress
-  const IPTV_URL = "https://cineveo.site/api/generate_iptv_list.php?user=lyneflix-vods";
+  // IPTV CineVeo — JSON API com rotação automática
   const startIptvImport = async () => {
     setIptvImporting(true);
-    setIptvProgress({ phase: "downloading", entries: 0, valid: 0, cache: 0, content: 0, done: false });
+    setIptvProgress({ phase: "syncing", entries: 0, valid: 0, cache: 0, content: 0, done: false });
 
-    // Single fire — function auto-chains itself
+    // Fire once with reset — auto-chains all pages server-side
     supabase.functions.invoke("import-iptv", {
-      body: { url: IPTV_URL },
-    }).catch(() => {}); // Don't await — polling handles UI
+      body: { reset: true, pages_per_run: 15 },
+    }).catch(() => {});
   };
 
   // Poll IPTV progress from site_settings
@@ -486,11 +485,11 @@ const BancoPage = () => {
       if (data?.value) {
         const p = data.value as any;
         setIptvProgress({
-          phase: p.phase || "downloading",
-          entries: p.entries || 0,
-          valid: p.valid || 0,
-          cache: p.cache_imported || p.cache || 0,
-          content: p.content_imported || p.content || 0,
+          phase: p.phase || "syncing",
+          entries: p.processed_pages || 0,
+          valid: p.total_items_for_type || 0,
+          cache: p.imported_cache_total || 0,
+          content: p.imported_content_total || 0,
           done: p.done || false,
         });
         if (p.done) {
@@ -501,7 +500,7 @@ const BancoPage = () => {
           } else {
             toast({
               title: "✅ Importação IPTV concluída",
-              description: `Links importados com sucesso`,
+              description: `${p.imported_cache_total || 0} links, ${p.imported_content_total || 0} conteúdos`,
             });
           }
           fetchAll();
