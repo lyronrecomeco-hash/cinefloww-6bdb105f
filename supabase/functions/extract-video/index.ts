@@ -275,14 +275,18 @@ Deno.serve(async (req) => {
         .filter((row: any) => row?.video_url && row?.video_type !== "mega-embed" && !isLikelyBrokenCineveoUrl(row?.video_url, row?.provider))
         .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
 
-      const baseQuery = supabase
+      let baseQuery = supabase
         .from("video_cache")
-        .select("video_url, video_type, provider, created_at")
+        .select("video_url, video_type, provider, created_at, season, episode")
         .eq("tmdb_id", tmdb_id)
         .in("content_type", cacheTypes)
-        .eq("season", keySeason)
-        .eq("episode", keyEpisode)
         .gt("expires_at", new Date().toISOString());
+      
+      // For series without explicit season/episode, search broadly
+      if (season) baseQuery = baseQuery.eq("season", keySeason);
+      else if (isMovie) baseQuery = baseQuery.eq("season", 0);
+      if (episode) baseQuery = baseQuery.eq("episode", keyEpisode);
+      else if (isMovie) baseQuery = baseQuery.eq("episode", 0);
 
       const { data: cachedRows } = await baseQuery.eq("audio_type", aType).order("created_at", { ascending: false }).limit(20);
       let bestCached = pickBest(cachedRows || []);
