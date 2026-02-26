@@ -15,6 +15,10 @@ export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
   if (!rawUrl) return rawUrl;
   if (rawUrl.includes("action=stream") || rawUrl.includes("video-token")) return rawUrl;
 
+  // Cloudflare R2/CDF links can return anti-bot HTML when proxied via backend.
+  // Keep these links direct so the browser loads the media natively.
+  if (rawUrl.includes("cdf.lyneflix.online/vd/")) return rawUrl;
+
   // Check cache
   if (_tokenCache && _tokenCache.rawUrl === rawUrl && Date.now() < _tokenCache.expires - REFRESH_MARGIN_MS) {
     return _tokenCache.streamUrl;
