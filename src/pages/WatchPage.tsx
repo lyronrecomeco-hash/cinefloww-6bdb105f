@@ -139,10 +139,22 @@ const WatchPage = () => {
         if (episode) query = query.eq("episode", episode);
         else query = query.eq("episode", 0);
 
-        const { data: cachedRows } = await query.order("created_at", { ascending: false }).limit(5);
-        const cached = cachedRows?.[0] || null;
+        const { data: cachedRows } = await query.order("created_at", { ascending: false }).limit(20);
+        
+        // Sort by provider priority (manual > mega > cineveo-api > cineveo > others)
+        const providerRank = (provider?: string) => {
+          const p = (provider || "").toLowerCase();
+          if (p === "manual") return 130;
+          if (p === "mega") return 95;
+          if (p === "cineveo-api") return 90;
+          if (p === "cineveo") return 80;
+          return 70;
+        };
+        const cached = (cachedRows || [])
+          .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
+        
         if (cached?.video_url) {
-          console.log("[WatchPage] Cache hit - instant play!");
+          console.log(`[WatchPage] Cache hit - provider=${cached.provider}, type=${cached.video_type}`);
           if (cached.video_type === "iframe-proxy") {
             setIframeProxyUrl(cached.video_url);
             setPhase("iframe-intercept");
