@@ -33,7 +33,8 @@ const MaintenanceModal = () => {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  if (!active) return null;
+  // Never block admin pages
+  if (!active || window.location.pathname.startsWith("/admin")) return null;
 
   return createPortal(
     <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
