@@ -103,15 +103,25 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [movies, series, doramas, animes, recent, visitors] = await Promise.all([
-          supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "movie"),
-          supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "series"),
-          supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "dorama"),
-          supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "anime"),
-          supabase.from("content").select("id, title, poster_path, content_type, created_at").order("created_at", { ascending: false }).limit(5),
-          supabase.from("site_visitors").select("visitor_id, visited_at, pathname, hostname").eq("hostname", "lyneflix.online").gte("visited_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()).order("visited_at", { ascending: false }).limit(1000),
+        const timeout = new Promise<null>((r) => setTimeout(() => r(null), 8000));
+        const result = await Promise.race([
+          Promise.all([
+            supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "movie"),
+            supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "series"),
+            supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "dorama"),
+            supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "anime"),
+            supabase.from("content").select("id, title, poster_path, content_type, created_at").order("created_at", { ascending: false }).limit(5),
+            supabase.from("site_visitors").select("visitor_id, visited_at, pathname, hostname").eq("hostname", "lyneflix.online").gte("visited_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()).order("visited_at", { ascending: false }).limit(1000),
+          ]),
+          timeout,
         ]);
 
+        if (!result) {
+          console.warn("[Dashboard] fetchData timeout — Cloud DB slow");
+          return;
+        }
+
+        const [movies, series, doramas, animes, recent, visitors] = result as any[];
         setCounts({
           movies: movies.count || 0,
           series: series.count || 0,
@@ -147,17 +157,26 @@ const Dashboard = () => {
       })
       .subscribe();
 
-    // Auto-refresh online count every 30s
+    // Auto-refresh online count every 60s (reduced frequency to avoid Cloud overload)
     const interval = setInterval(async () => {
-      const { data } = await supabase
-        .from("site_visitors")
-        .select("visitor_id, visited_at, pathname, hostname")
-        .eq("hostname", "lyneflix.online")
-        .gte("visited_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
-        .order("visited_at", { ascending: false })
-        .limit(1000);
-      if (data) processVisitorData(data);
-    }, 30000);
+      try {
+        const timeout = new Promise<null>((r) => setTimeout(() => r(null), 5000));
+        const result = await Promise.race([
+          supabase
+            .from("site_visitors")
+            .select("visitor_id, visited_at, pathname, hostname")
+            .eq("hostname", "lyneflix.online")
+            .gte("visited_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
+            .order("visited_at", { ascending: false })
+            .limit(1000),
+          timeout,
+        ]);
+        if (result) {
+          const { data } = result as any;
+          if (data) processVisitorData(data);
+        }
+      } catch {}
+    }, 60000);
 
     return () => {
       supabase.removeChannel(channel);
