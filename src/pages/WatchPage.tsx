@@ -6,6 +6,7 @@ import CustomPlayer from "@/components/CustomPlayer";
 import LyneflixIntro from "@/components/LyneflixIntro";
 import IframeInterceptor from "@/components/IframeInterceptor";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
+import { secureVideoUrl } from "@/lib/videoUrl";
 
 interface VideoSource {
   url: string;
@@ -186,7 +187,12 @@ const WatchPage = () => {
             setPhase("iframe-intercept");
             return;
           }
-          const result = { url: cached.video_url, type: cached.video_type || "m3u8", provider: cached.provider || "cache" };
+          let finalUrl = cached.video_url;
+          try {
+            const signed = await secureVideoUrl(cached.video_url);
+            if (signed && signed !== cached.video_url) finalUrl = signed;
+          } catch {}
+          const result = { url: finalUrl, type: cached.video_type || "m3u8", provider: cached.provider || "cache" };
           extractionResult.current = result;
           if (introComplete) {
             setSources([{ url: result.url, quality: "auto", provider: result.provider, type: result.type === "mp4" ? "mp4" : "m3u8" }]);
@@ -227,7 +233,12 @@ const WatchPage = () => {
           setPhase("iframe-intercept");
           return;
         }
-        const result = { url: data.url, type: data.type || "m3u8", provider: data.provider || "banco" };
+        let finalUrl = data.url;
+        try {
+          const signed = await secureVideoUrl(data.url);
+          if (signed && signed !== data.url) finalUrl = signed;
+        } catch {}
+        const result = { url: finalUrl, type: data.type || "m3u8", provider: data.provider || "banco" };
         extractionResult.current = result;
         if (introComplete) {
           setSources([{ url: result.url, quality: "auto", provider: result.provider, type: result.type === "mp4" ? "mp4" : "m3u8" }]);
