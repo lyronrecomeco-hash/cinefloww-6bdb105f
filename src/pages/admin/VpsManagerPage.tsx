@@ -109,25 +109,91 @@ npm install
 cat > .env << 'ENVFILE'
 SUPABASE_URL=${supabaseUrl}
 SUPABASE_SERVICE_ROLE_KEY=${keyOrPlaceholder}
-BATCH_SIZE=1000
-CONCURRENCY=40
 VPS_API_PORT=${vpsPort}
+RESOLVE_CONCURRENCY=2
+RESOLVE_BATCH_SIZE=8
+RESOLVE_LOOP_DELAY_MS=4000
+CATALOG_PAGES_PER_WAVE=6
+CATALOG_DELAY_MS=1200
+API_TIMEOUT_MS=12000
 ENVFILE
 
-# ecosystem.config.cjs
+# ecosystem.config.cjs — com limites de concorrência para não sobrecarregar o banco
 cat > ecosystem.config.cjs << 'ECOFILE'
 module.exports = {
   apps: [
-    { name: "api-server", script: "scripts/api-server.mjs", autorestart: true, max_memory_restart: "512M" },
-    { name: "heartbeat", script: "scripts/heartbeat.mjs", cron_restart: "*/2 * * * *", autorestart: false },
-    { name: "iptv-indexer", script: "scripts/iptv-indexer.mjs", autorestart: true, max_memory_restart: "512M" },
-    { name: "cineveo-catalog", script: "scripts/cineveo-catalog.mjs", cron_restart: "0 */4 * * *", autorestart: false, max_memory_restart: "512M" },
-    { name: "batch-resolve", script: "scripts/batch-resolve.mjs", cron_restart: "0 */3 * * *", autorestart: false, max_memory_restart: "512M" },
-    { name: "turbo-resolve", script: "scripts/turbo-resolve.mjs", cron_restart: "30 */2 * * *", autorestart: false, max_memory_restart: "512M" },
-    { name: "refresh-links", script: "scripts/refresh-links.mjs", cron_restart: "0 4 * * *", autorestart: false, max_memory_restart: "256M" },
-    { name: "cleanup", script: "scripts/cleanup.mjs", cron_restart: "0 5 * * *", autorestart: false },
-    { name: "content-watcher", script: "scripts/content-watcher.mjs", autorestart: true, max_memory_restart: "256M" },
-    { name: "backup-sync", script: "scripts/backup-sync.mjs", cron_restart: "0 */6 * * *", autorestart: false, max_memory_restart: "256M" },
+    {
+      name: "api-server",
+      script: "scripts/api-server.mjs",
+      autorestart: true,
+      max_memory_restart: "300M",
+      env: { PORT: process.env.VPS_API_PORT || "3377", API_TIMEOUT_MS: "12000" }
+    },
+    {
+      name: "heartbeat",
+      script: "scripts/heartbeat.mjs",
+      cron_restart: "*/2 * * * *",
+      autorestart: false,
+      max_memory_restart: "100M"
+    },
+    {
+      name: "content-watcher",
+      script: "scripts/content-watcher.mjs",
+      autorestart: true,
+      max_memory_restart: "150M",
+      restart_delay: 5000
+    },
+    {
+      name: "backup-sync",
+      script: "scripts/backup-sync.mjs",
+      cron_restart: "0 */6 * * *",
+      autorestart: false,
+      max_memory_restart: "150M"
+    },
+    {
+      name: "cineveo-catalog",
+      script: "scripts/cineveo-catalog.mjs",
+      cron_restart: "0 */4 * * *",
+      autorestart: false,
+      max_memory_restart: "256M",
+      env: { CATALOG_PAGES_PER_WAVE: "6", CATALOG_DELAY_MS: "1200" }
+    },
+    {
+      name: "batch-resolve",
+      script: "scripts/batch-resolve.mjs",
+      cron_restart: "0 */3 * * *",
+      autorestart: false,
+      max_memory_restart: "256M",
+      env: { RESOLVE_CONCURRENCY: "2", RESOLVE_BATCH_SIZE: "8", RESOLVE_LOOP_DELAY_MS: "4000" }
+    },
+    {
+      name: "turbo-resolve",
+      script: "scripts/turbo-resolve.mjs",
+      cron_restart: "30 */2 * * *",
+      autorestart: false,
+      max_memory_restart: "256M",
+      env: { RESOLVE_CONCURRENCY: "2", RESOLVE_BATCH_SIZE: "8", RESOLVE_LOOP_DELAY_MS: "4000" }
+    },
+    {
+      name: "refresh-links",
+      script: "scripts/refresh-links.mjs",
+      cron_restart: "0 4 * * *",
+      autorestart: false,
+      max_memory_restart: "200M"
+    },
+    {
+      name: "cleanup",
+      script: "scripts/cleanup.mjs",
+      cron_restart: "0 5 * * *",
+      autorestart: false,
+      max_memory_restart: "100M"
+    },
+    {
+      name: "iptv-indexer",
+      script: "scripts/iptv-indexer.mjs",
+      autorestart: true,
+      max_memory_restart: "256M"
+    },
   ],
 };
 ECOFILE
