@@ -65,103 +65,138 @@ const BancoPage = () => {
     return () => clearTimeout(timer);
   }, [filterText]);
 
-  // Load stats from DB — always precise
+  // Load stats from DB — with timeout to prevent infinite loading
   const loadStats = useCallback(async () => {
-    const [totalResult, providerResult] = await Promise.all([
-      supabase.from("content").select("*", { count: "exact", head: true }),
-      supabase.rpc("get_video_stats_by_provider" as any),
-    ]);
+    try {
+      const timeout = new Promise<null>((r) => setTimeout(() => r(null), 6000));
+      const result = await Promise.race([
+        Promise.all([
+          supabase.from("content").select("*", { count: "exact", head: true }),
+          supabase.rpc("get_video_stats_by_provider" as any),
+        ]),
+        timeout,
+      ]);
 
-    const total = totalResult.count || 0;
-    const providerData = providerResult.data;
-    const byProvider: Record<string, number> = {};
-    let withVideo = 0;
-
-    if (providerData && Array.isArray(providerData)) {
-      for (const row of providerData as any[]) {
-        byProvider[row.provider] = Number(row.cnt);
-        withVideo += Number(row.cnt);
+      if (!result) {
+        console.warn("[BancoPage] loadStats timeout — Cloud DB slow");
+        return;
       }
-    }
 
-    setStats({
-      total,
-      withVideo,
-      withoutVideo: Math.max(0, total - withVideo),
-      byProvider,
-    });
-    setTotalCount(total);
+      const [totalResult, providerResult] = result as any[];
+      const total = totalResult.count || 0;
+      const providerData = providerResult.data;
+      const byProvider: Record<string, number> = {};
+      let withVideo = 0;
+
+      if (providerData && Array.isArray(providerData)) {
+        for (const row of providerData as any[]) {
+          byProvider[row.provider] = Number(row.cnt);
+          withVideo += Number(row.cnt);
+        }
+      }
+
+      setStats({
+        total,
+        withVideo,
+        withoutVideo: Math.max(0, total - withVideo),
+        byProvider,
+      });
+      setTotalCount(total);
+    } catch (err) {
+      console.warn("[BancoPage] loadStats error:", err);
+    }
   }, []);
 
-  // Load paginated content list
+  // Load paginated content list — with timeout
   const loadItems = useCallback(async () => {
     setLoading(true);
-    const from = page * ITEMS_PER_PAGE;
-    const to = from + ITEMS_PER_PAGE - 1;
-    const needsExactCount = filterType !== "all" || !!debouncedFilterText;
-    const selectColumns = "id, tmdb_id, imdb_id, title, content_type, poster_path, release_date";
+    try {
+      const from = page * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
+      const needsExactCount = filterType !== "all" || !!debouncedFilterText;
+      const selectColumns = "id, tmdb_id, imdb_id, title, content_type, poster_path, release_date";
 
-    let contentQuery = needsExactCount
-      ? supabase.from("content").select(selectColumns, { count: "exact" })
-      : supabase.from("content").select(selectColumns);
+      let contentQuery = needsExactCount
+        ? supabase.from("content").select(selectColumns, { count: "exact" })
+        : supabase.from("content").select(selectColumns);
 
-    contentQuery = contentQuery
-      .eq("status", "published")
-      .order("release_date", { ascending: false, nullsFirst: false })
-      .range(from, to);
+      contentQuery = contentQuery
+        .eq("status", "published")
+        .order("release_date", { ascending: false, nullsFirst: false })
+        .range(from, to);
 
-    if (filterType !== "all") contentQuery = contentQuery.eq("content_type", filterType);
-    if (debouncedFilterText) contentQuery = contentQuery.ilike("title", `%${debouncedFilterText}%`);
+      if (filterType !== "all") contentQuery = contentQuery.eq("content_type", filterType);
+      if (debouncedFilterText) contentQuery = contentQuery.ilike("title", `%${debouncedFilterText}%`);
 
-    const { data, count } = await contentQuery;
-    if (data) {
-      setItems(data);
-      setTotalCount((prev) => (needsExactCount ? (count || 0) : prev));
+      const timeout = new Promise<null>((r) => setTimeout(() => r(null), 8000));
+      const result = await Promise.race([contentQuery, timeout]);
 
-      const tmdbIds = data.map((i) => i.tmdb_id);
-      const cTypes = [...new Set(data.map((i) => (i.content_type === "movie" ? "movie" : "series")))];
+      if (!result) {
+        console.warn("[BancoPage] loadItems timeout — Cloud DB slow");
+        setLoading(false);
+        return;
+      }
 
-      if (tmdbIds.length > 0) {
-        const { data: cached } = await supabase
-          .from("video_cache")
-          .select("tmdb_id, video_url, provider, video_type, created_at")
-          .in("tmdb_id", tmdbIds)
-          .in("content_type", cTypes)
-          .gt("expires_at", new Date().toISOString())
-          .order("created_at", { ascending: false });
+      const { data, count } = result as any;
+      if (data) {
+        setItems(data);
+        setTotalCount((prev) => (needsExactCount ? (count || 0) : prev));
 
-        const providerRank = (provider?: string) => {
-          const p = (provider || "").toLowerCase();
-          if (p === "manual") return 130;
-          if (p === "cineveo-api") return 120;
-          if (p === "cineveo-iptv") return 110;
-          if (p === "cineveo") return 100;
-          return 70;
-        };
+        const tmdbIds = data.map((i: any) => i.tmdb_id);
+        const cTypes = [...new Set(data.map((i: any) => (i.content_type === "movie" ? "movie" : "series")))];
 
-        const bestByTmdb = new Map<number, any>();
-        for (const row of cached || []) {
-          const current = bestByTmdb.get(row.tmdb_id);
-          if (!current || providerRank(row.provider) > providerRank(current.provider)) {
-            bestByTmdb.set(row.tmdb_id, row);
+        if (tmdbIds.length > 0) {
+          const cacheTimeout = new Promise<null>((r) => setTimeout(() => r(null), 6000));
+          const cacheResult = await Promise.race([
+            supabase
+              .from("video_cache")
+              .select("tmdb_id, video_url, provider, video_type, created_at")
+              .in("tmdb_id", tmdbIds)
+              .in("content_type", cTypes as string[])
+              .gt("expires_at", new Date().toISOString())
+              .order("created_at", { ascending: false }),
+            cacheTimeout,
+          ]);
+
+          if (cacheResult) {
+            const { data: cached } = cacheResult as any;
+            const providerRank = (provider?: string) => {
+              const p = (provider || "").toLowerCase();
+              if (p === "manual") return 130;
+              if (p === "cineveo-api") return 120;
+              if (p === "cineveo-iptv") return 110;
+              if (p === "cineveo") return 100;
+              return 70;
+            };
+
+            const bestByTmdb = new Map<number, any>();
+            for (const row of cached || []) {
+              const current = bestByTmdb.get(row.tmdb_id);
+              if (!current || providerRank(row.provider) > providerRank(current.provider)) {
+                bestByTmdb.set(row.tmdb_id, row);
+              }
+            }
+
+            const statusMap = new Map<number, VideoStatus>();
+            for (const item of data) {
+              const cachedItem = bestByTmdb.get(item.tmdb_id);
+              statusMap.set(item.tmdb_id, {
+                tmdb_id: item.tmdb_id,
+                has_video: !!cachedItem,
+                video_url: cachedItem?.video_url,
+                provider: cachedItem?.provider,
+                video_type: cachedItem?.video_type,
+              });
+            }
+            setVideoStatuses(statusMap);
           }
         }
-
-        const statusMap = new Map<number, VideoStatus>();
-        for (const item of data) {
-          const cachedItem = bestByTmdb.get(item.tmdb_id);
-          statusMap.set(item.tmdb_id, {
-            tmdb_id: item.tmdb_id,
-            has_video: !!cachedItem,
-            video_url: cachedItem?.video_url,
-            provider: cachedItem?.provider,
-            video_type: cachedItem?.video_type,
-          });
-        }
-        setVideoStatuses(statusMap);
       }
+    } catch (err) {
+      console.warn("[BancoPage] loadItems error:", err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [page, filterType, debouncedFilterText]);
 
   // Load on mount / updates (separated to avoid query loop)
