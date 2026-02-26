@@ -14,8 +14,7 @@ interface VideoSource {
   type: "mp4" | "m3u8";
 }
 
-type Phase = "audio-select" | "loading" | "playing" | "iframe-intercept" | "mega-embed" | "unavailable";
-
+type Phase = "audio-select" | "loading" | "playing" | "iframe-intercept" | "unavailable";
 const AUDIO_OPTIONS = [
   { key: "dublado", icon: Mic, label: "Dublado PT-BR", description: "Áudio em português brasileiro" },
   { key: "legendado", icon: Subtitles, label: "Legendado", description: "Áudio original com legendas" },
@@ -55,7 +54,6 @@ const WatchPage = () => {
   }, []);
 
   const [iframeProxyUrl, setIframeProxyUrl] = useState<string | null>(null);
-  const [megaEmbedUrl, setMegaEmbedUrl] = useState<string | null>(null);
   const [selectedAudio, setSelectedAudio] = useState(audioParam || "");
   const [audioTypes, setAudioTypes] = useState<string[]>([]);
   const [showResumePrompt, setShowResumePrompt] = useState(false);
@@ -141,28 +139,45 @@ const WatchPage = () => {
 
         const { data: cachedRows } = await query.order("created_at", { ascending: false }).limit(20);
         
-        // Sort by provider priority (manual > mega > cineveo-api > cineveo > others)
+        // Sort by provider priority (manual > cineveo-api > cineveo-iptv > cineveo > others)
         const providerRank = (provider?: string) => {
           const p = (provider || "").toLowerCase();
           if (p === "manual") return 130;
-          if (p === "mega") return 95;
-          if (p === "cineveo-api") return 90;
-          if (p === "cineveo") return 80;
+          if (p === "cineveo-api") return 120;
+          if (p === "cineveo-iptv") return 110;
+          if (p === "cineveo") return 100;
           return 70;
         };
-        const cached = (cachedRows || [])
+
+        const pickBest = (rows: any[]) => (rows || [])
+          .filter((row: any) => row?.video_url && row?.video_type !== "mega-embed")
           .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
-        
+
+        let cached = pickBest(cachedRows || []);
+
+        // Fallback de áudio: usa o melhor vídeo disponível quando não existe no áudio solicitado
+        if (!cached) {
+          let anyAudioQuery = supabase
+            .from("video_cache")
+            .select("video_url, video_type, provider")
+            .eq("tmdb_id", Number(id))
+            .in("content_type", cTypes)
+            .gt("expires_at", new Date().toISOString());
+
+          if (season) anyAudioQuery = anyAudioQuery.eq("season", season);
+          else anyAudioQuery = anyAudioQuery.eq("season", 0);
+          if (episode) anyAudioQuery = anyAudioQuery.eq("episode", episode);
+          else anyAudioQuery = anyAudioQuery.eq("episode", 0);
+
+          const { data: anyAudioRows } = await anyAudioQuery.order("created_at", { ascending: false }).limit(20);
+          cached = pickBest(anyAudioRows || []);
+        }
+
         if (cached?.video_url) {
           console.log(`[WatchPage] Cache hit - provider=${cached.provider}, type=${cached.video_type}`);
           if (cached.video_type === "iframe-proxy") {
             setIframeProxyUrl(cached.video_url);
             setPhase("iframe-intercept");
-            return;
-          }
-          if (cached.video_type === "mega-embed") {
-            setMegaEmbedUrl(cached.video_url);
-            setPhase("mega-embed");
             return;
           }
           const result = { url: cached.video_url, type: cached.video_type || "m3u8", provider: cached.provider || "cache" };
@@ -204,11 +219,6 @@ const WatchPage = () => {
         if (data.type === "iframe-proxy") {
           setIframeProxyUrl(data.url);
           setPhase("iframe-intercept");
-          return;
-        }
-        if (data.type === "mega-embed") {
-          setMegaEmbedUrl(data.url);
-          setPhase("mega-embed");
           return;
         }
         const result = { url: data.url, type: data.type || "m3u8", provider: data.provider || "banco" };
@@ -354,25 +364,6 @@ const WatchPage = () => {
     );
   }
 
-  // ===== MEGA EMBED =====
-  if (phase === "mega-embed" && megaEmbedUrl) {
-    return (
-      <div className="fixed inset-0 z-[100] bg-black">
-        <button
-          onClick={goBack}
-          className="absolute top-4 left-4 z-20 flex items-center gap-2 px-3 py-2 rounded-xl bg-black/60 text-white text-sm hover:bg-black/80 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" /> Voltar
-        </button>
-        <iframe
-          src={megaEmbedUrl}
-          className="w-full h-full border-0"
-          allow="autoplay; encrypted-media; fullscreen"
-          allowFullScreen
-        />
-      </div>
-    );
-  }
 
   // ===== IFRAME INTERCEPT =====
   if (phase === "iframe-intercept" && iframeProxyUrl) {
