@@ -71,9 +71,9 @@ const DoramasPage = () => {
             </div>
             <div>
               <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-bold">Doramas</h1>
-              <p className="text-[10px] sm:text-xs text-muted-foreground">
-                {total > 0 ? `${total} títulos • Página ${page} de ${totalPages}` : "Carregando..."}
-              </p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground">
+                  {loading ? "Carregando..." : total > 0 ? `${total} títulos • Página ${page} de ${totalPages}` : "0 títulos"}
+                </p>
             </div>
           </div>
         </div>
