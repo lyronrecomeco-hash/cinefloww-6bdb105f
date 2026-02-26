@@ -13,10 +13,20 @@ let _vpsOnline = false;
 let _lastCheck = 0;
 let _initPromise: Promise<void> | null = null;
 
-/** Detect if we're on a production domain (not localhost/preview) */
-function isProd(): boolean {
-  const h = window.location.hostname;
-  return !h.includes("localhost") && !h.includes("lovableproject.com") && !h.includes("lovable.app") && !h.includes("127.0.0.1");
+/** Decide when to force /vps proxy (avoids mixed-content and CORS issues) */
+function shouldUseProxy(vpsBaseUrl: string): boolean {
+  const host = window.location.hostname;
+  const isLocal = host.includes("localhost") || host.includes("127.0.0.1");
+  const isHttpsPage = window.location.protocol === "https:";
+  const isHttpVps = /^http:\/\//i.test(vpsBaseUrl);
+
+  // On hosted HTTPS pages (preview/published), always prefer proxy.
+  if (!isLocal) return true;
+
+  // On local HTTPS against HTTP VPS, proxy is mandatory.
+  if (isHttpsPage && isHttpVps) return true;
+
+  return false;
 }
 
 /** Load VPS API URL from site_settings and check health */
@@ -34,11 +44,10 @@ export function initVpsClient(): Promise<void> {
         _vpsBaseUrl = typeof val === "string" ? val.replace(/^"|"$/g, "") : val.url || null;
         if (_vpsBaseUrl) {
           _vpsBaseUrl = _vpsBaseUrl.replace(/\/+$/, "");
-          // In production: use Vercel proxy to avoid mixed content
-          if (isProd()) {
+          // Prefer proxy in hosted environments to avoid mixed content/CORS.
+          if (shouldUseProxy(_vpsBaseUrl)) {
             _vpsProxyUrl = `${window.location.origin}/vps`;
           } else {
-            // Dev/preview: try direct (may fail due to mixed content)
             _vpsProxyUrl = _vpsBaseUrl;
           }
           await checkVpsHealth();
@@ -62,6 +71,13 @@ async function checkVpsHealth(): Promise<boolean> {
   }
   _lastCheck = Date.now();
   return _vpsOnline;
+}
+
+/** Force a fresh health check (bypass cache) */
+export async function refreshVpsHealth(): Promise<boolean> {
+  await initVpsClient();
+  _lastCheck = 0;
+  return checkVpsHealth();
 }
 
 /** Check if VPS API is currently reachable */

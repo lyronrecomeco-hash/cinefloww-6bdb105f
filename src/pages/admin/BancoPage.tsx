@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Database, Film, Tv, Loader2, Play, RefreshCw, CheckCircle, XCircle, Search, ExternalLink, Link2, X, Upload, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import CustomPlayer from "@/components/CustomPlayer";
-import { initVpsClient, isVpsOnline, getVpsUrl } from "@/lib/vpsClient";
+import { initVpsClient, isVpsOnline, getVpsUrl, refreshVpsHealth } from "@/lib/vpsClient";
 import { secureVideoUrl } from "@/lib/videoUrl";
 
 interface ContentItem {
@@ -284,7 +284,7 @@ const BancoPage = () => {
     // Init VPS and check if online
     await initVpsClient();
     const vpsUrl = getVpsUrl();
-    const vpsAvailable = isVpsOnline() && !!vpsUrl;
+    const vpsAvailable = !!vpsUrl && (await refreshVpsHealth()) && isVpsOnline();
 
     const { count: totalContent } = await supabase
       .from("content")
@@ -452,7 +452,7 @@ const BancoPage = () => {
     // Check if VPS is online for heavy lifting
     await initVpsClient();
     const vpsUrl = getVpsUrl();
-    const vpsAvailable = isVpsOnline() && !!vpsUrl;
+    const vpsAvailable = !!vpsUrl && (await refreshVpsHealth()) && isVpsOnline();
 
     if (vpsAvailable) {
       // Trigger VPS cineveo-catalog worker directly

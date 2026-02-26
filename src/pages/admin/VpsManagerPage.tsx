@@ -647,7 +647,7 @@ async function indexM3U() {
   var validTypes = new Set(["movie", "series", "dorama", "anime"]);
   var imported = 0;
   for (var i = 0; i < valid.length; i += BATCH_INSERT) {
-    var batch = valid.slice(i, i + BATCH_INSERT).map(function(e) {
+    var rawBatch = valid.slice(i, i + BATCH_INSERT).map(function(e) {
       return {
         tmdb_id: e.tmdbId,
         content_type: validTypes.has(e.contentType) ? e.contentType : "movie",
@@ -655,13 +655,26 @@ async function indexM3U() {
         video_url: e.url,
         video_type: detectVideoType(e.url),
         provider: "cineveo-iptv",
-        season: e.season,
-        episode: e.episode,
+        season: Number(e.season ?? 0) || 0,
+        episode: Number(e.episode ?? 0) || 0,
         expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
       };
     });
-    var ins = await sb.from("video_cache").insert(batch);
-    if (ins.error) console.error("[iptv-indexer] Insert error:", ins.error.message);
+
+    // Deduplicate by unique key before upsert to prevent batch conflicts
+    var dedupe = new Map();
+    for (var row of rawBatch) {
+      var key = row.tmdb_id + "|" + row.content_type + "|" + row.audio_type + "|" + row.season + "|" + row.episode;
+      dedupe.set(key, row);
+    }
+
+    var batch = Array.from(dedupe.values());
+    if (batch.length === 0) continue;
+
+    var ins = await sb.from("video_cache").upsert(batch, {
+      onConflict: "tmdb_id,content_type,audio_type,season,episode"
+    });
+    if (ins.error) console.error("[iptv-indexer] Upsert error:", ins.error.message);
     else imported += batch.length;
     if (imported % 2000 === 0) await saveProgress("importing_cache", { total: valid.length, imported: imported });
   }
