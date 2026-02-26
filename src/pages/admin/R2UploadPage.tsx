@@ -101,6 +101,7 @@ const R2UploadPage = () => {
         };
         xhr.onerror = () => reject(new Error("Falha de rede/CORS no R2. Configure CORS do bucket para permitir PUT/GET/HEAD/OPTIONS e sua origem do app."));
         xhr.onabort = () => reject(new Error("Upload cancelado"));
+        xhr.open("PUT", presignData.presigned_url);
         xhr.setRequestHeader("Content-Type", item.file.type || "video/mp4");
         xhr.send(item.file);
       });
