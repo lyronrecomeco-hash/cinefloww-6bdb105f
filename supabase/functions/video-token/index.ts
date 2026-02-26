@@ -142,10 +142,13 @@ Deno.serve(async (req) => {
         return new Response("Forbidden", { status: 403, headers: corsHeaders });
       }
 
-      // 4. Validate origin
-      const origin = req.headers.get("origin") || req.headers.get("referer") || "";
-      const ALLOWED = ["lyneflix.online", "localhost", "lvbl.app", "lvbl.dev", "lvbl"];
-      const originOk = !origin || ALLOWED.some(d => origin.includes(d));
+      // 4. Validate request origin/referer (allow preview + first-party domains)
+      const originHeader = req.headers.get("origin") || req.headers.get("referer") || "";
+      let originHost = "";
+      try { originHost = originHeader ? new URL(originHeader).host : ""; } catch {}
+      const requestHost = new URL(req.url).host;
+      const ALLOWED = ["lyneflix.online", "lovable.app", "lovableproject.com", "lvbl.app", "lvbl.dev", "localhost"];
+      const originOk = !originHost || originHost === requestHost || ALLOWED.some((d) => originHost === d || originHost.endsWith(`.${d}`));
       if (!originOk) {
         return new Response("Forbidden", { status: 403, headers: corsHeaders });
       }

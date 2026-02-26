@@ -183,14 +183,17 @@ const PlayerPage = () => {
         // 2. If cache hit, use instantly
         if (cacheResult.data?.video_url && cacheResult.data.video_type !== "iframe-proxy") {
           const protectedUrl = await secureVideoUrl(cacheResult.data.video_url);
-          setBankSources([{
-            url: protectedUrl,
-            quality: "auto",
-            provider: cacheResult.data.provider || "cache",
-            type: cacheResult.data.video_type === "mp4" ? "mp4" : "m3u8",
-          }]);
-          setBankLoading(false);
-          return;
+          const isProtected = protectedUrl.includes("action=stream") || protectedUrl.includes("video-token");
+          if (isProtected) {
+            setBankSources([{
+              url: protectedUrl,
+              quality: "auto",
+              provider: cacheResult.data.provider || "cache",
+              type: cacheResult.data.video_type === "mp4" ? "mp4" : "m3u8",
+            }]);
+            setBankLoading(false);
+            return;
+          }
         }
       }
 
@@ -202,6 +205,8 @@ const PlayerPage = () => {
 
       if (data?.url) {
         const finalUrl = data.type === "iframe-proxy" ? data.url : await secureVideoUrl(data.url);
+        const isProtected = data.type === "iframe-proxy" || finalUrl.includes("action=stream") || finalUrl.includes("video-token");
+        if (!isProtected) throw new Error("Signed URL não gerada");
         setBankSources([{
           url: finalUrl,
           quality: "auto",

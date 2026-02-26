@@ -191,9 +191,10 @@ const BancoPage = () => {
       setPlayerUrlLoading(true);
       try {
         const safeUrl = await secureVideoUrl(status.video_url);
-        if (alive) setProtectedPlayerUrl(safeUrl);
+        const isProtected = safeUrl.includes("action=stream") || safeUrl.includes("video-token");
+        if (alive) setProtectedPlayerUrl(isProtected ? safeUrl : null);
       } catch {
-        if (alive) setProtectedPlayerUrl(status.video_url);
+        if (alive) setProtectedPlayerUrl(null);
       } finally {
         if (alive) setPlayerUrlLoading(false);
       }
@@ -403,9 +404,11 @@ const BancoPage = () => {
     if (!rawUrl) return;
     try {
       const safeUrl = await secureVideoUrl(rawUrl);
+      const isProtected = safeUrl.includes("action=stream") || safeUrl.includes("video-token");
+      if (!isProtected) throw new Error("Token inválido");
       window.open(safeUrl, "_blank", "noopener,noreferrer");
     } catch {
-      window.open(rawUrl, "_blank", "noopener,noreferrer");
+      toast({ title: "Falha ao abrir", description: "Não foi possível gerar o link protegido.", variant: "destructive" });
     }
   };
 
