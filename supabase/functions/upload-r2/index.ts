@@ -135,11 +135,9 @@ async function presignPut(key: string, contentType: string, expiresIn = 3600): P
   return url.toString();
 }
 
-// Public URL (requires bucket to have public access or custom domain)
+// Public URL via custom domain
 function getPublicUrl(key: string): string {
-  // R2 public URL format: https://pub-{hash}.r2.dev/{key}
-  // Or custom domain. We'll return the S3 endpoint for now and the admin can configure a custom domain.
-  return `${R2_ENDPOINT}/${R2_BUCKET_NAME}/${key}`;
+  return `https://lyneflix.online/${key}`;
 }
 
 Deno.serve(async (req) => {
