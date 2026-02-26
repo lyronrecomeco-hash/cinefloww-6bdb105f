@@ -6,435 +6,308 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const TMDB_TOKEN =
-  "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI1MDFiOWNkYjllNDQ0NjkxMDJiODk5YjQ0YjU2MWQ5ZCIsIm5iZiI6MTc3MTIzMDg1My43NjYsInN1YiI6IjY5OTJkNjg1NzZjODAxNTdmMjFhZjMxMSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.c47JvphccOz_oyaUuQWCHQ1mXAsSH01OB14vKE2uenw";
-const TMDB_BASE = "https://api.themoviedb.org/3";
-const tmdbHeaders = {
-  Authorization: `Bearer ${TMDB_TOKEN}`,
-  "Content-Type": "application/json",
+const CINEVEO_API = "https://cinetvembed.cineveo.site/api/catalog.php";
+const CINEVEO_USER = "lyneflix-vods";
+const CINEVEO_PASS = "uVljs2d";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+const PAGES_PER_RUN = 15;
+const MAX_PAGE_ERRORS = 5;
+
+type ApiType = "movies" | "series";
+
+type RotationState = {
+  types: ApiType[];
+  type_index: number;
+  page: number;
+  imported_cache_total: number;
+  imported_content_total: number;
+  processed_pages: number;
+  failed_pages: number;
 };
 
-const BATCH_SIZE = 1000;
-const MAX_RUNTIME_MS = 100_000; // 100s safety margin
+const normalizeAudio = (value?: string): "dublado" | "legendado" | "cam" => {
+  const v = (value || "").toLowerCase();
+  if (v.includes("dub") || v.includes("pt") || v.includes("port")) return "dublado";
+  if (v.includes("cam")) return "cam";
+  return "legendado";
+};
 
-interface ParsedEntry {
-  title: string;
-  url: string;
-  group: string;
-  tmdbId: number | null;
-  season: number | null;
-  episode: number | null;
-  contentType: string;
+const pickStreamUrl = (item: any): string | null =>
+  item?.stream_url || item?.streamUrl || item?.url || item?.video_url || item?.link || item?.embed_url || null;
+
+const normalizeReleaseDate = (value: unknown): string | null => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+  if (/^-?\d{1,4}$/.test(raw)) {
+    const year = Number(raw);
+    if (!Number.isFinite(year) || year < 1800 || year > 2100) return null;
+    return `${String(year).padStart(4, "0")}-01-01`;
+  }
+  const datePart = raw.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return null;
+  const parsed = new Date(`${datePart}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (parsed.toISOString().slice(0, 10) !== datePart) return null;
+  return datePart;
+};
+
+async function fetchCatalogPage(apiType: ApiType, page: number) {
+  const url = `${CINEVEO_API}?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=${apiType}&page=${page}`;
+  const res = await fetch(url, {
+    headers: { "User-Agent": UA, Accept: "application/json" },
+    signal: AbortSignal.timeout(30000),
+  });
+  if (!res.ok) throw new Error(`CineVeo IPTV ${apiType} page=${page} returned ${res.status}`);
+  const payload = await res.json();
+  const items = Array.isArray(payload)
+    ? payload
+    : payload?.data || payload?.results || payload?.items || [];
+  const totalPages = Number(payload?.pagination?.total_pages || 0) || null;
+  const totalItems = Number(payload?.pagination?.total_items || 0) || 0;
+  return { items: Array.isArray(items) ? items : [], totalPages, totalItems };
 }
 
-function parseEntry(infoLine: string, url: string): ParsedEntry | null {
-  const groupMatch = infoLine.match(/group-title="([^"]*)"/);
-  const nameMatch = infoLine.match(/,\s*(.+)$/);
+function buildRows(items: any[], apiType: ApiType) {
+  const contentType = apiType === "movies" ? "movie" : "series";
+  const contentMap = new Map<number, any>();
+  const cacheRows: any[] = [];
 
-  const title = nameMatch?.[1]?.trim() || "";
-  if (!title || !url) return null;
+  for (const item of items) {
+    const tmdbId = Number(item?.tmdb_id || item?.tmdbId || item?.id);
+    if (!tmdbId) continue;
 
-  const group = groupMatch?.[1] || "";
+    if (!contentMap.has(tmdbId)) {
+      contentMap.set(tmdbId, {
+        tmdb_id: tmdbId,
+        content_type: contentType,
+        title: item?.title || item?.name || `TMDB ${tmdbId}`,
+        original_title: item?.original_title || item?.original_name || null,
+        overview: item?.synopsis || item?.overview || item?.description || "",
+        poster_path: item?.poster_path || item?.poster || null,
+        backdrop_path: item?.backdrop_path || item?.backdrop || null,
+        release_date: normalizeReleaseDate(item?.release_date || item?.first_air_date || item?.year),
+        vote_average: item?.vote_average || item?.rating || 0,
+        imdb_id: item?.imdb_id || null,
+        status: "published",
+        featured: false,
+        audio_type: ["dublado"],
+      });
+    }
 
-  // Extract TMDB ID and type from tvg-id="movie:1020386" or tvg-id="tv:12345"
-  let tmdbId: number | null = null;
-  let contentType = "movie";
+    if (apiType === "movies") {
+      const streamUrl = pickStreamUrl(item);
+      if (!streamUrl) continue;
+      cacheRows.push({
+        tmdb_id: tmdbId,
+        content_type: "movie",
+        audio_type: normalizeAudio(item?.language || item?.audio),
+        video_url: streamUrl,
+        video_type: streamUrl.includes(".m3u8") ? "m3u8" : "mp4",
+        provider: "cineveo-iptv",
+        season: 0,
+        episode: 0,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      });
+      continue;
+    }
 
-  const tvgIdMatch = infoLine.match(/tvg-id="(?:movie|tv|series):(\d+)"/);
-  if (tvgIdMatch) {
-    tmdbId = parseInt(tvgIdMatch[1]);
-    if (infoLine.match(/tvg-id="(?:tv|series):/)) contentType = "series";
-  }
-
-  // Fallback: extract from URL
-  if (!tmdbId) {
-    const fileMatch = url.match(/\/(\d+)\.(?:mp4|m3u8|mkv|ts)/);
-    if (fileMatch) tmdbId = parseInt(fileMatch[1]);
-  }
-  if (!tmdbId) {
-    const pathMatch = url.match(/\/(?:movie|tv|embed)\/.*?\/(\d+)/);
-    if (pathMatch) tmdbId = parseInt(pathMatch[1]);
-  }
-
-  let season: number | null = null;
-  let episode: number | null = null;
-  const seMatch = title.match(/S(\d+)\s*E(\d+)/i) || url.match(/\/(\d+)\/(\d+)\/?$/);
-  if (seMatch) { season = parseInt(seMatch[1]); episode = parseInt(seMatch[2]); }
-
-  // Map group to valid content_type
-  const groupLower = group.toLowerCase();
-  if (groupLower.includes("serie") || groupLower.includes("séri") || groupLower.includes("novela") || season !== null) {
-    contentType = "series";
-  } else if (groupLower.includes("dorama")) {
-    contentType = "dorama";
-  } else if (groupLower.includes("anime")) {
-    contentType = "anime";
-  }
-
-  return { title, url, group, tmdbId, season, episode, contentType };
-}
-
-function detectVideoType(url: string): string {
-  if (url.includes(".m3u8") || url.includes("/hls/")) return "m3u8";
-  if (url.includes(".mp4")) return "mp4";
-  return "m3u8";
-}
-
-function detectAudio(title: string, group: string): string {
-  const combined = (title + " " + group).toLowerCase();
-  if (combined.includes("leg") || combined.includes("legendado")) return "legendado";
-  return "dublado";
-}
-
-// Stream-parse M3U: skip first N entries, collect up to BATCH_SIZE
-async function streamParseM3U(
-  response: Response,
-  skipCount: number,
-  maxCount: number,
-): Promise<{ entries: ParsedEntry[]; totalScanned: number }> {
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let infoLine = "";
-  let entryIndex = 0;
-  const entries: ParsedEntry[] = [];
-  let done = false;
-
-  while (!done && entries.length < maxCount) {
-    const { value, done: streamDone } = await reader.read();
-    done = streamDone;
-    if (value) buffer += decoder.decode(value, { stream: true });
-
-    let nlIdx: number;
-    while ((nlIdx = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.substring(0, nlIdx).trim();
-      buffer = buffer.substring(nlIdx + 1);
-
-      if (line.startsWith("#EXTINF:")) { infoLine = line; continue; }
-      if (line.startsWith("#") || !line) continue;
-
-      if (infoLine) {
-        if (entryIndex >= skipCount && entries.length < maxCount) {
-          const entry = parseEntry(infoLine, line);
-          if (entry) entries.push(entry);
-        }
-        entryIndex++;
-        infoLine = "";
-        if (entries.length >= maxCount) { reader.cancel(); break; }
+    const episodes = Array.isArray(item?.episodes) ? item.episodes : [];
+    if (episodes.length > 0) {
+      for (const ep of episodes) {
+        const streamUrl = pickStreamUrl(ep);
+        if (!streamUrl) continue;
+        const season = Number(ep?.season ?? ep?.temporada ?? ep?.s ?? 1) || 1;
+        const episode = Number(ep?.episode ?? ep?.ep ?? ep?.e ?? 1) || 1;
+        cacheRows.push({
+          tmdb_id: tmdbId,
+          content_type: "series",
+          audio_type: normalizeAudio(ep?.language || ep?.audio || ep?.lang),
+          video_url: streamUrl,
+          video_type: streamUrl.includes(".m3u8") ? "m3u8" : "mp4",
+          provider: "cineveo-iptv",
+          season,
+          episode,
+          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        });
       }
+    } else {
+      const streamUrl = pickStreamUrl(item);
+      if (!streamUrl) continue;
+      cacheRows.push({
+        tmdb_id: tmdbId,
+        content_type: "series",
+        audio_type: normalizeAudio(item?.language || item?.audio),
+        video_url: streamUrl,
+        video_type: streamUrl.includes(".m3u8") ? "m3u8" : "mp4",
+        provider: "cineveo-iptv",
+        season: 0,
+        episode: 0,
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      });
     }
   }
 
-  return { entries, totalScanned: entryIndex };
+  return { contentRows: [...contentMap.values()], cacheRows };
 }
 
-async function saveProgress(adminClient: any, progress: any) {
-  await adminClient.from("site_settings").upsert({
+async function saveProgress(supabase: any, state: Record<string, unknown>) {
+  await supabase.from("site_settings").upsert({
     key: "iptv_import_progress",
-    value: { ...progress, updated_at: new Date().toISOString() },
+    value: { ...state, updated_at: new Date().toISOString() },
   }, { onConflict: "key" });
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS")
-    return new Response(null, { headers: corsHeaders });
+Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const startTime = Date.now();
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabase = createClient(supabaseUrl, serviceKey);
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
-    const adminClient = createClient(supabaseUrl, serviceKey);
+    const body = await req.json().catch(() => ({}));
+    const reset = !!body.reset;
 
-    const body = await req.json();
-    const iptvUrl: string = body.url || "";
-    const startIndex: number = body.start_index || 0;
-    const userId: string = body.user_id || "";
-    const isChained: boolean = body._chained || false;
-    const accumulated = body._accumulated || { cache: 0, content: 0, entries: 0, errors: 0 };
-
-    // Auth check only on first call (not chained)
-    if (!isChained) {
-      const authHeader = req.headers.get("Authorization");
-      const userClient = createClient(supabaseUrl, anonKey, {
-        global: { headers: { Authorization: authHeader || "" } },
-      });
-      const { data: { user } } = await userClient.auth.getUser();
-      if (!user) throw new Error("Unauthorized");
-      const { data: roles } = await adminClient
-        .from("user_roles").select("role")
-        .eq("user_id", user.id).eq("role", "admin");
-      if (!roles?.length) throw new Error("Not admin");
-
-      // Reset progress on first call
-      await saveProgress(adminClient, {
-        done: false, phase: "downloading", start_index: 0,
-        entries: 0, valid: 0, cache_imported: 0, content_imported: 0, errors: 0,
-      });
-    }
-
-    if (!iptvUrl) throw new Error("URL da lista IPTV é obrigatória");
-
-    // Stream-fetch with skip
-    console.log(`[import-iptv] Streaming from index ${startIndex}, batch ${BATCH_SIZE}`);
-    const listRes = await fetch(iptvUrl, {
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
-    });
-    if (!listRes.ok) throw new Error(`Failed to fetch: ${listRes.status}`);
-
-    const { entries, totalScanned } = await streamParseM3U(listRes, startIndex, BATCH_SIZE);
-    console.log(`[import-iptv] Parsed ${entries.length} entries (scanned ${totalScanned})`);
-
-    // Filter valid entries
-    const validEntries = entries.filter(e => e.tmdbId && e.tmdbId > 100);
-    console.log(`[import-iptv] ${validEntries.length} valid with TMDB IDs`);
-
-    await saveProgress(adminClient, {
-      done: false, phase: "importing_cache", start_index: startIndex,
-      entries: accumulated.entries + entries.length,
-      valid: validEntries.length,
-      cache_imported: accumulated.cache,
-      content_imported: accumulated.content,
-      errors: accumulated.errors,
-    });
-
-    // ── Bulk delete old cineveo-iptv entries for these IDs, then insert fresh ──
-    const tmdbIds = [...new Set(validEntries.map(e => e.tmdbId!))];
-    for (let i = 0; i < tmdbIds.length; i += 500) {
-      await adminClient.from("video_cache").delete()
-        .eq("provider", "cineveo-iptv")
-        .in("tmdb_id", tmdbIds.slice(i, i + 500));
-    }
-
-    // Map content types for video_cache
-    const validTypes = new Set(["movie", "series", "dorama", "anime"]);
-    const cacheRows = validEntries.map(e => ({
-      tmdb_id: e.tmdbId!,
-      content_type: validTypes.has(e.contentType) ? e.contentType : "movie",
-      audio_type: detectAudio(e.title, e.group),
-      video_url: e.url,
-      video_type: detectVideoType(e.url),
-      provider: "cineveo-iptv",
-      season: e.season,
-      episode: e.episode,
-      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    }));
-
-    let cacheImported = 0;
-    let errors = 0;
-    for (let i = 0; i < cacheRows.length; i += 500) {
-      const batch = cacheRows.slice(i, i + 500);
-      const { error } = await adminClient.from("video_cache").insert(batch);
-      if (error) { errors++; console.error(`cache err:`, error.message); }
-      else cacheImported += batch.length;
-    }
-
-    let contentImported = 0;
-
-    // ── Accumulate totals ──
-    const newAccumulated = {
-      cache: accumulated.cache + cacheImported,
-      content: accumulated.content + contentImported,
-      entries: accumulated.entries + entries.length,
-      errors: accumulated.errors + errors,
+    const baseState: RotationState = {
+      types: ["movies", "series"],
+      type_index: Number(body.type_index || 0) || 0,
+      page: Number(body.page || 1) || 1,
+      imported_cache_total: Number(body.imported_cache_total || 0) || 0,
+      imported_content_total: Number(body.imported_content_total || 0) || 0,
+      processed_pages: Number(body.processed_pages || 0) || 0,
+      failed_pages: Number(body.failed_pages || 0) || 0,
     };
 
-    const hasMore = entries.length >= BATCH_SIZE;
-    const nextIndex = hasMore ? startIndex + BATCH_SIZE : null;
+    const state: RotationState = reset
+      ? { ...baseState, type_index: 0, page: 1, imported_cache_total: 0, imported_content_total: 0, processed_pages: 0, failed_pages: 0 }
+      : baseState;
 
-    // ── Auto-chain if more to process ──
-    if (hasMore && nextIndex !== null) {
-      await saveProgress(adminClient, {
-        done: false, phase: "chaining",
-        start_index: nextIndex,
-        cache_imported: newAccumulated.cache,
-        content_imported: newAccumulated.content,
-        entries: newAccumulated.entries,
-        errors: newAccumulated.errors,
-      });
+    await saveProgress(supabase, { phase: "syncing", done: false, ...state });
 
-      // Fire next batch in background
-      fetch(`${supabaseUrl}/functions/v1/import-iptv`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${serviceKey}`,
-        },
-        body: JSON.stringify({
-          url: iptvUrl,
-          start_index: nextIndex,
-          user_id: userId,
-          _chained: true,
-          _accumulated: newAccumulated,
-        }),
-      }).catch(() => {});
-    } else {
-      // Done importing cache! Now trigger TMDB enrichment for new content
-      await saveProgress(adminClient, {
-        done: false, phase: "enriching_content",
-        start_index: nextIndex || startIndex,
-        cache_imported: newAccumulated.cache,
-        content_imported: 0,
-        entries: newAccumulated.entries,
-        errors: newAccumulated.errors,
-      });
+    const pagesThisRun = Number(body.pages_per_run || PAGES_PER_RUN);
+    let currentType = state.types[state.type_index] || "movies";
+    let currentPage = state.page;
+    let importedCache = 0;
+    let importedContent = 0;
+    let emptyStreak = 0;
+    let pageErrors = 0;
 
-      // Find all unique tmdb_ids from cineveo-iptv that don't exist in content yet
-      const { data: missingRows } = await adminClient
-        .from("video_cache")
-        .select("tmdb_id, content_type")
-        .eq("provider", "cineveo-iptv")
-        .not("tmdb_id", "in", `(${(await adminClient.from("content").select("tmdb_id")).data?.map((r: any) => r.tmdb_id).join(",") || "0"})`)
-        .limit(1000);
+    for (let i = 0; i < pagesThisRun; i++) {
+      let pageData: Awaited<ReturnType<typeof fetchCatalogPage>> | null = null;
 
-      // Actually, better approach: use a raw query via distinct
-      const allCacheIds = new Set<number>();
-      let offset = 0;
-      while (true) {
-        const { data: batch } = await adminClient
-          .from("video_cache")
-          .select("tmdb_id")
-          .eq("provider", "cineveo-iptv")
-          .range(offset, offset + 999);
-        if (!batch?.length) break;
-        batch.forEach((r: any) => allCacheIds.add(r.tmdb_id));
-        offset += 1000;
-        if (batch.length < 1000) break;
+      try {
+        pageData = await fetchCatalogPage(currentType, currentPage);
+      } catch (err) {
+        pageErrors++;
+        state.failed_pages++;
+        await saveProgress(supabase, {
+          phase: "syncing", done: false, ...state,
+          current_type: currentType, current_page: currentPage,
+          page_errors: pageErrors,
+          last_error: err instanceof Error ? err.message : String(err),
+        });
+        currentPage++;
+        if (pageErrors >= MAX_PAGE_ERRORS) break;
+        continue;
       }
 
-      const existingIds = new Set<number>();
-      const allIds = [...allCacheIds];
-      for (let i = 0; i < allIds.length; i += 500) {
-        const { data: existing } = await adminClient
-          .from("content")
-          .select("tmdb_id")
-          .in("tmdb_id", allIds.slice(i, i + 500));
-        existing?.forEach((e: any) => existingIds.add(e.tmdb_id));
+      const { contentRows, cacheRows } = buildRows(pageData.items, currentType);
+
+      if (pageData.items.length === 0) emptyStreak++;
+      else emptyStreak = 0;
+
+      // Upsert content
+      for (let j = 0; j < contentRows.length; j += 200) {
+        const batch = contentRows.slice(j, j + 200);
+        const { error } = await supabase.from("content").upsert(batch, { onConflict: "tmdb_id,content_type" });
+        if (!error) importedContent += batch.length;
       }
 
-      const newIds = allIds.filter(id => !existingIds.has(id));
-      let contentImportedTotal = 0;
-      let enrichErrors = 0;
-
-      if (newIds.length > 0) {
-        // Get content_type mapping from cache
-        const typeMap = new Map<number, string>();
-        for (let i = 0; i < newIds.length; i += 500) {
-          const { data: rows } = await adminClient
-            .from("video_cache")
-            .select("tmdb_id, content_type")
-            .eq("provider", "cineveo-iptv")
-            .in("tmdb_id", newIds.slice(i, i + 500));
-          rows?.forEach((r: any) => typeMap.set(r.tmdb_id, r.content_type));
-        }
-
-        // TMDB enrichment in parallel batches
-        const ENRICH_CONCURRENCY = 10;
-        const queue = [...newIds];
-        const tmdbDetails = new Map<number, any>();
-
-        async function enrichWorker() {
-          while (queue.length > 0) {
-            const id = queue.shift();
-            if (!id) break;
-            const ct = typeMap.get(id) || "movie";
-            const type = ct === "series" || ct === "dorama" || ct === "anime" ? "tv" : "movie";
-            try {
-              const res = await fetch(
-                `${TMDB_BASE}/${type}/${id}?language=pt-BR&append_to_response=external_ids`,
-                { headers: tmdbHeaders },
-              );
-              if (res.ok) tmdbDetails.set(id, await res.json());
-            } catch { /* skip */ }
-          }
-        }
-
-        await Promise.all(Array.from({ length: Math.min(ENRICH_CONCURRENCY, newIds.length) }, () => enrichWorker()));
-
-        const validTypes = new Set(["movie", "series", "dorama", "anime"]);
-        const contentRows = newIds
-          .filter(id => tmdbDetails.has(id))
-          .map(id => {
-            const d = tmdbDetails.get(id)!;
-            const ct = typeMap.get(id) || "movie";
-            return {
-              tmdb_id: id,
-              imdb_id: d.imdb_id || d.external_ids?.imdb_id || null,
-              content_type: validTypes.has(ct) ? ct : "movie",
-              title: d.title || d.name || `TMDB ${id}`,
-              original_title: d.original_title || d.original_name || null,
-              overview: d.overview || "",
-              poster_path: d.poster_path || null,
-              backdrop_path: d.backdrop_path || null,
-              release_date: d.release_date || d.first_air_date || null,
-              vote_average: d.vote_average || 0,
-              runtime: d.runtime || null,
-              number_of_seasons: d.number_of_seasons || null,
-              number_of_episodes: d.number_of_episodes || null,
-              status: "published",
-              featured: false,
-              audio_type: ["dublado"],
-              created_by: userId || null,
-            };
-          });
-
-        for (let i = 0; i < contentRows.length; i += 200) {
-          const batch = contentRows.slice(i, i + 200);
-          const { error } = await adminClient.from("content").upsert(batch, {
-            onConflict: "tmdb_id,content_type",
-          });
-          if (error) { enrichErrors++; console.error(`content err:`, error.message); }
-          else contentImportedTotal += batch.length;
-
-          // Update progress periodically
-          await saveProgress(adminClient, {
-            done: false, phase: "enriching_content",
-            cache_imported: newAccumulated.cache,
-            content_imported: contentImportedTotal,
-            entries: newAccumulated.entries,
-            errors: newAccumulated.errors + enrichErrors,
-          });
-        }
+      // Upsert cache
+      for (let j = 0; j < cacheRows.length; j += 200) {
+        const batch = cacheRows.slice(j, j + 200);
+        const { error } = await supabase.from("video_cache").upsert(batch, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
+        if (!error) importedCache += batch.length;
       }
 
-      // Final done
-      await saveProgress(adminClient, {
-        done: true, phase: "complete",
-        cache_imported: newAccumulated.cache,
-        content_imported: contentImportedTotal,
-        entries: newAccumulated.entries,
-        errors: newAccumulated.errors + enrichErrors,
+      state.processed_pages++;
+      state.imported_content_total += contentRows.length;
+      state.imported_cache_total += cacheRows.length;
+
+      await saveProgress(supabase, {
+        phase: "syncing", done: false, ...state,
+        current_type: currentType, current_page: currentPage,
+        total_pages_for_type: pageData.totalPages,
+        total_items_for_type: pageData.totalItems,
+        empty_streak: emptyStreak,
       });
+
+      const reachedEnd = (pageData.totalPages && currentPage >= pageData.totalPages) ||
+                          (!pageData.totalPages && emptyStreak >= 2);
+
+      if (!reachedEnd) {
+        currentPage++;
+      } else {
+        // Move to next type
+        state.type_index++;
+        emptyStreak = 0;
+
+        if (state.type_index >= state.types.length) {
+          // All types done
+          await saveProgress(supabase, {
+            phase: "complete", done: true, ...state,
+          });
+          return new Response(JSON.stringify({
+            done: true,
+            imported_cache_run: importedCache,
+            imported_content_run: importedContent,
+            imported_cache_total: state.imported_cache_total,
+            imported_content_total: state.imported_content_total,
+            processed_pages: state.processed_pages,
+            failed_pages: state.failed_pages,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
+        currentType = state.types[state.type_index];
+        currentPage = 1;
+      }
     }
 
-    console.log(`[import-iptv] Batch done: cache=${cacheImported}, content=${contentImported}, hasMore=${hasMore}`);
-
-    return new Response(
-      JSON.stringify({
-        success: true,
-        batch_cache: cacheImported,
-        batch_content: contentImported,
-        has_more: hasMore,
-        next_index: nextIndex,
-        accumulated: newAccumulated,
+    // Auto-chain next batch
+    fetch(`${supabaseUrl}/functions/v1/import-iptv`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${serviceKey}` },
+      body: JSON.stringify({
+        type_index: state.type_index,
+        page: currentPage,
+        pages_per_run: pagesThisRun,
+        imported_cache_total: state.imported_cache_total,
+        imported_content_total: state.imported_content_total,
+        processed_pages: state.processed_pages,
+        failed_pages: state.failed_pages,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
-  } catch (error: any) {
+    }).catch(() => {});
+
+    return new Response(JSON.stringify({
+      done: false, queued: true,
+      next_type: currentType, next_page: currentPage,
+      imported_cache_run: importedCache,
+      imported_content_run: importedContent,
+      imported_cache_total: state.imported_cache_total,
+      imported_content_total: state.imported_content_total,
+      processed_pages: state.processed_pages,
+      failed_pages: state.failed_pages,
+    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+  } catch (error) {
     console.error("[import-iptv] Error:", error);
-    const supabaseUrl = Deno.env.get("SUPABASE_URL");
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-    if (supabaseUrl && serviceKey) {
-      const adminClient = createClient(supabaseUrl, serviceKey);
-      await saveProgress(adminClient, {
-        done: true, phase: "error", error: error.message,
-        cache_imported: 0, content_imported: 0, entries: 0, errors: 1,
-      });
-    }
-    return new Response(
-      JSON.stringify({ success: false, error: error.message }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    await saveProgress(supabase, {
+      phase: "error", done: true,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Import failed" }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
