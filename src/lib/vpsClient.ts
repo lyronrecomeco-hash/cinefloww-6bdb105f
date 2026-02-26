@@ -56,42 +56,12 @@ export function initVpsClient(): Promise<void> {
       // Check health — this is a fast network call to VPS, not Cloud
       await checkVpsHealth();
 
-      // Background: refresh URL from DB (fire-and-forget, non-blocking)
-      // Only updates localStorage for next boot — never blocks current session
-      refreshVpsUrlFromDbSilent();
+      // No Cloud DB read here by design (VPS-first strict mode)
     } catch { /* silent */ }
   })();
   return _initPromise;
 }
 
-/** Background-only DB refresh — updates localStorage for NEXT session, never blocks */
-function refreshVpsUrlFromDbSilent(): void {
-  import("@/integrations/supabase/client").then(({ supabase }) => {
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000));
-
-    Promise.race([
-      supabase
-        .from("site_settings")
-        .select("value")
-        .eq("key", "vps_api_url")
-        .maybeSingle(),
-      timeoutPromise,
-    ]).then((result) => {
-      if (!result) return; // timeout
-      const { data } = result as any;
-      if (data?.value) {
-        const val = data.value as any;
-        const url = typeof val === "string" ? val.replace(/^"|"$/g, "") : val.url || null;
-        if (url) {
-          const cleanUrl = url.replace(/\/+$/, "");
-          localStorage.setItem(VPS_URL_STORAGE_KEY, cleanUrl);
-          _vpsBaseUrl = cleanUrl;
-          _vpsProxyUrl = resolveProxyUrl(_vpsBaseUrl);
-        }
-      }
-    }).catch(() => {});
-  }).catch(() => {});
-}
 
 async function checkVpsHealth(): Promise<boolean> {
   if (!_vpsProxyUrl) return false;

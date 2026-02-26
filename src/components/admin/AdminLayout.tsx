@@ -37,6 +37,8 @@ const withTimeout = <T,>(promise: Promise<T>, ms = 6000): Promise<T> =>
       .finally(() => clearTimeout(timer));
   });
 
+const ROLE_CACHE_KEY = "_admin_role_cache";
+
 const playNotificationSound = () => {
   try {
     const ctx = new AudioContext();
@@ -90,21 +92,38 @@ const AdminLayout = () => {
         if (!isMounted) return;
         if (!session) { navigate("/admin/login"); return; }
 
-        // Check admin or moderator role
-        const rolesResp = await withTimeout(
-          (async () => await supabase
-            .from("user_roles")
-            .select("role")
-            .eq("user_id", session.user.id)
-            .in("role", ["admin", "moderator"]))(),
-          6000
-        );
-        const { data: roles } = rolesResp;
+        // Check admin or moderator role (with cached fallback when Cloud is overloaded)
+        let role: string | null = null;
+        try {
+          const rolesResp = await withTimeout(
+            (async () => await supabase
+              .from("user_roles")
+              .select("role")
+              .eq("user_id", session.user.id)
+              .in("role", ["admin", "moderator"]))(),
+            6000
+          );
+          const roles = (rolesResp as any)?.data;
+          if (roles?.length) {
+            role = roles[0].role;
+            localStorage.setItem(ROLE_CACHE_KEY, JSON.stringify({ userId: session.user.id, role, ts: Date.now() }));
+          }
+        } catch {
+          const raw = localStorage.getItem(ROLE_CACHE_KEY);
+          if (raw) {
+            try {
+              const cached = JSON.parse(raw) as { userId: string; role: string; ts: number };
+              const freshEnough = Date.now() - cached.ts < 12 * 60 * 60 * 1000;
+              if (cached.userId === session.user.id && freshEnough && ["admin", "moderator"].includes(cached.role)) {
+                role = cached.role;
+              }
+            } catch {}
+          }
+        }
 
         if (!isMounted) return;
-        if (!roles?.length) { await supabase.auth.signOut(); navigate("/admin/login"); return; }
+        if (!role) { await supabase.auth.signOut(); navigate("/admin/login"); return; }
 
-        const role = roles[0].role;
         setUserRole(role);
         setUserEmail(session.user.email || "");
 
