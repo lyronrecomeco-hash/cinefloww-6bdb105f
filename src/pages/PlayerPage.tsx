@@ -4,6 +4,7 @@ import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
 import { fromSlug } from "@/lib/slugify";
 import { toSlug } from "@/lib/slugify";
+import { secureVideoUrl } from "@/lib/videoUrl";
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Settings, AlertTriangle,
@@ -181,8 +182,9 @@ const PlayerPage = () => {
 
         // 2. If cache hit, use instantly
         if (cacheResult.data?.video_url && cacheResult.data.video_type !== "iframe-proxy") {
+          const protectedUrl = await secureVideoUrl(cacheResult.data.video_url);
           setBankSources([{
-            url: cacheResult.data.video_url,
+            url: protectedUrl,
             quality: "auto",
             provider: cacheResult.data.provider || "cache",
             type: cacheResult.data.video_type === "mp4" ? "mp4" : "m3u8",
@@ -199,8 +201,9 @@ const PlayerPage = () => {
       });
 
       if (data?.url) {
+        const finalUrl = data.type === "iframe-proxy" ? data.url : await secureVideoUrl(data.url);
         setBankSources([{
-          url: data.url,
+          url: finalUrl,
           quality: "auto",
           provider: data.provider || "cache",
           type: data.type === "mp4" ? "mp4" : "m3u8",
