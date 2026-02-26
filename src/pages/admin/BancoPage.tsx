@@ -83,6 +83,7 @@ const BancoPage = () => {
       withoutVideo: Math.max(0, total - withVideo),
       byProvider,
     });
+    setTotalCount(total);
   }, []);
 
   // Load paginated content list

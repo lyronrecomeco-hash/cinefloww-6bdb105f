@@ -68,26 +68,25 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
-        startLevel: 0, // Start with lowest quality for instant playback
-        abrEwmaDefaultEstimate: 3000000,
-        abrBandWidthUpFactor: 0.8,
-        abrBandWidthFactor: 0.9,
-        maxBufferLength: 15, // Smaller initial buffer = faster start
+        startLevel: -1, // Auto-select best quality immediately
+        abrEwmaDefaultEstimate: 5000000, // Assume 5Mbps — faster initial quality
+        abrBandWidthUpFactor: 0.7,
+        abrBandWidthFactor: 0.95,
+        maxBufferLength: 10, // Tiny initial buffer = instant playback
         maxMaxBufferLength: 60,
         maxBufferSize: 30 * 1000 * 1000,
-        maxBufferHole: 0.3,
+        maxBufferHole: 0.5,
         startFragPrefetch: true,
-        testBandwidth: false, // Skip bandwidth test for faster start
+        testBandwidth: false,
         progressive: true,
-        backBufferLength: 30,
-        fragLoadingTimeOut: 12000,
-        fragLoadingMaxRetry: 4,
-        fragLoadingRetryDelay: 500,
-        manifestLoadingTimeOut: 8000,
-        manifestLoadingMaxRetry: 3,
-        levelLoadingTimeOut: 8000,
-        levelLoadingMaxRetry: 3,
-        // Aggressive fast start
+        backBufferLength: 20,
+        fragLoadingTimeOut: 10000,
+        fragLoadingMaxRetry: 3,
+        fragLoadingRetryDelay: 300,
+        manifestLoadingTimeOut: 6000,
+        manifestLoadingMaxRetry: 2,
+        levelLoadingTimeOut: 6000,
+        levelLoadingMaxRetry: 2,
         highBufferWatchdogPeriod: 1,
         nudgeMaxRetry: 5,
         xhrSetup: (xhr) => { xhr.withCredentials = false; },
@@ -118,10 +117,11 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
       video.src = src.url;
       video.addEventListener("loadedmetadata", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
     } else {
+      // MP4: use preload metadata first for faster start, then play on canplay
       video.preload = "auto";
       video.src = src.url;
-      video.addEventListener("loadeddata", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
-      video.addEventListener("canplay", () => { if (loading) { setLoading(false); video.play().catch(() => {}); } }, { once: true });
+      video.load(); // Force immediate load
+      video.addEventListener("canplay", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
     }
 
     video.addEventListener("error", () => { setError(true); setLoading(false); }, { once: true });

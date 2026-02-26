@@ -122,6 +122,33 @@ const WatchPage = () => {
     const cTypes = isMovie ? ["movie"] : ["series", "tv"];
     const aType = selectedAudio || "legendado";
 
+    // Helper: check if URL is direct (no signing needed)
+    const isDirectUrl = (url: string) => {
+      const l = url.toLowerCase();
+      return l.includes("cdf.lyneflix.online/vd/") ||
+             l.includes("cinetvembed.cineveo.site/") ||
+             l.includes("cdn.cineveo.site/") ||
+             l.includes("cineveo.site/");
+    };
+
+    // Helper: finalize a found video result
+    const finalizeResult = async (videoUrl: string, videoType: string, provider: string) => {
+      // Skip signing for direct hosts — massive speed boost
+      let finalUrl = videoUrl;
+      if (!isDirectUrl(videoUrl)) {
+        try {
+          const signed = await secureVideoUrl(videoUrl);
+          if (signed && signed !== videoUrl) finalUrl = signed;
+        } catch {}
+      }
+      const result = { url: finalUrl, type: videoType || "m3u8", provider: provider || "cache" };
+      extractionResult.current = result;
+      if (introComplete) {
+        setSources([{ url: result.url, quality: "auto", provider: result.provider, type: result.type === "mp4" ? "mp4" : "m3u8" }]);
+        setPhase("playing");
+      }
+    };
+
     // 1. FAST: Check client-side cache first (direct DB query)
     if (!skipCache) {
       try {
@@ -140,7 +167,7 @@ const WatchPage = () => {
 
         const { data: cachedRows } = await query.order("created_at", { ascending: false }).limit(20);
         
-        // Sort by provider priority (manual > cineveo-api > cineveo-iptv > cineveo > others)
+        // Sort by provider priority
         const providerRank = (provider?: string) => {
           const p = (provider || "").toLowerCase();
           if (p === "manual") return 130;
@@ -162,7 +189,7 @@ const WatchPage = () => {
 
         let cached = pickBest(cachedRows || []);
 
-        // Fallback de áudio: usa o melhor vídeo disponível quando não existe no áudio solicitado
+        // Fallback de áudio
         if (!cached) {
           let anyAudioQuery = supabase
             .from("video_cache")
@@ -187,17 +214,7 @@ const WatchPage = () => {
             setPhase("iframe-intercept");
             return;
           }
-          let finalUrl = cached.video_url;
-          try {
-            const signed = await secureVideoUrl(cached.video_url);
-            if (signed && signed !== cached.video_url) finalUrl = signed;
-          } catch {}
-          const result = { url: finalUrl, type: cached.video_type || "m3u8", provider: cached.provider || "cache" };
-          extractionResult.current = result;
-          if (introComplete) {
-            setSources([{ url: result.url, quality: "auto", provider: result.provider, type: result.type === "mp4" ? "mp4" : "m3u8" }]);
-            setPhase("playing");
-          }
+          await finalizeResult(cached.video_url, cached.video_type, cached.provider);
           return;
         }
       } catch { /* cache miss, continue */ }
@@ -233,17 +250,7 @@ const WatchPage = () => {
           setPhase("iframe-intercept");
           return;
         }
-        let finalUrl = data.url;
-        try {
-          const signed = await secureVideoUrl(data.url);
-          if (signed && signed !== data.url) finalUrl = signed;
-        } catch {}
-        const result = { url: finalUrl, type: data.type || "m3u8", provider: data.provider || "banco" };
-        extractionResult.current = result;
-        if (introComplete) {
-          setSources([{ url: result.url, quality: "auto", provider: result.provider, type: result.type === "mp4" ? "mp4" : "m3u8" }]);
-          setPhase("playing");
-        }
+        await finalizeResult(data.url, data.type, data.provider);
         return;
       }
     } catch { /* timeout or error */ }
