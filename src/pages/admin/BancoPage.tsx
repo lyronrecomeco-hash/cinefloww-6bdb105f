@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Database, Film, Tv, Loader2, Play, RefreshCw, CheckCircle, XCircle, Search, ExternalLink, Link2, X, Upload, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { initVpsClient, isVpsOnline, getVpsUrl, refreshVpsHealth } from "@/lib/vpsClient";
+import { initVpsClient, isVpsOnline, getVpsUrl, refreshVpsHealth, vpsCatalog } from "@/lib/vpsClient";
 import { toSlug } from "@/lib/slugify";
 
 interface ContentItem {
@@ -136,7 +136,41 @@ const BancoPage = () => {
       const result = await Promise.race([contentQuery, timeout]);
 
       if (!result) {
-        console.warn("[BancoPage] loadItems timeout — Cloud DB slow");
+        console.warn("[BancoPage] loadItems timeout — Cloud DB slow, tentando fallback VPS");
+        await initVpsClient();
+        const typeParam = filterType === "all" ? undefined : filterType;
+        const vpsItems = await vpsCatalog(typeParam);
+
+        if (Array.isArray(vpsItems) && vpsItems.length > 0) {
+          const normalized = vpsItems.map((row: any) => ({
+            id: String(row.id || `${row.tmdb_id}-${row.content_type || row.type || "series"}`),
+            tmdb_id: Number(row.tmdb_id || 0),
+            imdb_id: row.imdb_id ?? null,
+            title: row.title || row.name || "Sem título",
+            content_type: (String(row.content_type || row.type || "series").toLowerCase() === "movie" ? "movie" : "series"),
+            poster_path: row.poster_path ?? row.poster ?? null,
+            release_date: row.release_date ?? null,
+          })).filter((it: ContentItem) => Number.isFinite(it.tmdb_id) && it.tmdb_id > 0);
+
+          const start = page * ITEMS_PER_PAGE;
+          const end = start + ITEMS_PER_PAGE;
+          const paged = normalized.slice(start, end);
+          setItems(paged);
+          setTotalCount(normalized.length);
+
+          const fallbackStatus = new Map<number, VideoStatus>();
+          for (const item of paged) {
+            fallbackStatus.set(item.tmdb_id, {
+              tmdb_id: item.tmdb_id,
+              has_video: true,
+              video_url: undefined,
+              provider: "vps-catalog",
+              video_type: undefined,
+            });
+          }
+          setVideoStatuses(fallbackStatus);
+        }
+
         setLoading(false);
         return;
       }
