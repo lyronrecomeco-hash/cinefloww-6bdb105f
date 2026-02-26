@@ -25,6 +25,7 @@ interface VideoStatus {
 }
 
 const ITEMS_PER_PAGE = 50;
+const DB_TIMEOUT_MS = 5000;
 
 const BancoPage = () => {
   const navigate = useNavigate();
@@ -65,14 +66,14 @@ const BancoPage = () => {
     return () => clearTimeout(timer);
   }, [filterText]);
 
-  // Load stats from DB — with timeout to prevent infinite loading
+  // Load stats leve (evita scans pesados e count exact em tabela grande)
   const loadStats = useCallback(async () => {
     try {
-      const timeout = new Promise<null>((r) => setTimeout(() => r(null), 6000));
+      const timeout = new Promise<null>((r) => setTimeout(() => r(null), DB_TIMEOUT_MS));
       const result = await Promise.race([
         Promise.all([
-          supabase.from("content").select("*", { count: "exact", head: true }),
           supabase.rpc("get_video_stats_by_provider" as any),
+          supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
         ]),
         timeout,
       ]);
@@ -82,9 +83,8 @@ const BancoPage = () => {
         return;
       }
 
-      const [totalResult, providerResult] = result as any[];
-      const total = totalResult.count || 0;
-      const providerData = providerResult.data;
+      const [providerResult, importResult] = result as any[];
+      const providerData = providerResult?.data;
       const byProvider: Record<string, number> = {};
       let withVideo = 0;
 
@@ -95,17 +95,21 @@ const BancoPage = () => {
         }
       }
 
+      const progress = importResult?.data?.value as any;
+      const importedTotal = Number(progress?.imported_content_total || progress?.content_total || 0);
+      const inferredTotal = Math.max(importedTotal, withVideo, totalCount);
+
       setStats({
-        total,
+        total: inferredTotal,
         withVideo,
-        withoutVideo: Math.max(0, total - withVideo),
+        withoutVideo: Math.max(0, inferredTotal - withVideo),
         byProvider,
       });
-      setTotalCount(total);
+      setTotalCount(inferredTotal);
     } catch (err) {
       console.warn("[BancoPage] loadStats error:", err);
     }
-  }, []);
+  }, [totalCount]);
 
   // Load paginated content list — with timeout
   const loadItems = useCallback(async () => {
@@ -208,16 +212,25 @@ const BancoPage = () => {
     loadItems();
   }, [loadItems]);
 
-  // Check for ongoing import on mount
+  // Check for ongoing import on mount (com timeout e fallback)
   useEffect(() => {
-    const checkOngoingImport = async () => {
-      const [vps, cloud] = await Promise.all([
-        supabase.from("site_settings").select("value").eq("key", "cineveo_vps_progress").maybeSingle(),
-        supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
+    const fetchProgress = async () => {
+      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), DB_TIMEOUT_MS));
+      const result = await Promise.race([
+        Promise.all([
+          supabase.from("site_settings").select("value").eq("key", "cineveo_vps_progress").maybeSingle(),
+          supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
+        ]),
+        timeout,
       ]);
-      const p = (vps.data?.value || cloud.data?.value) as any;
+      if (!result) return null;
+      const [vps, cloud] = result as any[];
+      return (vps?.data?.value || cloud?.data?.value || null) as any;
+    };
+
+    const checkOngoingImport = async () => {
+      const p = await fetchProgress();
       if (p && p.phase === "syncing" && !p.done) {
-        // Import is ongoing from a previous session
         setImporting(true);
         setImportProgress({
           phase: p.phase,
@@ -231,40 +244,39 @@ const BancoPage = () => {
         });
       }
     };
+
     checkOngoingImport();
   }, []);
 
-  // Debounced stat refresh to prevent flickering during mass operations
-  const realtimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const debouncedLoadStats = useCallback(() => {
-    if (realtimeTimer.current) clearTimeout(realtimeTimer.current);
-    realtimeTimer.current = setTimeout(() => {
+  // Refresh leve de stats (sem realtime pesado no banco)
+  useEffect(() => {
+    const interval = setInterval(() => {
       loadStats();
-    }, 2000); // 2s debounce — batches rapid changes
+    }, 60000);
+
+    return () => clearInterval(interval);
   }, [loadStats]);
 
-  // Realtime for stats updates (debounced)
-  useEffect(() => {
-    const channel = supabase
-      .channel('banco-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'video_cache' }, debouncedLoadStats)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'content' }, debouncedLoadStats)
-      .subscribe();
-    return () => {
-      if (realtimeTimer.current) clearTimeout(realtimeTimer.current);
-      supabase.removeChannel(channel);
-    };
-  }, [debouncedLoadStats]);
-
-  // Poll import progress
+  // Poll import progress (intervalo maior para reduzir carga)
   useEffect(() => {
     if (!importing) return;
-    const interval = setInterval(async () => {
-      const [vps, cloud] = await Promise.all([
-        supabase.from("site_settings").select("value").eq("key", "cineveo_vps_progress").maybeSingle(),
-        supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
+
+    const fetchProgress = async () => {
+      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), DB_TIMEOUT_MS));
+      const result = await Promise.race([
+        Promise.all([
+          supabase.from("site_settings").select("value").eq("key", "cineveo_vps_progress").maybeSingle(),
+          supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
+        ]),
+        timeout,
       ]);
-      const p = (vps.data?.value || cloud.data?.value) as any;
+      if (!result) return null;
+      const [vps, cloud] = result as any[];
+      return (vps?.data?.value || cloud?.data?.value || null) as any;
+    };
+
+    const interval = setInterval(async () => {
+      const p = await fetchProgress();
       if (!p) return;
 
       setImportProgress({
@@ -278,7 +290,6 @@ const BancoPage = () => {
         done: !!p.done,
       });
 
-      // Also refresh stats (silently — don't trigger loading spinner)
       loadStats();
 
       if (p.done) {
@@ -290,7 +301,8 @@ const BancoPage = () => {
           toast({ title: "✅ Importação concluída!", description: `${p.imported_cache_total || p.cache_total || 0} links, ${p.imported_content_total || p.content_total || 0} conteúdos` });
         }
       }
-    }, 3000);
+    }, 10000);
+
     return () => clearInterval(interval);
   }, [importing, loadStats, toast]);
 

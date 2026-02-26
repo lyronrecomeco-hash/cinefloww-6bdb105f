@@ -144,19 +144,20 @@ const AdminLayout = () => {
           }
         }
 
-        // Fetch initial pending count (non-blocking, with tight timeout)
+        // Fetch inicial de pendências (leve, sem count exact)
         const pendingPromise = supabase
           .from("content_requests")
-          .select("*", { count: "exact", head: true })
-          .eq("status", "pending");
+          .select("id")
+          .eq("status", "pending")
+          .limit(200);
 
         Promise.race([
           pendingPromise,
           new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
         ]).then((result) => {
           if (!isMounted || !result) return;
-          const { count } = result as any;
-          const c = count || 0;
+          const rows = (result as any).data || [];
+          const c = rows.length;
           setPendingRequests(c);
           prevPendingRef.current = c;
         }).catch(() => {});
