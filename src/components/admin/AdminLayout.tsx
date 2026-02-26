@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import {
   LayoutDashboard, Film, Tv, Sparkles, Drama, FolderOpen, ScrollText,
-  Settings, LogOut, Menu, X, ChevronRight, Database, MessageSquare, Bell, Shield, Bot, Flag, Radio, Users, Wrench, Server, Cloud
+  Settings, LogOut, Menu, X, ChevronRight, Database, MessageSquare, Bell, Shield, Bot, Flag, Radio, Users, Wrench, Server, Cloud, Search
 } from "lucide-react";
 
 const menuItems = [
@@ -52,9 +52,25 @@ const AdminLayout = () => {
   const [userRole, setUserRole] = useState<string>("admin");
   const [allowedPaths, setAllowedPaths] = useState<string[]>([]);
   const [pendingRequests, setPendingRequests] = useState(0);
+  const [menuQuery, setMenuQuery] = useState("");
   const prevPendingRef = useRef(0);
+  const navSearchRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setSidebarOpen(true);
+        if (window.innerWidth < 1024) setMobileOpen(true);
+        requestAnimationFrame(() => navSearchRef.current?.focus());
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -156,10 +172,14 @@ const AdminLayout = () => {
     navigate("/admin/login");
   };
 
-  // Filter menu items based on role and permissions
-  const visibleMenuItems = userRole === "admin"
+  // Filter menu items based on role and permissions + search query
+  const roleMenuItems = userRole === "admin"
     ? menuItems
     : menuItems.filter((item) => allowedPaths.includes(item.path));
+
+  const visibleMenuItems = roleMenuItems.filter((item) =>
+    item.label.toLowerCase().includes(menuQuery.trim().toLowerCase())
+  );
 
   if (loading) {
     return (
@@ -186,6 +206,20 @@ const AdminLayout = () => {
       </div>
 
       {/* Nav */}
+      <div className="px-3 pt-3">
+        <div className="relative">
+          <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            ref={navSearchRef}
+            type="text"
+            value={menuQuery}
+            onChange={(e) => setMenuQuery(e.target.value)}
+            placeholder="Buscar no painel (Ctrl+K)"
+            className="w-full h-9 pl-9 pr-3 rounded-xl bg-white/5 border border-white/10 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+      </div>
+
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto scrollbar-transparent">
         {visibleMenuItems.map((item) => {
           const isActive = location.pathname === item.path;
@@ -214,6 +248,10 @@ const AdminLayout = () => {
             </button>
           );
         })}
+
+        {visibleMenuItems.length === 0 && (
+          <p className="px-2 pt-2 text-xs text-muted-foreground">Nenhum item encontrado.</p>
+        )}
       </nav>
 
       {/* User */}
