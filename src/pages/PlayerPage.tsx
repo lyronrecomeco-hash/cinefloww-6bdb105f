@@ -142,18 +142,18 @@ const PlayerPage = () => {
     setBankLoading(true);
     setBankSources([]);
 
-    const cType = params.type === "movie" ? "movie" : "series";
+    const cTypes = params.type === "movie" ? ["movie"] : ["series", "tv"];
     const aType = audioParam || "legendado";
 
     // If retrying, delete stale cache first
     if (skipCache) {
       console.log("[PlayerPage] Deleting stale cache, re-extracting...");
       let delQuery = supabase.from("video_cache").delete()
-        .eq("tmdb_id", tmdbId).eq("content_type", cType).eq("audio_type", aType);
+        .eq("tmdb_id", tmdbId).in("content_type", cTypes).eq("audio_type", aType);
       if (season) delQuery = delQuery.eq("season", season);
-      else delQuery = delQuery.is("season", null);
+      else delQuery = delQuery.eq("season", 0);
       if (episode) delQuery = delQuery.eq("episode", episode);
-      else delQuery = delQuery.is("episode", null);
+      else delQuery = delQuery.eq("episode", 0);
       await delQuery;
     }
 
@@ -164,17 +164,17 @@ const PlayerPage = () => {
           .from("video_cache")
           .select("video_url, video_type, provider")
           .eq("tmdb_id", tmdbId)
-          .eq("content_type", cType)
+          .in("content_type", cTypes)
           .eq("audio_type", aType)
           .gt("expires_at", new Date().toISOString());
         if (season) cacheQuery = cacheQuery.eq("season", season);
-        else cacheQuery = cacheQuery.is("season", null);
+        else cacheQuery = cacheQuery.eq("season", 0);
         if (episode) cacheQuery = cacheQuery.eq("episode", episode);
-        else cacheQuery = cacheQuery.is("episode", null);
+        else cacheQuery = cacheQuery.eq("episode", 0);
 
         const [titleResult, cacheResult] = await Promise.all([
-          supabase.from("content").select("title").eq("tmdb_id", tmdbId).eq("content_type", cType).maybeSingle(),
-          cacheQuery.maybeSingle(),
+          supabase.from("content").select("title").eq("tmdb_id", tmdbId).in("content_type", cTypes).maybeSingle(),
+          cacheQuery.order("created_at", { ascending: false }).limit(1).maybeSingle(),
         ]);
 
         if (titleResult.data?.title) setBankTitle(titleResult.data.title);
@@ -193,8 +193,9 @@ const PlayerPage = () => {
       }
 
       // 3. Call extract-video
+      const extractCType = params.type === "movie" ? "movie" : "tv";
       const { data } = await supabase.functions.invoke("extract-video", {
-        body: { tmdb_id: tmdbId, imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
+        body: { tmdb_id: tmdbId, imdb_id: imdbId, content_type: extractCType, audio_type: aType, season, episode },
       });
 
       if (data?.url) {
