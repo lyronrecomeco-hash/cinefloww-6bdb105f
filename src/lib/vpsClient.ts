@@ -1,85 +1,96 @@
 /**
  * VPS-aware API client.
- * In production, routes through Vercel proxy (/vps/*) to avoid mixed content.
- * Falls back to Cloud (Edge Functions) transparently.
+ * Uses localStorage-cached URL exclusively — NEVER queries Cloud DB on boot.
+ * Falls back to Cloud (Edge Functions) only for auth/session, not heavy ops.
  */
 
-import { supabase } from "@/integrations/supabase/client";
+const VPS_HEALTH_CACHE_MS = 30_000;
+const VPS_URL_STORAGE_KEY = "_vps_url";
 
-const VPS_HEALTH_CACHE_MS = 30_000; // re-check every 30s
-let _vpsBaseUrl: string | null = null; // raw IP URL from DB
-let _vpsProxyUrl: string | null = null; // resolved proxy or direct URL
+// Hardcoded fallback VPS URL — used when localStorage is empty
+// This prevents any Cloud DB query during initialization
+const HARDCODED_VPS_URL = "http://147.93.12.83:3377";
+
+let _vpsBaseUrl: string | null = null;
+let _vpsProxyUrl: string | null = null;
 let _vpsOnline = false;
 let _lastCheck = 0;
 let _initPromise: Promise<void> | null = null;
 
-/** Decide when to force /vps proxy (avoids mixed-content and CORS issues) */
+/** Decide when to force /vps proxy */
 function shouldUseProxy(vpsBaseUrl: string): boolean {
   const host = window.location.hostname;
   const isLocal = host.includes("localhost") || host.includes("127.0.0.1");
   const isHttpsPage = window.location.protocol === "https:";
   const isHttpVps = /^http:\/\//i.test(vpsBaseUrl);
 
-  // On hosted HTTPS pages (preview/published), always prefer proxy.
   if (!isLocal) return true;
-
-  // On local HTTPS against HTTP VPS, proxy is mandatory.
   if (isHttpsPage && isHttpVps) return true;
-
   return false;
 }
 
-/** Load VPS API URL from localStorage cache or site_settings */
+function resolveProxyUrl(baseUrl: string): string {
+  if (shouldUseProxy(baseUrl)) {
+    return `${window.location.origin}/vps`;
+  }
+  return baseUrl;
+}
+
+/** Load VPS API URL from localStorage or hardcoded fallback — NO Cloud DB query */
 export function initVpsClient(): Promise<void> {
   if (_initPromise) return _initPromise;
   _initPromise = (async () => {
     try {
-      // 1. Try localStorage cache first (avoids Cloud DB query)
-      const cached = localStorage.getItem("_vps_url");
-      if (cached) {
-        _vpsBaseUrl = cached;
-        _vpsBaseUrl = _vpsBaseUrl.replace(/\/+$/, "");
-        if (shouldUseProxy(_vpsBaseUrl)) {
-          _vpsProxyUrl = `${window.location.origin}/vps`;
-        } else {
-          _vpsProxyUrl = _vpsBaseUrl;
-        }
-        // Check health with cached URL — don't block on DB query
-        await checkVpsHealth();
-        // Refresh from DB in background (fire-and-forget)
-        refreshVpsUrlFromDb().catch(() => {});
-        return;
+      // 1. Try localStorage cache first
+      const cached = localStorage.getItem(VPS_URL_STORAGE_KEY);
+      const rawUrl = cached || HARDCODED_VPS_URL;
+
+      _vpsBaseUrl = rawUrl.replace(/\/+$/, "");
+      _vpsProxyUrl = resolveProxyUrl(_vpsBaseUrl);
+
+      // If no cached URL, store the hardcoded one
+      if (!cached) {
+        localStorage.setItem(VPS_URL_STORAGE_KEY, _vpsBaseUrl);
       }
 
-      // 2. No cache — fetch from DB
-      await refreshVpsUrlFromDb();
-      if (_vpsBaseUrl) await checkVpsHealth();
+      // Check health — this is a fast network call to VPS, not Cloud
+      await checkVpsHealth();
+
+      // Background: refresh URL from DB (fire-and-forget, non-blocking)
+      // Only updates localStorage for next boot — never blocks current session
+      refreshVpsUrlFromDbSilent();
     } catch { /* silent */ }
   })();
   return _initPromise;
 }
 
-async function refreshVpsUrlFromDb(): Promise<void> {
-  try {
-    const { data } = await supabase
-      .from("site_settings")
-      .select("value")
-      .eq("key", "vps_api_url")
-      .maybeSingle();
-    if (data?.value) {
-      const val = data.value as any;
-      const url = typeof val === "string" ? val.replace(/^"|"$/g, "") : val.url || null;
-      if (url) {
-        _vpsBaseUrl = url.replace(/\/+$/, "");
-        localStorage.setItem("_vps_url", _vpsBaseUrl);
-        if (shouldUseProxy(_vpsBaseUrl)) {
-          _vpsProxyUrl = `${window.location.origin}/vps`;
-        } else {
-          _vpsProxyUrl = _vpsBaseUrl;
+/** Background-only DB refresh — updates localStorage for NEXT session, never blocks */
+function refreshVpsUrlFromDbSilent(): void {
+  import("@/integrations/supabase/client").then(({ supabase }) => {
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000));
+
+    Promise.race([
+      supabase
+        .from("site_settings")
+        .select("value")
+        .eq("key", "vps_api_url")
+        .maybeSingle(),
+      timeoutPromise,
+    ]).then((result) => {
+      if (!result) return; // timeout
+      const { data } = result as any;
+      if (data?.value) {
+        const val = data.value as any;
+        const url = typeof val === "string" ? val.replace(/^"|"$/g, "") : val.url || null;
+        if (url) {
+          const cleanUrl = url.replace(/\/+$/, "");
+          localStorage.setItem(VPS_URL_STORAGE_KEY, cleanUrl);
+          _vpsBaseUrl = cleanUrl;
+          _vpsProxyUrl = resolveProxyUrl(_vpsBaseUrl);
         }
       }
-    }
-  } catch { /* silent */ }
+    }).catch(() => {});
+  }).catch(() => {});
 }
 
 async function checkVpsHealth(): Promise<boolean> {
@@ -95,7 +106,7 @@ async function checkVpsHealth(): Promise<boolean> {
     _vpsOnline = false;
   }
 
-  // Fallback probe: some proxies block /health but allow /api/catalog
+  // Fallback probe
   if (!_vpsOnline) {
     try {
       const probe = await fetch(`${_vpsProxyUrl}/api/catalog?type=movie`, {
@@ -129,8 +140,8 @@ export function getVpsUrl(): string | null {
 }
 
 /**
- * Extract video via VPS API (longer timeout, no Cloud overhead).
- * Returns null if VPS is offline — caller should fallback to Cloud.
+ * Extract video via VPS API.
+ * Returns null if VPS is offline — caller should NOT fallback to Cloud for this.
  */
 export async function vpsExtractVideo(params: {
   tmdb_id: number;
@@ -177,7 +188,6 @@ export async function vpsCatalog(contentType?: string): Promise<any[] | null> {
 
 /**
  * Fetch single catalog item detail + video status from VPS cache.
- * Returns null if VPS is offline.
  */
 export async function vpsCatalogDetail(tmdbId: number, contentType: string): Promise<any | null> {
   if (!(await checkVpsHealth())) return null;
@@ -195,7 +205,7 @@ export async function vpsCatalogDetail(tmdbId: number, contentType: string): Pro
 
 /**
  * Notify VPS about new content to auto-resolve links.
- * Fire-and-forget — does not block caller.
+ * Fire-and-forget.
  */
 export async function vpsNotifyNewContent(items: Array<{
   tmdb_id: number;

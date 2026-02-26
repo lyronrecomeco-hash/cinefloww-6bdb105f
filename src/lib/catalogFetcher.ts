@@ -1,10 +1,9 @@
 /**
- * VPS-first catalog fetcher with in-memory cache.
- * Tries VPS memory cache first (instant), falls back to Cloud DB.
- * Client-side TTL cache prevents repeated DB queries on navigation.
+ * VPS-only catalog fetcher with in-memory cache.
+ * Tries VPS memory cache (instant). If VPS is offline, returns empty.
+ * NO Cloud DB fallback for catalog reads — prevents overloading Cloud.
  */
 
-import { supabase } from "@/integrations/supabase/client";
 import { initVpsClient, vpsCatalog } from "@/lib/vpsClient";
 
 export interface CatalogItem {
@@ -34,10 +33,6 @@ function cacheKey(contentType: string, limit: number, offset: number): string {
 function getCached(key: string): CacheEntry | null {
   const entry = _cache.get(key);
   if (!entry) return null;
-  if (Date.now() - entry.ts > CACHE_TTL_MS) {
-    // Stale but return it — we'll revalidate in background
-    return entry;
-  }
   return entry;
 }
 
@@ -48,21 +43,10 @@ function isFresh(key: string): boolean {
 
 function setCache(key: string, items: CatalogItem[], total: number) {
   _cache.set(key, { items, total, ts: Date.now() });
-  // Keep cache size bounded
   if (_cache.size > 100) {
     const oldest = [..._cache.entries()].sort((a, b) => a[1].ts - b[1].ts);
     for (let i = 0; i < 20; i++) _cache.delete(oldest[i][0]);
   }
-}
-
-async function withTimeout<T>(promise: Promise<T>, ms = 6000): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error("timeout")), ms);
-    promise
-      .then((v) => resolve(v))
-      .catch((e) => reject(e))
-      .finally(() => clearTimeout(timer));
-  });
 }
 
 // ── VPS init (single attempt) ───────────────────────────────────────
@@ -91,7 +75,7 @@ function mapItem(d: any, contentType: string): CatalogItem {
 
 /**
  * Fetch catalog items by content_type.
- * VPS-first with Cloud DB fallback + client-side cache.
+ * VPS-only with client-side cache. NO Cloud DB fallback.
  */
 export async function fetchCatalog(
   contentType: string,
@@ -110,7 +94,6 @@ export async function fetchCatalog(
   // If stale cache exists, return immediately and revalidate in background
   const stale = getCached(key);
   if (stale) {
-    // Fire-and-forget background revalidation
     fetchFresh(contentType, limit, offset, key).catch(() => {});
     return { items: stale.items, total: stale.total };
   }
@@ -125,7 +108,7 @@ async function fetchFresh(
   offset: number,
   key: string
 ): Promise<{ items: CatalogItem[]; total: number }> {
-  // 1. Try VPS first
+  // Try VPS only — no Cloud fallback
   await ensureVps();
   try {
     const vpsData = await vpsCatalog(contentType);
@@ -142,40 +125,12 @@ async function fetchFresh(
       return { items: page, total };
     }
   } catch {
-    /* VPS offline, fallback */
+    /* VPS offline */
   }
 
-  // 2. Fallback: Cloud DB
-  console.log(`[CatalogFetcher] Cloud fallback for ${contentType}`);
-  const from = offset;
-  const to = offset + limit - 1;
-
-  let data: any[] | null = null;
-  let count: number | null = 0;
-
-  try {
-    const res = await withTimeout(
-      (async () => await supabase
-        .from("content")
-        .select("id, tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type", { count: "exact" })
-        .eq("content_type", contentType)
-        .eq("status", "published")
-        .order("release_date", { ascending: false, nullsFirst: false })
-        .range(from, to))(),
-      6000
-    );
-    data = res.data || [];
-    count = res.count || 0;
-  } catch {
-    // Prevent infinite UI spinner on backend slowdowns
-    data = [];
-    count = 0;
-  }
-
-  const items = (data || []) as CatalogItem[];
-  const total = count || 0;
-  setCache(key, items, total);
-  return { items, total };
+  // VPS offline or empty — return empty, do NOT query Cloud DB
+  console.log(`[CatalogFetcher] VPS offline for ${contentType} — returning empty (no Cloud fallback)`);
+  return { items: [], total: 0 };
 }
 
 /**
