@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Wrench, Search, Film, Tv, Loader2, CheckCircle, XCircle, Play, RefreshCw,
@@ -7,7 +8,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { searchMulti, getMovieDetails, getSeriesDetails, getSeasonDetails, posterUrl, TMDBMovie, TMDBMovieDetail } from "@/services/tmdb";
-import CustomPlayer from "@/components/CustomPlayer";
+import { toSlug } from "@/lib/slugify";
 import { syncContentAudioType } from "@/lib/syncContentAudioType";
 import { secureVideoUrl } from "@/lib/videoUrl";
 
@@ -282,6 +283,7 @@ const IMG_BASE = "https://image.tmdb.org/t/p";
 const PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
 
 const ContentSourcesPage = () => {
+  const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<TMDBMovie[]>([]);
@@ -308,11 +310,6 @@ const ContentSourcesPage = () => {
   // Sync catalog state
   const [syncing, setSyncing] = useState(false);
   const [syncProgress, setSyncProgress] = useState<{ processed: number; total: number } | null>(null);
-
-  // Player
-  const [playerUrl, setPlayerUrl] = useState<string | null>(null);
-  const [playerType, setPlayerType] = useState<"m3u8" | "mp4">("m3u8");
-  const [playerTitle, setPlayerTitle] = useState("");
 
   // Content status in DB
   const [contentInDb, setContentInDb] = useState(false);
@@ -448,12 +445,11 @@ const ContentSourcesPage = () => {
       .order("created_at", { ascending: false });
 
     const map = new Map<string, { url: string; type: string; provider: string }>();
-    const providerRank = (provider: string) => (provider === "cineveo-api" ? 120 : provider === "cineveo" ? 110 : provider === "mega" ? 90 : provider === "manual" ? 40 : 70);
 
+    // Mantém o último link salvo no admin (created_at desc), refletindo sincronização imediata na tela
     data?.forEach((d: any) => {
       const key = d.season != null ? `${d.season}-${d.episode}` : "movie";
-      const current = map.get(key);
-      if (!current || providerRank(d.provider || "") > providerRank(current.provider || "")) {
+      if (!map.has(key)) {
         map.set(key, { url: d.video_url, type: d.video_type, provider: d.provider });
       }
     });
@@ -624,22 +620,28 @@ const ContentSourcesPage = () => {
     }
   };
 
-  const openPlayer = async (url: string, type: string, title: string) => {
-    if (type === "iframe-proxy") {
-      window.open(url, "_blank", "noopener,noreferrer");
-      return;
+  const openPlayer = async (url: string, type: string, title: string, key: string) => {
+    if (!selectedItem) return;
+
+    const playerType = selectedType === "tv" ? "tv" : "movie";
+    const slug = toSlug(selectedItem.name || selectedItem.title || title || String(selectedItem.id), selectedItem.id);
+
+    const params = new URLSearchParams({
+      title,
+      audio: "legendado",
+      type: (type === "mp4" ? "mp4" : "m3u8"),
+      url,
+      tmdb: String(selectedItem.id),
+      ct: playerType,
+    });
+
+    if (key !== "movie") {
+      const [s, e] = key.split("-");
+      if (s) params.set("s", s);
+      if (e) params.set("e", e);
     }
 
-    let finalUrl = url;
-    try {
-      finalUrl = await secureVideoUrl(url);
-    } catch {
-      finalUrl = url;
-    }
-
-    setPlayerUrl(finalUrl);
-    setPlayerType(type as "m3u8" | "mp4");
-    setPlayerTitle(title);
+    navigate(`/player/${playerType}/${slug}?${params.toString()}`);
   };
 
   const extractAllEpisodes = async (seasonNum: number) => {
@@ -705,7 +707,7 @@ const ContentSourcesPage = () => {
               {status.provider}
             </span>
             <button
-              onClick={() => openPlayer(status.url, status.type, label)}
+              onClick={() => openPlayer(status.url, status.type, label, key)}
               className="w-7 h-7 rounded-lg bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30"
               title="Testar"
             >
@@ -1108,17 +1110,6 @@ const ContentSourcesPage = () => {
         </div>
       )}
 
-      {/* Player overlay */}
-      {playerUrl && (
-        <div className="fixed inset-0 z-[100] bg-black animate-fade-in">
-          <CustomPlayer
-            sources={[{ url: playerUrl, quality: "auto", provider: "test", type: playerType }]}
-            title={playerTitle}
-            onClose={() => setPlayerUrl(null)}
-            onError={() => setPlayerUrl(null)}
-          />
-        </div>
-      )}
         </div>
       )}
     </div>
