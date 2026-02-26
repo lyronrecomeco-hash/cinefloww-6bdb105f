@@ -91,9 +91,16 @@ const R2UploadPage = () => {
             setUploads(prev => prev.map(u => u.id === item.id ? { ...u, progress: pct } : u));
           }
         };
-        xhr.onload = () => xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`HTTP ${xhr.status}`));
-        xhr.onerror = () => reject(new Error("Upload failed"));
-        xhr.open("PUT", presignData.presigned_url);
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+            return;
+          }
+          const responseSnippet = (xhr.responseText || "").slice(0, 220);
+          reject(new Error(`HTTP ${xhr.status}${responseSnippet ? ` - ${responseSnippet}` : ""}`));
+        };
+        xhr.onerror = () => reject(new Error("Falha de rede/CORS no R2. Configure CORS do bucket para permitir PUT/GET/HEAD/OPTIONS e sua origem do app."));
+        xhr.onabort = () => reject(new Error("Upload cancelado"));
         xhr.setRequestHeader("Content-Type", item.file.type || "video/mp4");
         xhr.send(item.file);
       });
