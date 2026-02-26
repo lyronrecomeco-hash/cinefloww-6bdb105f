@@ -47,7 +47,8 @@ async function fetchCatalogPage(apiType: ApiType, page: number) {
   const items = Array.isArray(payload)
     ? payload
     : payload?.data || payload?.results || payload?.items || [];
-  const totalPages = Number(payload?.pagination?.total_pages || 1) || 1;
+  const parsedTotalPages = Number(payload?.pagination?.total_pages || 0) || 0;
+  const totalPages = parsedTotalPages > 0 ? parsedTotalPages : null;
 
   return {
     items: Array.isArray(items) ? items : [],
@@ -182,9 +183,14 @@ Deno.serve(async (req) => {
     let importedContent = 0;
     let importedCache = 0;
 
+    let emptyStreakForType = 0;
+
     for (let processed = 0; processed < pagesThisRun; processed++) {
       const pageData = await fetchCatalogPage(currentType, currentPage);
       const { contentRows, cacheRows } = buildRows(pageData.items, currentType);
+
+      if (pageData.items.length === 0) emptyStreakForType += 1;
+      else emptyStreakForType = 0;
 
       for (let i = 0; i < contentRows.length; i += 200) {
         const batch = contentRows.slice(i, i + 200);
@@ -208,12 +214,18 @@ Deno.serve(async (req) => {
         current_page: currentPage,
         total_pages_for_type: pageData.totalPages,
         total_items_for_type: pageData.totalItems,
+        empty_streak_for_type: emptyStreakForType,
       });
 
-      if (currentPage < pageData.totalPages) {
+      const reachedEndByPagination = !!pageData.totalPages && currentPage >= pageData.totalPages;
+      const reachedEndByEmptyPages = !pageData.totalPages && emptyStreakForType >= 2;
+
+      if (!reachedEndByPagination && !reachedEndByEmptyPages) {
         currentPage += 1;
       } else {
         state.type_index += 1;
+        emptyStreakForType = 0;
+
         if (state.type_index >= state.types.length) {
           await saveProgress("done", {
             ...state,

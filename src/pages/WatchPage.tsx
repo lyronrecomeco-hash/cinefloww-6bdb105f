@@ -149,8 +149,14 @@ const WatchPage = () => {
           return 70;
         };
 
+        const isLikelyBrokenCacheUrl = (url?: string, provider?: string) => {
+          if (!url) return true;
+          if ((provider || "").toLowerCase() !== "cineveo-api") return false;
+          return /cdn\.cineveo\.site\/.*%2520/i.test(url);
+        };
+
         const pickBest = (rows: any[]) => (rows || [])
-          .filter((row: any) => row?.video_url && row?.video_type !== "mega-embed")
+          .filter((row: any) => row?.video_url && row?.video_type !== "mega-embed" && !isLikelyBrokenCacheUrl(row?.video_url, row?.provider))
           .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
 
         let cached = pickBest(cachedRows || []);
