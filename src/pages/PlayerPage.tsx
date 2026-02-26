@@ -15,6 +15,7 @@ import { getSeasonDetails } from "@/services/tmdb";
 import { useWatchRoom } from "@/hooks/useWatchRoom";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import RoomOverlay from "@/components/watch-together/RoomOverlay";
+import IframeInterceptor from "@/components/IframeInterceptor";
 
 interface VideoSource {
   url: string;
@@ -53,6 +54,8 @@ const PlayerPage = () => {
   const [bankSources, setBankSources] = useState<VideoSource[]>([]);
   const [bankLoading, setBankLoading] = useState(false);
   const [bankTitle, setBankTitle] = useState(title);
+  const [iframeProxyUrl, setIframeProxyUrl] = useState<string | null>(null);
+  const [megaEmbedUrl, setMegaEmbedUrl] = useState<string | null>(null);
 
   // Next episode state
   const [nextEpUrl, setNextEpUrl] = useState<string | null>(null);
@@ -193,7 +196,19 @@ const PlayerPage = () => {
           .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
 
         // 2. If cache hit, use instantly
-        if (bestCached?.video_url && bestCached.video_type !== "iframe-proxy") {
+        if (bestCached?.video_url) {
+          if (bestCached.video_type === "iframe-proxy") {
+            console.log("[PlayerPage] Cache hit: iframe-proxy");
+            setIframeProxyUrl(bestCached.video_url);
+            setBankLoading(false);
+            return;
+          }
+          if (bestCached.video_type === "mega-embed") {
+            console.log("[PlayerPage] Cache hit: mega-embed");
+            setMegaEmbedUrl(bestCached.video_url);
+            setBankLoading(false);
+            return;
+          }
           // Try to sign the URL; if signing fails, use the raw URL as fallback
           let finalUrl = bestCached.video_url;
           try {
@@ -218,13 +233,23 @@ const PlayerPage = () => {
       });
 
       if (data?.url) {
-        let finalUrl = data.url;
-        if (data.type !== "iframe-proxy") {
-          try {
-            const signed = await secureVideoUrl(data.url);
-            if (signed && signed !== data.url) finalUrl = signed;
-          } catch { /* use raw */ }
+        if (data.type === "iframe-proxy") {
+          console.log("[PlayerPage] Extract returned iframe-proxy");
+          setIframeProxyUrl(data.url);
+          setBankLoading(false);
+          return;
         }
+        if (data.type === "mega-embed") {
+          console.log("[PlayerPage] Extract returned mega-embed");
+          setMegaEmbedUrl(data.url);
+          setBankLoading(false);
+          return;
+        }
+        let finalUrl = data.url;
+        try {
+          const signed = await secureVideoUrl(data.url);
+          if (signed && signed !== data.url) finalUrl = signed;
+        } catch { /* use raw */ }
         setBankSources([{
           url: finalUrl,
           quality: "auto",
@@ -689,6 +714,46 @@ const PlayerPage = () => {
       clearTimeout(nextEpTimerRef.current);
     };
   }, []);
+
+  // Iframe-proxy mode: show interceptor fullscreen
+  if (iframeProxyUrl) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-black">
+        <IframeInterceptor
+          proxyUrl={iframeProxyUrl}
+          title={bankTitle}
+          onVideoFound={(url, type) => {
+            console.log("[PlayerPage] Iframe intercepted video:", type);
+            setIframeProxyUrl(null);
+            setBankSources([{ url, quality: "auto", provider: "intercepted", type }]);
+          }}
+          onError={() => {
+            // Stay on iframe as fallback player
+            console.log("[PlayerPage] Iframe interception failed, staying on iframe");
+          }}
+          onClose={goBack}
+        />
+      </div>
+    );
+  }
+
+  // Mega-embed mode: show mega player fullscreen
+  if (megaEmbedUrl) {
+    return (
+      <div className="fixed inset-0 z-[100] bg-black">
+        <button onClick={goBack} className="absolute top-4 left-4 z-20 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors">
+          <ArrowLeft className="w-5 h-5 text-white" />
+        </button>
+        <iframe
+          src={megaEmbedUrl}
+          className="w-full h-full border-0"
+          allow="autoplay; fullscreen; encrypted-media"
+          allowFullScreen
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+        />
+      </div>
+    );
+  }
 
   return (
     <div ref={containerRef} className="fixed inset-0 z-[100] bg-black group"
