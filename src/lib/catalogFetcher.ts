@@ -1,7 +1,7 @@
 /**
- * VPS-only catalog fetcher with in-memory cache.
- * Tries VPS memory cache (instant). If VPS is offline, returns empty.
- * NO Cloud DB fallback for catalog reads — prevents overloading Cloud.
+ * Hybrid catalog fetcher: VPS first, Cloud DB fallback.
+ * Tries VPS memory cache (instant). If VPS offline, falls back to Cloud DB
+ * with strict timeout to prevent blocking.
  */
 
 import { initVpsClient, vpsCatalog } from "@/lib/vpsClient";
@@ -18,6 +18,8 @@ export interface CatalogItem {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const CLOUD_TIMEOUT_MS = 6000;
+
 interface CacheEntry {
   items: CatalogItem[];
   total: number;
@@ -96,6 +98,7 @@ async function fetchFresh(
   offset: number,
   key: string
 ): Promise<{ items: CatalogItem[]; total: number }> {
+  // Try VPS first
   await ensureVps();
   try {
     const vpsData = await vpsCatalog(contentType);
@@ -114,7 +117,56 @@ async function fetchFresh(
     // VPS offline
   }
 
+  // Fallback: Cloud DB with strict timeout
+  try {
+    const result = await Promise.race([
+      fetchFromCloud(contentType, limit, offset),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), CLOUD_TIMEOUT_MS)),
+    ]);
+    if (result) {
+      setCache(key, result.items, result.total);
+      return result;
+    }
+  } catch {
+    // Cloud also failed
+  }
+
   return { items: [], total: 0 };
+}
+
+async function fetchFromCloud(
+  contentType: string,
+  limit: number,
+  offset: number
+): Promise<{ items: CatalogItem[]; total: number } | null> {
+  const { supabase } = await import("@/integrations/supabase/client");
+
+  // Light query: no count: "exact", just fetch items + estimate total
+  const { data, error } = await supabase
+    .from("content")
+    .select("id, tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type")
+    .eq("content_type", contentType)
+    .eq("status", "published")
+    .order("release_date", { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (error || !data) return null;
+
+  const items: CatalogItem[] = data.map((d: any) => ({
+    id: d.id,
+    tmdb_id: d.tmdb_id,
+    title: d.title,
+    poster_path: d.poster_path || null,
+    backdrop_path: d.backdrop_path || null,
+    vote_average: d.vote_average || 0,
+    release_date: d.release_date || null,
+    content_type: d.content_type || contentType,
+  }));
+
+  // Estimate total: if we got a full page, assume there's more
+  const total = items.length < limit ? offset + items.length : offset + limit + 100;
+
+  return { items, total };
 }
 
 export async function fetchCatalogRow(contentType: string, limit = 20): Promise<CatalogItem[]> {
