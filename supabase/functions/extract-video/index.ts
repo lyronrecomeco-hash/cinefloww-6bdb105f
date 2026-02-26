@@ -236,10 +236,10 @@ Deno.serve(async (req) => {
 
       const providerRank = (provider?: string) => {
         const p = (provider || "").toLowerCase();
-        if (p === "cineveo-api") return 120;
-        if (p === "cineveo") return 110;
+        if (p === "manual") return 130;
         if (p === "mega") return 95;
-        if (p === "manual") return 40;
+        if (p === "cineveo-api") return 90;
+        if (p === "cineveo") return 80;
         return 70;
       };
 
