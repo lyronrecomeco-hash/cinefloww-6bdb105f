@@ -125,17 +125,22 @@ const AdminLayout = () => {
           }
         }
 
-        // Fetch initial pending count (non-blocking)
-        supabase
+        // Fetch initial pending count (non-blocking, with tight timeout)
+        const pendingPromise = supabase
           .from("content_requests")
           .select("*", { count: "exact", head: true })
-          .eq("status", "pending")
-          .then(({ count }) => {
-            if (!isMounted) return;
-            const c = count || 0;
-            setPendingRequests(c);
-            prevPendingRef.current = c;
-          });
+          .eq("status", "pending");
+
+        Promise.race([
+          pendingPromise,
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+        ]).then((result) => {
+          if (!isMounted || !result) return;
+          const { count } = result as any;
+          const c = count || 0;
+          setPendingRequests(c);
+          prevPendingRef.current = c;
+        }).catch(() => {});
       } catch (err) {
         console.error("[AdminLayout] Auth check failed:", err);
         if (isMounted) navigate("/admin/login");
