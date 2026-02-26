@@ -506,8 +506,8 @@ const ContentSourcesPage = () => {
     if (!manualInput || !selectedItem || !manualInput.url) return;
     const key = manualInput.key;
     const isMovie = key === "movie";
-    const season = isMovie ? null : parseInt(key.split("-")[0]);
-    const episode = isMovie ? null : parseInt(key.split("-")[1]);
+    const season = isMovie ? 0 : parseInt(key.split("-")[0]);
+    const episode = isMovie ? 0 : parseInt(key.split("-")[1]);
 
     // Build the proper URL - if it's an embed URL, wrap it in proxy-player
     let finalUrl = manualInput.url;
@@ -560,7 +560,7 @@ const ContentSourcesPage = () => {
       .eq("audio_type", "legendado");
 
     if (isMovie) {
-      q = q.is("season", null).is("episode", null);
+      q = q.eq("season", 0).eq("episode", 0);
     } else {
       const [s, e] = key.split("-").map(Number);
       q = q.eq("season", s).eq("episode", e);
