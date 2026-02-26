@@ -55,7 +55,6 @@ const PlayerPage = () => {
   const [bankLoading, setBankLoading] = useState(false);
   const [bankTitle, setBankTitle] = useState(title);
   const [iframeProxyUrl, setIframeProxyUrl] = useState<string | null>(null);
-  const [megaEmbedUrl, setMegaEmbedUrl] = useState<string | null>(null);
 
   // Next episode state
   const [nextEpUrl, setNextEpUrl] = useState<string | null>(null);
@@ -186,26 +185,43 @@ const PlayerPage = () => {
         const providerRank = (provider?: string) => {
           const p = (provider || "").toLowerCase();
           if (p === "manual") return 130;
-          if (p === "mega") return 95;
-          if (p === "cineveo-api") return 90;
-          if (p === "cineveo") return 80;
+          if (p === "cineveo-api") return 120;
+          if (p === "cineveo-iptv") return 110;
+          if (p === "cineveo") return 100;
           return 70;
         };
 
-        const bestCached = (cacheResult.data || [])
-          .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
+        const pickBest = (rows: any[]) => {
+          return (rows || [])
+            .filter((row: any) => row?.video_url && row?.video_type !== "mega-embed")
+            .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
+        };
+
+        let bestCached = pickBest(cacheResult.data || []);
+
+        // Fallback de áudio: se não houver no áudio solicitado, usa o melhor disponível
+        if (!bestCached) {
+          let anyAudioQuery = supabase
+            .from("video_cache")
+            .select("video_url, video_type, provider, created_at")
+            .eq("tmdb_id", tmdbId)
+            .in("content_type", cTypes)
+            .gt("expires_at", new Date().toISOString());
+
+          if (season) anyAudioQuery = anyAudioQuery.eq("season", season);
+          else anyAudioQuery = anyAudioQuery.eq("season", 0);
+          if (episode) anyAudioQuery = anyAudioQuery.eq("episode", episode);
+          else anyAudioQuery = anyAudioQuery.eq("episode", 0);
+
+          const { data: anyAudioRows } = await anyAudioQuery.order("created_at", { ascending: false }).limit(20);
+          bestCached = pickBest(anyAudioRows || []);
+        }
 
         // 2. If cache hit, use instantly
         if (bestCached?.video_url) {
           if (bestCached.video_type === "iframe-proxy") {
             console.log("[PlayerPage] Cache hit: iframe-proxy");
             setIframeProxyUrl(bestCached.video_url);
-            setBankLoading(false);
-            return;
-          }
-          if (bestCached.video_type === "mega-embed") {
-            console.log("[PlayerPage] Cache hit: mega-embed");
-            setMegaEmbedUrl(bestCached.video_url);
             setBankLoading(false);
             return;
           }
@@ -239,12 +255,6 @@ const PlayerPage = () => {
           setBankLoading(false);
           return;
         }
-        if (data.type === "mega-embed") {
-          console.log("[PlayerPage] Extract returned mega-embed");
-          setMegaEmbedUrl(data.url);
-          setBankLoading(false);
-          return;
-        }
         let finalUrl = data.url;
         try {
           const signed = await secureVideoUrl(data.url);
@@ -256,8 +266,14 @@ const PlayerPage = () => {
           provider: data.provider || "cache",
           type: data.type === "mp4" ? "mp4" : "m3u8",
         }]);
+        setBankLoading(false);
+        return;
       }
-    } catch {}
+
+      setError(true);
+    } catch {
+      setError(true);
+    }
     setBankLoading(false);
   }, [params.id, params.type, audioParam, imdbId, season, episode, tmdbId]);
 
@@ -737,23 +753,6 @@ const PlayerPage = () => {
     );
   }
 
-  // Mega-embed mode: show mega player fullscreen
-  if (megaEmbedUrl) {
-    return (
-      <div className="fixed inset-0 z-[100] bg-black">
-        <button onClick={goBack} className="absolute top-4 left-4 z-20 w-10 h-10 rounded-full bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors">
-          <ArrowLeft className="w-5 h-5 text-white" />
-        </button>
-        <iframe
-          src={megaEmbedUrl}
-          className="w-full h-full border-0"
-          allow="autoplay; fullscreen; encrypted-media"
-          allowFullScreen
-          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
-        />
-      </div>
-    );
-  }
 
   return (
     <div ref={containerRef} className="fixed inset-0 z-[100] bg-black group"

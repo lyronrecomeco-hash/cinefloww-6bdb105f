@@ -219,31 +219,39 @@ Deno.serve(async (req) => {
     const keyEpisode = episode || 0;
     const cacheTypes = cType === "tv" ? ["tv", "series"] : [cType];
 
-    // 0. Cache com prioridade para provedores automáticos (CineVeo).
-    // Manual vira fallback quando houver link automático válido para o mesmo episódio.
+    // 0. Cache com prioridade: manual > cineveo-api > cineveo-iptv > cineveo > demais.
+    // Se não houver no áudio solicitado, tenta fallback para qualquer áudio disponível.
     if (!force_provider) {
-      const { data: cachedRows } = await supabase
+      const providerRank = (provider?: string) => {
+        const p = (provider || "").toLowerCase();
+        if (p === "manual") return 130;
+        if (p === "cineveo-api") return 120;
+        if (p === "cineveo-iptv") return 110;
+        if (p === "cineveo") return 100;
+        return 70;
+      };
+
+      const pickBest = (rows: any[]) => (rows || [])
+        .filter((row: any) => row?.video_url && row?.video_type !== "mega-embed")
+        .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
+
+      const baseQuery = supabase
         .from("video_cache")
         .select("video_url, video_type, provider, created_at")
         .eq("tmdb_id", tmdb_id)
         .in("content_type", cacheTypes)
-        .eq("audio_type", aType)
         .eq("season", keySeason)
         .eq("episode", keyEpisode)
-        .gt("expires_at", new Date().toISOString())
-        .order("created_at", { ascending: false })
-        .limit(20);
+        .gt("expires_at", new Date().toISOString());
 
-      const providerRank = (provider?: string) => {
-        const p = (provider || "").toLowerCase();
-        if (p === "manual") return 130;
-        if (p === "mega") return 95;
-        if (p === "cineveo-api") return 90;
-        if (p === "cineveo") return 80;
-        return 70;
-      };
+      const { data: cachedRows } = await baseQuery.eq("audio_type", aType).order("created_at", { ascending: false }).limit(20);
+      let bestCached = pickBest(cachedRows || []);
 
-      const bestCached = (cachedRows || []).sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
+      if (!bestCached) {
+        const { data: anyAudioRows } = await baseQuery.order("created_at", { ascending: false }).limit(20);
+        bestCached = pickBest(anyAudioRows || []);
+      }
+
       if (bestCached?.video_url) {
         console.log(`[extract] Cache hit for tmdb_id=${tmdb_id} provider=${bestCached.provider}`);
         return new Response(JSON.stringify({
@@ -255,32 +263,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Handle Mega.nz manual link ──
-    if (mega_url) {
-      const megaResult = await tryMegaExtract(mega_url);
-      if (megaResult) {
-        const isMegaEmbed = megaResult.type === "mega-embed";
-        const saveType = isMegaEmbed ? "mega-embed" : megaResult.type;
-        
-        // Save to cache
-        await supabase.from("video_cache").upsert({
-          tmdb_id, content_type: cType, audio_type: aType,
-          season: season || 0, episode: episode || 0,
-          video_url: megaResult.url, video_type: saveType, provider: "mega",
-          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-        }, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
-
-        await supabase.from("resolve_logs").insert({
-          tmdb_id, title: reqTitle || `TMDB ${tmdb_id}`, content_type: cType,
-          season: season || 0, episode: episode || 0,
-          provider: "mega", video_url: megaResult.url, video_type: saveType, success: true,
-        });
-
-        return new Response(JSON.stringify({
-          url: megaResult.url, type: saveType, provider: "mega", cached: false,
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-    }
 
 
     // 2. Try CineVeo Catalog API (sole provider)
@@ -301,15 +283,12 @@ Deno.serve(async (req) => {
       provider = "cineveo-api";
     }
 
-    // 3. Fallback: iframe proxy via CineVeo embed
+    // 3. Sem fallback por embed/proxy externo: somente CineVeo API
     if (!videoUrl) {
-      const embedBase = "http://primevicio.lat";
-      const embedUrl = isMovie
-        ? `${embedBase}/embed/movie/${tmdb_id}`
-        : `${embedBase}/embed/tv/${tmdb_id}/${s}/${e}`;
-      const proxy = fallbackToIframeProxy(embedUrl, "fallback");
       return new Response(JSON.stringify({
-        url: proxy.url, type: "iframe-proxy", provider: "cineveo-embed", cached: false,
+        url: null,
+        provider: "cineveo-api",
+        message: "Nenhum vídeo encontrado via catálogo CineVeo",
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
