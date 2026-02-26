@@ -5,10 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense } from "react";
-import SiteAlertModal from "./components/SiteAlertModal";
 import MaintenanceModal from "./components/MaintenanceModal";
-
-import PushPrompt from "./components/PushPrompt";
 import Index from "./pages/Index";
 
 // Lazy load ALL non-index pages for faster initial load
@@ -80,10 +77,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <SiteAlertModal />
       <MaintenanceModal />
-      
-      <PushPrompt />
       <BrowserRouter>
         <Suspense fallback={<PageLoader />}>
           <Routes>

@@ -1,13 +1,12 @@
 import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Wrench } from "lucide-react";
+import { Wrench, Database, RefreshCw, Shield } from "lucide-react";
 import LyneflixLogo from "@/components/LyneflixLogo";
 
 const MaintenanceModal = () => {
   const [active, setActive] = useState(false);
   const [message, setMessage] = useState("Estamos realizando melhorias na plataforma. Voltamos em breve!");
-  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     const check = async () => {
@@ -34,35 +33,64 @@ const MaintenanceModal = () => {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  if (!active || dismissed) return null;
+  if (!active) return null;
 
   return createPortal(
     <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/85 backdrop-blur-md" />
+      <div className="absolute inset-0 bg-black/90 backdrop-blur-xl" />
 
-      <div className="relative w-full max-w-md bg-card/95 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl animate-in fade-in zoom-in-95 duration-300">
-        <div className="p-8 space-y-5 text-center">
-          <div className="w-16 h-16 rounded-2xl bg-primary/15 flex items-center justify-center mx-auto">
-            <Wrench className="w-8 h-8 text-primary" />
+      <div className="relative w-full max-w-lg glass-strong p-6 sm:p-8 animate-page-enter space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-center">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
+              <Wrench className="w-5 h-5 text-primary" />
+            </div>
+            <h2 className="text-lg sm:text-xl font-bold font-display text-foreground">
+              Manutenção em Andamento
+            </h2>
           </div>
-
-          <LyneflixLogo size="lg" animate className="py-2" />
-
-          <h2 className="text-xl font-display font-bold text-foreground">
-            🔧 Em Manutenção
-          </h2>
-
-          <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
-            {message}
-          </p>
-
-          <button
-            onClick={() => setDismissed(true)}
-            className="w-full px-6 py-3 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
-          >
-            OK, entendi
-          </button>
         </div>
+
+        {/* Logo */}
+        <div className="flex justify-center">
+          <LyneflixLogo size="lg" animate className="py-1" />
+        </div>
+
+        {/* Message */}
+        <p className="text-muted-foreground text-sm leading-relaxed text-center whitespace-pre-wrap">
+          {message}
+        </p>
+
+        {/* Status cards */}
+        <div className="glass p-4 space-y-3">
+          <h3 className="text-sm font-semibold text-foreground">O que estamos fazendo?</h3>
+          <ul className="text-muted-foreground text-xs leading-relaxed space-y-2.5">
+            <li className="flex items-start gap-2.5">
+              <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Database className="w-3 h-3" />
+              </span>
+              <span>Corrigindo e atualizando todos os dados do catálogo para garantir links funcionais.</span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                <RefreshCw className="w-3 h-3" />
+              </span>
+              <span>Importando novos conteúdos e reconstruindo o cache de vídeos do zero.</span>
+            </li>
+            <li className="flex items-start gap-2.5">
+              <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Shield className="w-3 h-3" />
+              </span>
+              <span>Otimizando a infraestrutura para uma experiência mais rápida e estável.</span>
+            </li>
+          </ul>
+        </div>
+
+        {/* Footer note */}
+        <p className="text-muted-foreground/60 text-[10px] sm:text-xs text-center">
+          ⏳ Previsão: em breve. Agradecemos a paciência!
+        </p>
       </div>
     </div>,
     document.body
