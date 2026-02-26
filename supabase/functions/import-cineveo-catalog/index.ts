@@ -34,6 +34,26 @@ const normalizeAudio = (value?: string): "dublado" | "legendado" | "cam" => {
 const pickStreamUrl = (item: any): string | null =>
   item?.stream_url || item?.streamUrl || item?.url || item?.video_url || item?.link || item?.embed_url || null;
 
+const normalizeReleaseDate = (value: unknown): string | null => {
+  const raw = String(value ?? "").trim();
+  if (!raw) return null;
+
+  if (/^-?\d{1,4}$/.test(raw)) {
+    const year = Number(raw);
+    if (!Number.isFinite(year) || year < 1800 || year > 2100) return null;
+    return `${String(year).padStart(4, "0")}-01-01`;
+  }
+
+  const datePart = raw.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return null;
+
+  const parsed = new Date(`${datePart}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (parsed.toISOString().slice(0, 10) !== datePart) return null;
+
+  return datePart;
+};
+
 async function fetchCatalogPage(apiType: ApiType, page: number) {
   const url = `${CINEVEO_API}?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=${apiType}&page=${page}`;
   const res = await fetch(url, {
@@ -75,7 +95,7 @@ function buildRows(items: any[], apiType: ApiType) {
         overview: item?.synopsis || item?.overview || item?.description || "",
         poster_path: item?.poster_path || item?.poster || null,
         backdrop_path: item?.backdrop_path || item?.backdrop || null,
-        release_date: item?.release_date || item?.first_air_date || item?.year || null,
+        release_date: normalizeReleaseDate(item?.release_date || item?.first_air_date || item?.year),
         vote_average: item?.vote_average || item?.rating || 0,
         imdb_id: item?.imdb_id || null,
         status: "published",

@@ -19,10 +19,6 @@ export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
   // Nesses casos, mantemos URL direta para o browser carregar nativamente.
   const directHosts = [
     "cdf.lyneflix.online/vd/",
-    "cinetvembed.cineveo.site/",
-    "cdn.cineveo.site/",
-    "cineveo.site/movie/",
-    "cineveo.site/series/",
   ];
   if (directHosts.some((h) => rawUrl.includes(h))) return rawUrl;
 
