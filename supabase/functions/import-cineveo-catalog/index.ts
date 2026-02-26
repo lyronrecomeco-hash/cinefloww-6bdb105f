@@ -11,7 +11,9 @@ const CINEVEO_USER = "lyneflix-vods";
 const CINEVEO_PASS = "uVljs2d";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
-const PAGE_BATCH_PER_RUN = 25;
+const PAGE_BATCH_PER_RUN = 8;
+const BRUTE_PAGE_BATCH_PER_RUN = 12;
+const MAX_PAGE_ERRORS_PER_RUN = 5;
 
 type ApiType = "movies" | "series";
 
@@ -22,6 +24,7 @@ type CatalogState = {
   imported_content_total: number;
   imported_cache_total: number;
   processed_pages: number;
+  failed_pages: number;
 };
 
 const normalizeAudio = (value?: string): "dublado" | "legendado" | "cam" => {
@@ -183,20 +186,33 @@ Deno.serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
 
-    const state: CatalogState = {
+    const reset = !!body.reset;
+    const brute = !!body.brute;
+
+    const baseState: CatalogState = {
       types: (body.types || ["movies", "series"]).filter((t: string) => t === "movies" || t === "series"),
       type_index: Number(body.type_index || 0) || 0,
       page: Number(body.page || 1) || 1,
       imported_content_total: Number(body.imported_content_total || 0) || 0,
       imported_cache_total: Number(body.imported_cache_total || 0) || 0,
       processed_pages: Number(body.processed_pages || 0) || 0,
+      failed_pages: Number(body.failed_pages || 0) || 0,
     };
+
+    const state: CatalogState = reset
+      ? { ...baseState, type_index: 0, page: 1, imported_content_total: 0, imported_cache_total: 0, processed_pages: 0, failed_pages: 0 }
+      : baseState;
 
     if (!state.types.length) state.types = ["movies", "series"];
 
     await saveProgress("syncing", state as unknown as Record<string, unknown>);
 
-    const pagesThisRun = Number(body.pages_per_run || PAGE_BATCH_PER_RUN) || PAGE_BATCH_PER_RUN;
+    const requestedPages = Number(body.pages_per_run || 0);
+    const pagesThisRun = requestedPages > 0
+      ? requestedPages
+      : brute
+        ? BRUTE_PAGE_BATCH_PER_RUN
+        : PAGE_BATCH_PER_RUN;
     let currentType = state.types[state.type_index] || "movies";
     let currentPage = state.page;
 
@@ -205,8 +221,30 @@ Deno.serve(async (req) => {
 
     let emptyStreakForType = 0;
 
+    let pageErrorsThisRun = 0;
+
     for (let processed = 0; processed < pagesThisRun; processed++) {
-      const pageData = await fetchCatalogPage(currentType, currentPage);
+      let pageData: Awaited<ReturnType<typeof fetchCatalogPage>> | null = null;
+
+      try {
+        pageData = await fetchCatalogPage(currentType, currentPage);
+      } catch (err) {
+        pageErrorsThisRun += 1;
+        state.failed_pages += 1;
+
+        await saveProgress("syncing", {
+          ...state,
+          current_type: currentType,
+          current_page: currentPage,
+          page_errors_this_run: pageErrorsThisRun,
+          last_error: err instanceof Error ? err.message : String(err),
+        });
+
+        currentPage += 1;
+        if (pageErrorsThisRun >= MAX_PAGE_ERRORS_PER_RUN) break;
+        continue;
+      }
+
       const { contentRows, cacheRows } = buildRows(pageData.items, currentType);
 
       if (pageData.items.length === 0) emptyStreakForType += 1;
@@ -235,6 +273,7 @@ Deno.serve(async (req) => {
         total_pages_for_type: pageData.totalPages,
         total_items_for_type: pageData.totalItems,
         empty_streak_for_type: emptyStreakForType,
+        page_errors_this_run: pageErrorsThisRun,
       });
 
       const reachedEndByPagination = !!pageData.totalPages && currentPage >= pageData.totalPages;
@@ -261,6 +300,7 @@ Deno.serve(async (req) => {
             imported_content_total: state.imported_content_total,
             imported_cache_total: state.imported_cache_total,
             processed_pages: state.processed_pages,
+            failed_pages: state.failed_pages,
           }), {
             headers: { ...corsHeaders, "Content-Type": "application/json" },
           });
@@ -286,9 +326,12 @@ Deno.serve(async (req) => {
         type_index: state.type_index,
         page: currentPage,
         pages_per_run: pagesThisRun,
+        brute,
+        reset: false,
         imported_content_total: state.imported_content_total,
         imported_cache_total: state.imported_cache_total,
         processed_pages: state.processed_pages,
+        failed_pages: state.failed_pages,
       }),
     }).catch(() => {});
 
@@ -302,6 +345,7 @@ Deno.serve(async (req) => {
       imported_content_total: state.imported_content_total,
       imported_cache_total: state.imported_cache_total,
       processed_pages: state.processed_pages,
+      failed_pages: state.failed_pages,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
