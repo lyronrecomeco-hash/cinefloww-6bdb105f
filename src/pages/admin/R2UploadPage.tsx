@@ -106,11 +106,14 @@ const R2UploadPage = () => {
         xhr.send(item.file);
       });
 
+      const finalUrl = `https://lyneflix.online/${presignData.key}`;
       setUploads(prev => prev.map(u => u.id === item.id ? {
-        ...u, status: "done", progress: 100, key: presignData.key, public_url: presignData.public_url
+        ...u, status: "done", progress: 100, key: presignData.key, public_url: finalUrl
       } : u));
 
-      toast({ title: "Upload concluído", description: item.file.name });
+      // Auto-copy final URL
+      try { await navigator.clipboard.writeText(finalUrl); } catch {}
+      toast({ title: "✅ Upload concluído!", description: `Link copiado: ${finalUrl}` });
     } catch (err: any) {
       setUploads(prev => prev.map(u => u.id === item.id ? { ...u, status: "error", error: err.message } : u));
       toast({ title: "Erro no upload", description: err.message, variant: "destructive" });
@@ -339,20 +342,32 @@ const R2UploadPage = () => {
                     </div>
                   )}
                 </div>
+                {u.status === "done" && u.public_url && (
+                  <div className="flex-1 min-w-0 mt-1">
+                    <div className="flex items-center gap-1.5 bg-black/30 rounded px-2 py-1">
+                      <span className="text-[11px] text-primary truncate flex-1">{u.public_url}</span>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(u.public_url!);
+                          toast({ title: "Link copiado!" });
+                        }}
+                        className="text-[10px] text-primary font-bold shrink-0 hover:underline"
+                      >
+                        COPIAR
+                      </button>
+                      <button
+                        onClick={() => {
+                          setManualUrl(u.public_url!);
+                          toast({ title: "URL pronta para indexar" });
+                        }}
+                        className="text-[10px] text-primary/70 shrink-0 hover:underline"
+                      >
+                        INDEXAR
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center gap-2">
-                  {u.status === "done" && (
-                    <button
-                      onClick={() => {
-                        if (u.public_url) {
-                          setManualUrl(u.public_url);
-                          toast({ title: "URL copiada para indexação" });
-                        }
-                      }}
-                      className="text-xs text-primary hover:underline"
-                    >
-                      Indexar
-                    </button>
-                  )}
                   {u.status === "pending" && <button onClick={() => uploadFile(u)} className="text-xs text-primary">Enviar</button>}
                   {u.status === "uploading" && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
                   {u.status === "done" && <CheckCircle className="w-4 h-4 text-primary" />}
@@ -381,13 +396,14 @@ const R2UploadPage = () => {
                 </div>
                 <button
                   onClick={() => {
-                    const url = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.supabase.co/functions/v1/upload-r2`;
-                    setManualUrl(f.key);
-                    toast({ title: "Key copiada", description: f.key });
+                    const url = `https://lyneflix.online/${f.key}`;
+                    navigator.clipboard.writeText(url);
+                    setManualUrl(url);
+                    toast({ title: "Link copiado!", description: url });
                   }}
                   className="text-xs text-primary hover:underline"
                 >
-                  Usar
+                  Copiar Link
                 </button>
                 <button onClick={() => deleteR2File(f.key)} className="text-muted-foreground hover:text-destructive">
                   <Trash2 className="w-4 h-4" />
