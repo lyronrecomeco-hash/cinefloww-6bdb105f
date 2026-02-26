@@ -1,6 +1,6 @@
 {
   "rewrites": [
-    { "source": "/vd/:path*", "destination": "https://9ac3a98b47868b3da1233701107390a6.r2.cloudflarestorage.com/lyne/vd/:path*" },
+    { "source": "/vd/:path*", "destination": "https://cdn.lyneflix.online/vd/:path*" },
     { "source": "/vps/:path*", "destination": "http://147.93.12.83:3377/:path*" },
     { "source": "/v/a/:path*", "destination": "https://cdn.cineveo.site/:path*" },
     { "source": "/v/b/:path*", "destination": "https://watch.brstream.cc/:path*" },
@@ -15,6 +15,50 @@
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    },
+    {
+      "source": "/assets/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/(.*)\\.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/(.*)\\.css",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/(.*)\\.woff2?",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/(.*)\\.(?:png|jpg|jpeg|webp|avif|svg|ico)",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    },
+    {
+      "source": "/index.html",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
     {
       "source": "/vps/(.*)",
       "headers": [

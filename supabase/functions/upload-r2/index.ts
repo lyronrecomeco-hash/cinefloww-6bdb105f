@@ -135,9 +135,9 @@ async function presignPut(key: string, contentType: string, expiresIn = 3600): P
   return url.toString();
 }
 
-// Public URL via custom domain
+// Public URL via custom CDN domain
 function getPublicUrl(key: string): string {
-  return `https://lyneflix.online/${key}`;
+  return `https://cdn.lyneflix.online/${key}`;
 }
 
 Deno.serve(async (req) => {
