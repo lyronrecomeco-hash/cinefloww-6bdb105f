@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Database, Film, Tv, Loader2, Play, RefreshCw, CheckCircle, XCircle, Search, ExternalLink, Link2, X, Upload, Zap } from "lucide-react";
@@ -164,26 +164,27 @@ const BancoPage = () => {
     checkOngoingImport();
   }, []);
 
-  // Realtime for stats updates
+  // Debounced stat refresh to prevent flickering during mass operations
+  const realtimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debouncedLoadStats = useCallback(() => {
+    if (realtimeTimer.current) clearTimeout(realtimeTimer.current);
+    realtimeTimer.current = setTimeout(() => {
+      loadStats();
+    }, 2000); // 2s debounce — batches rapid changes
+  }, [loadStats]);
+
+  // Realtime for stats updates (debounced)
   useEffect(() => {
     const channel = supabase
       .channel('banco-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'video_cache' }, () => {
-        // Reload precise stats
-        loadStats();
-      })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'content' }, () => {
-        loadStats();
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'video_cache' }, () => {
-        loadStats();
-      })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'content' }, () => {
-        loadStats();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'video_cache' }, debouncedLoadStats)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'content' }, debouncedLoadStats)
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [loadStats]);
+    return () => {
+      if (realtimeTimer.current) clearTimeout(realtimeTimer.current);
+      supabase.removeChannel(channel);
+    };
+  }, [debouncedLoadStats]);
 
   // Poll import progress
   useEffect(() => {
