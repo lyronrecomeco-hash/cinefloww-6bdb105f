@@ -318,6 +318,18 @@ var server = http.createServer(async function(req, res) {
     return sendJson(res, { queued: items.length, message: "Processing in background" });
   }
 
+  // ── Trigger CineVeo catalog sync ──
+  if (path === "/api/trigger-cineveo" && req.method === "POST") {
+    console.log("[api-server] 🎬 Triggering CineVeo catalog sync via PM2...");
+    try {
+      var { execSync } = await import("child_process");
+      execSync("pm2 restart cineveo-catalog", { encoding: "utf-8" });
+      return sendJson(res, { message: "CineVeo catalog sync triggered", status: "ok" });
+    } catch(e) {
+      return sendJson(res, { message: "Trigger sent", error: e.message });
+    }
+  }
+
   // ── 404 ──
   sendJson(res, { error: "Not found" }, 404);
 });
@@ -905,7 +917,7 @@ async function main() {
 main().catch(console.error);
 SCRIPTEOF
 
-# ── cineveo-catalog.mjs — Auto-sync CineVeo API catalog every 4h ──
+# ── cineveo-catalog.mjs — Full pagination CineVeo API sync (VPS-heavy) ──
 cat > scripts/cineveo-catalog.mjs << 'SCRIPTEOF'
 import { createClient } from "@supabase/supabase-js";
 import { config } from "dotenv";
@@ -915,121 +927,174 @@ var sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROL
 var CINEVEO_API = "https://cinetvembed.cineveo.site/api/catalog.php";
 var CINEVEO_USER = "lyneflix-vods";
 var CINEVEO_PASS = "uVljs2d";
-var TMDB_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI1MDFiOWNkYjllNDQ0NjkxMDJiODk5YjQ0YjU2MWQ5ZCIsIm5iZiI6MTc3MTIzMDg1My43NjYsInN1YiI6IjY5OTJkNjg1NzZjODAxNTdmMjFhZjMxMSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.c47JvphccOz_oyaUuQWCHQ1mXAsSH01OB14vKE2uenw";
+var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
-async function main() {
-  console.log("[cineveo-catalog] Starting catalog sync...");
-  var allItems = [];
+function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
 
-  for (var apiType of ["movies", "series"]) {
-    try {
-      var url = CINEVEO_API + "?username=" + CINEVEO_USER + "&password=" + CINEVEO_PASS + "&type=" + apiType;
-      console.log("[cineveo-catalog] Fetching " + apiType + "...");
-      var res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" }, signal: AbortSignal.timeout(30000) });
-      if (!res.ok) { console.log("[cineveo-catalog] " + apiType + " returned " + res.status); continue; }
-      var data = await res.json();
-      var items = Array.isArray(data) ? data : (data.results || data.data || data.items || []);
-      console.log("[cineveo-catalog] " + apiType + ": " + items.length + " items");
-
-      for (var item of items) {
-        var tmdbId = item.tmdb_id || item.tmdbId || item.id;
-        if (!tmdbId) continue;
-        allItems.push({
-          tmdb_id: Number(tmdbId),
-          content_type: apiType === "movies" ? "movie" : "series",
-          stream_url: item.stream_url || item.streamUrl || item.url || item.video_url || item.link || null,
-          title: item.title || item.name || ("TMDB " + tmdbId),
-          poster_path: item.poster_path || null,
-          backdrop_path: item.backdrop_path || null,
-          overview: item.overview || "",
-          vote_average: item.vote_average || 0,
-          release_date: item.release_date || item.first_air_date || null,
-          imdb_id: item.imdb_id || null,
-        });
-      }
-    } catch(e) { console.error("[cineveo-catalog] Error:", e.message); }
-  }
-
-  console.log("[cineveo-catalog] Total: " + allItems.length + " items");
-  if (allItems.length === 0) return;
-
-  // Get existing
-  var existingIds = new Set();
-  var off = 0;
-  while (true) {
-    var r = await sb.from("content").select("tmdb_id").range(off, off + 999);
-    if (!r.data || r.data.length === 0) break;
-    r.data.forEach(function(x) { existingIds.add(x.tmdb_id); });
-    off += 1000;
-    if (r.data.length < 1000) break;
-  }
-
-  var newItems = allItems.filter(function(i) { return !existingIds.has(i.tmdb_id); });
-  console.log("[cineveo-catalog] " + newItems.length + " new items to enrich");
-
-  // TMDB enrichment
-  var tmdbDetails = new Map();
-  var queue = newItems.slice();
-  async function worker() {
-    while (queue.length > 0) {
-      var item = queue.shift();
-      if (!item) break;
-      var type = item.content_type === "movie" ? "movie" : "tv";
-      try {
-        var r = await fetch("https://api.themoviedb.org/3/" + type + "/" + item.tmdb_id + "?language=pt-BR&append_to_response=external_ids", {
-          headers: { "Authorization": "Bearer " + TMDB_TOKEN }
-        });
-        if (r.ok) tmdbDetails.set(item.tmdb_id, await r.json());
-      } catch {}
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(5, newItems.length) }, function() { return worker(); }));
-  console.log("[cineveo-catalog] Enriched " + tmdbDetails.size + " from TMDB");
-
-  // Insert content
-  var contentRows = newItems.map(function(item) {
-    var d = tmdbDetails.get(item.tmdb_id) || {};
-    return {
-      tmdb_id: item.tmdb_id, content_type: item.content_type,
-      title: d.title || d.name || item.title,
-      original_title: d.original_title || d.original_name || null,
-      overview: d.overview || item.overview || "",
-      poster_path: d.poster_path || item.poster_path, backdrop_path: d.backdrop_path || item.backdrop_path,
-      release_date: d.release_date || d.first_air_date || item.release_date || null,
-      vote_average: d.vote_average || item.vote_average || 0,
-      imdb_id: d.imdb_id || (d.external_ids ? d.external_ids.imdb_id : null) || item.imdb_id || null,
-      runtime: d.runtime || null, number_of_seasons: d.number_of_seasons || null, number_of_episodes: d.number_of_episodes || null,
-      status: "published", featured: false, audio_type: ["dublado"],
-    };
-  });
-  var ci = 0;
-  for (var i = 0; i < contentRows.length; i += 200) {
-    var batch = contentRows.slice(i, i + 200);
-    var ur = await sb.from("content").upsert(batch, { onConflict: "tmdb_id,content_type" });
-    if (!ur.error) ci += batch.length;
-  }
-  console.log("[cineveo-catalog] Content imported: " + ci);
-
-  // Import video cache
-  var cacheRows = allItems.filter(function(i) { return i.stream_url; }).map(function(i) {
-    return {
-      tmdb_id: i.tmdb_id, content_type: i.content_type, audio_type: "dublado",
-      video_url: i.stream_url, video_type: i.stream_url.includes(".m3u8") ? "m3u8" : "mp4",
-      provider: "cineveo-api", season: 0, episode: 0,
-      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-    };
-  });
-  var vi = 0;
-  for (var i = 0; i < cacheRows.length; i += 200) {
-    var batch = cacheRows.slice(i, i + 200);
-    var ur = await sb.from("video_cache").upsert(batch, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
-    if (!ur.error) vi += batch.length;
-  }
-  console.log("[cineveo-catalog] Video cache: " + vi + " links");
-  console.log("[cineveo-catalog] ✅ Sync complete!");
+function normalizeAudio(v) {
+  v = (v || "").toLowerCase();
+  if (v.includes("dub") || v.includes("pt") || v.includes("port")) return "dublado";
+  if (v.includes("cam")) return "cam";
+  return "legendado";
 }
 
-main().catch(console.error);
+function pickStream(item) {
+  return item?.stream_url || item?.streamUrl || item?.url || item?.video_url || item?.link || item?.embed_url || null;
+}
+
+function normalizeDate(val) {
+  var raw = String(val ?? "").trim();
+  if (!raw) return null;
+  if (/^\\d{1,4}$/.test(raw)) { var y = Number(raw); return (y >= 1800 && y <= 2100) ? y + "-01-01" : null; }
+  var d = raw.slice(0, 10);
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(d)) return null;
+  return d;
+}
+
+async function saveProgress(phase, data) {
+  await sb.from("site_settings").upsert({
+    key: "cineveo_vps_progress",
+    value: { phase: phase, updated_at: new Date().toISOString(), ...data },
+  }, { onConflict: "key" });
+}
+
+async function fetchPage(apiType, page) {
+  var url = CINEVEO_API + "?username=" + CINEVEO_USER + "&password=" + CINEVEO_PASS + "&type=" + apiType + "&page=" + page;
+  var res = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(30000) });
+  if (!res.ok) throw new Error(apiType + " page " + page + " returned " + res.status);
+  var payload = await res.json();
+  var items = Array.isArray(payload) ? payload : (payload?.data || payload?.results || payload?.items || []);
+  var totalPages = Number(payload?.pagination?.total_pages || 0) || null;
+  return { items: Array.isArray(items) ? items : [], totalPages: totalPages };
+}
+
+async function main() {
+  console.log("[cineveo-catalog] ═══ Starting FULL catalog sync ═══");
+  var totalContent = 0, totalCache = 0, totalPages = 0;
+
+  for (var apiType of ["movies", "series"]) {
+    var contentType = apiType === "movies" ? "movie" : "series";
+    var page = 1;
+    var emptyStreak = 0;
+    var errors = 0;
+
+    console.log("[cineveo-catalog] Processing: " + apiType);
+
+    while (true) {
+      var pageData;
+      try {
+        pageData = await fetchPage(apiType, page);
+      } catch (e) {
+        errors++;
+        console.error("[cineveo-catalog] Page " + page + " error: " + e.message);
+        if (errors >= 5) { console.log("[cineveo-catalog] Too many errors, moving on."); break; }
+        page++;
+        await sleep(2000);
+        continue;
+      }
+
+      if (pageData.items.length === 0) { emptyStreak++; if (emptyStreak >= 2) break; page++; continue; }
+      emptyStreak = 0;
+
+      // Build content + cache rows
+      var contentRows = [];
+      var cacheRows = [];
+
+      for (var item of pageData.items) {
+        var tmdbId = Number(item?.tmdb_id || item?.tmdbId || item?.id);
+        if (!tmdbId) continue;
+
+        contentRows.push({
+          tmdb_id: tmdbId, content_type: contentType,
+          title: item?.title || item?.name || ("TMDB " + tmdbId),
+          original_title: item?.original_title || item?.original_name || null,
+          overview: item?.synopsis || item?.overview || item?.description || "",
+          poster_path: item?.poster_path || item?.poster || null,
+          backdrop_path: item?.backdrop_path || item?.backdrop || null,
+          release_date: normalizeDate(item?.release_date || item?.first_air_date || item?.year),
+          vote_average: item?.vote_average || item?.rating || 0,
+          imdb_id: item?.imdb_id || null,
+          status: "published", featured: false, audio_type: ["dublado"],
+        });
+
+        if (apiType === "movies") {
+          var streamUrl = pickStream(item);
+          if (streamUrl) {
+            cacheRows.push({
+              tmdb_id: tmdbId, content_type: "movie",
+              audio_type: normalizeAudio(item?.language || item?.audio),
+              video_url: streamUrl, video_type: streamUrl.includes(".m3u8") ? "m3u8" : "mp4",
+              provider: "cineveo-api", season: 0, episode: 0,
+              expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+            });
+          }
+        } else {
+          var episodes = Array.isArray(item?.episodes) ? item.episodes : [];
+          if (episodes.length > 0) {
+            for (var ep of episodes) {
+              var su = pickStream(ep);
+              if (!su) continue;
+              cacheRows.push({
+                tmdb_id: tmdbId, content_type: "series",
+                audio_type: normalizeAudio(ep?.language || ep?.audio || ep?.lang),
+                video_url: su, video_type: su.includes(".m3u8") ? "m3u8" : "mp4",
+                provider: "cineveo-api",
+                season: Number(ep?.season ?? ep?.temporada ?? ep?.s ?? 1) || 1,
+                episode: Number(ep?.episode ?? ep?.ep ?? ep?.e ?? 1) || 1,
+                expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+              });
+            }
+          } else {
+            var su2 = pickStream(item);
+            if (su2) {
+              cacheRows.push({
+                tmdb_id: tmdbId, content_type: "series",
+                audio_type: normalizeAudio(item?.language || item?.audio),
+                video_url: su2, video_type: su2.includes(".m3u8") ? "m3u8" : "mp4",
+                provider: "cineveo-api", season: 0, episode: 0,
+                expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
+              });
+            }
+          }
+        }
+      }
+
+      // Upsert batches
+      for (var j = 0; j < contentRows.length; j += 200) {
+        var b = contentRows.slice(j, j + 200);
+        var r = await sb.from("content").upsert(b, { onConflict: "tmdb_id,content_type" });
+        if (!r.error) totalContent += b.length;
+      }
+      for (var j = 0; j < cacheRows.length; j += 200) {
+        var b = cacheRows.slice(j, j + 200);
+        var r = await sb.from("video_cache").upsert(b, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
+        if (!r.error) totalCache += b.length;
+      }
+
+      totalPages++;
+      await saveProgress("syncing", {
+        current_type: apiType, current_page: page,
+        total_pages_for_type: pageData.totalPages,
+        content_total: totalContent, cache_total: totalCache, pages_processed: totalPages,
+      });
+
+      if (totalPages % 10 === 0) console.log("[cineveo-catalog] " + apiType + " page " + page + " — content:" + totalContent + " cache:" + totalCache);
+
+      // Check end
+      if (pageData.totalPages && page >= pageData.totalPages) break;
+      page++;
+      await sleep(500); // rate limit
+    }
+  }
+
+  await saveProgress("done", { done: true, content_total: totalContent, cache_total: totalCache, pages_processed: totalPages });
+  console.log("[cineveo-catalog] ═══ DONE: " + totalContent + " content, " + totalCache + " links, " + totalPages + " pages ═══");
+}
+
+main().catch(function(e) {
+  console.error("[cineveo-catalog] Fatal:", e);
+  saveProgress("error", { error: e.message || String(e), done: true });
+});
 SCRIPTEOF
 
 # Primeiro heartbeat

@@ -130,17 +130,22 @@ const BancoPage = () => {
   }, [fetchAll]);
 
 
-  // Realtime subscription for live updates
+  // Realtime subscription for live updates (content + video_cache)
   useEffect(() => {
     const channel = supabase
-      .channel('video-cache-realtime')
+      .channel('banco-realtime')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'video_cache' }, (payload) => {
         const newItem = payload.new as any;
-        setStats(prev => ({
-          ...prev,
-          withVideo: prev.withVideo + 1,
-          withoutVideo: Math.max(0, prev.withoutVideo - 1),
-        }));
+        setStats(prev => {
+          const byProvider = { ...prev.byProvider };
+          byProvider[newItem.provider] = (byProvider[newItem.provider] || 0) + 1;
+          return {
+            ...prev,
+            withVideo: prev.withVideo + 1,
+            withoutVideo: Math.max(0, prev.withoutVideo - 1),
+            byProvider,
+          };
+        });
         setVideoStatuses(prev => {
           const next = new Map(prev);
           next.set(newItem.tmdb_id, {
@@ -152,9 +157,29 @@ const BancoPage = () => {
           });
           return next;
         });
+        setIptvDbStats(prev => ({ ...prev, links: prev.links + 1 }));
         if (resolving) {
           setResolveProgress(prev => ({ ...prev, current: prev.current + 1 }));
         }
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'content' }, () => {
+        setStats(prev => ({ ...prev, total: prev.total + 1, withoutVideo: prev.withoutVideo + 1 }));
+        setIptvDbStats(prev => ({ ...prev, content: prev.content + 1 }));
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'video_cache' }, (payload) => {
+        const old = payload.old as any;
+        if (old?.tmdb_id) {
+          setStats(prev => ({
+            ...prev,
+            withVideo: Math.max(0, prev.withVideo - 1),
+            withoutVideo: prev.withoutVideo + 1,
+          }));
+          setIptvDbStats(prev => ({ ...prev, links: Math.max(0, prev.links - 1) }));
+        }
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'content' }, () => {
+        setStats(prev => ({ ...prev, total: Math.max(0, prev.total - 1) }));
+        setIptvDbStats(prev => ({ ...prev, content: Math.max(0, prev.content - 1) }));
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -419,41 +444,67 @@ const BancoPage = () => {
   }, []);
   useEffect(() => { loadIptvDbStats(); }, [loadIptvDbStats]);
 
-  // CineVeo unified import — uses import-iptv with JSON API rotation
+  // CineVeo unified import — VPS-first, Cloud fallback
   const startIptvImport = async () => {
     setIptvImporting(true);
     setIptvProgress({ phase: "syncing", entries: 0, valid: 0, cache: 0, content: 0, done: false });
-    supabase.functions.invoke("import-iptv", {
-      body: { reset: true, pages_per_run: 15 },
-    }).catch(() => {});
+
+    // Check if VPS is online for heavy lifting
+    await initVpsClient();
+    const vpsUrl = getVpsUrl();
+    const vpsAvailable = isVpsOnline() && !!vpsUrl;
+
+    if (vpsAvailable) {
+      // Trigger VPS cineveo-catalog worker directly
+      toast({ title: "⚡ VPS Online", description: "Importação pesada sendo processada na VPS..." });
+      try {
+        await fetch(`${vpsUrl}/api/trigger-cineveo`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: AbortSignal.timeout(10_000),
+        }).catch(() => {});
+      } catch { /* VPS will process */ }
+    } else {
+      // Cloud fallback
+      toast({ title: "☁️ Cloud Mode", description: "VPS offline, usando Cloud..." });
+      supabase.functions.invoke("import-iptv", {
+        body: { reset: true, pages_per_run: 15 },
+      }).catch(() => {});
+    }
   };
 
-  // Poll progress
+  // Poll progress from both VPS and Cloud sources
   useEffect(() => {
     if (!iptvImporting) return;
     const interval = setInterval(async () => {
-      const { data } = await supabase.from("site_settings").select("value").eq("key", "iptv_import_progress").maybeSingle();
-      if (data?.value) {
-        const p = data.value as any;
-        setIptvProgress({
-          phase: p.phase || "syncing",
-          entries: p.processed_pages || 0,
-          valid: p.total_items_for_type || 0,
-          cache: p.imported_cache_total || 0,
-          content: p.imported_content_total || 0,
-          done: p.done || false,
-        });
-        if (p.done) {
-          clearInterval(interval);
-          setIptvImporting(false);
-          if (p.phase === "error") {
-            toast({ title: "Erro CineVeo", description: p.error || "Falha na importação", variant: "destructive" });
-          } else {
-            toast({ title: "✅ Importação CineVeo concluída", description: `${p.imported_cache_total || 0} links, ${p.imported_content_total || 0} conteúdos` });
-          }
-          fetchAll();
-          loadIptvDbStats();
+      // Check VPS progress first, then Cloud
+      const [vpsProgress, cloudProgress] = await Promise.all([
+        supabase.from("site_settings").select("value").eq("key", "cineveo_vps_progress").maybeSingle(),
+        supabase.from("site_settings").select("value").eq("key", "iptv_import_progress").maybeSingle(),
+      ]);
+
+      const p = (vpsProgress.data?.value || cloudProgress.data?.value) as any;
+      if (!p) return;
+
+      setIptvProgress({
+        phase: p.phase || "syncing",
+        entries: p.pages_processed || p.processed_pages || 0,
+        valid: p.total_pages_for_type || 0,
+        cache: p.cache_total || p.imported_cache_total || 0,
+        content: p.content_total || p.imported_content_total || 0,
+        done: p.done || false,
+      });
+
+      if (p.done) {
+        clearInterval(interval);
+        setIptvImporting(false);
+        if (p.phase === "error") {
+          toast({ title: "Erro CineVeo", description: p.error || "Falha na importação", variant: "destructive" });
+        } else {
+          toast({ title: "✅ Importação CineVeo concluída", description: `${p.cache_total || p.imported_cache_total || 0} links, ${p.content_total || p.imported_content_total || 0} conteúdos` });
         }
+        fetchAll();
+        loadIptvDbStats();
       }
     }, 2000);
     return () => clearInterval(interval);
