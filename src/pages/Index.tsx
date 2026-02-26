@@ -46,29 +46,29 @@ const Index = () => {
         media_type: "tv" as const,
       }));
 
-    // Load ALL sections in parallel for maximum speed
+    // Load TMDB rows first (fast), then catalog rows (may be slow)
     Promise.all([
       getTrending().catch(() => ({ results: [] })),
       getNowPlayingMovies().catch(() => ({ results: [] })),
       getAiringTodaySeries().catch(() => ({ results: [] })),
       getPopularMovies().catch(() => ({ results: [] })),
       getPopularSeries().catch(() => ({ results: [] })),
-      fetchCatalogRow("dorama", 20).catch(() => []),
-      fetchCatalogRow("anime", 20).catch(() => []),
-    ]).then(([t, np, at, pm, ps, doramaItems, animeItems]) => {
+    ]).then(([t, np, at, pm, ps]) => {
       setTrending(t.results);
       const launches = [...np.results.slice(0, 10), ...at.results.slice(0, 10)];
       setNowPlaying(sortByYear(launches));
       setPopularMovies(sortByYear(pm.results));
       setPopularSeries(sortByYear(ps.results));
-      setDoramas(mapToTMDB(doramaItems as any[]));
-      setAnimes(mapToTMDB(animeItems as any[]));
       setLoading(false);
       setSectionsReady(true);
     }).catch(() => {
       setLoading(false);
       setSectionsReady(true);
     });
+
+    // Load catalog rows separately (non-blocking)
+    fetchCatalogRow("dorama", 20).then(items => setDoramas(mapToTMDB(items))).catch(() => {});
+    fetchCatalogRow("anime", 20).then(items => setAnimes(mapToTMDB(items))).catch(() => {});
   }, []);
 
   if (loading) {
