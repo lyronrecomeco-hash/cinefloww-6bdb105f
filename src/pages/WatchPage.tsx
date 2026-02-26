@@ -100,12 +100,12 @@ const WatchPage = () => {
 
   // Load audio types
   useEffect(() => {
-    const cType = type === "movie" ? "movie" : "series";
+    const cTypes = type === "movie" ? ["movie"] : ["series", "tv"];
     supabase
       .from("content")
       .select("audio_type")
       .eq("tmdb_id", Number(id))
-      .eq("content_type", cType)
+      .in("content_type", cTypes)
       .maybeSingle()
       .then(({ data }) => {
         const dbTypes = data?.audio_type?.length ? data.audio_type : [];
@@ -120,7 +120,7 @@ const WatchPage = () => {
     if (extractionStarted.current && !skipCache) return;
     extractionStarted.current = true;
 
-    const cType = isMovie ? "movie" : "series";
+    const cTypes = isMovie ? ["movie"] : ["series", "tv"];
     const aType = selectedAudio || "legendado";
 
     // 1. FAST: Check client-side cache first (direct DB query)
@@ -130,14 +130,14 @@ const WatchPage = () => {
           .from("video_cache")
           .select("video_url, video_type, provider")
           .eq("tmdb_id", Number(id))
-          .eq("content_type", cType)
+          .in("content_type", cTypes)
           .eq("audio_type", aType)
           .gt("expires_at", new Date().toISOString());
 
         if (season) query = query.eq("season", season);
-        else query = query.is("season", null);
+        else query = query.eq("season", 0);
         if (episode) query = query.eq("episode", episode);
-        else query = query.is("episode", null);
+        else query = query.eq("episode", 0);
 
         const { data: cachedRows } = await query.order("created_at", { ascending: false }).limit(5);
         const cached = cachedRows?.[0] || null;
@@ -169,20 +169,21 @@ const WatchPage = () => {
         .from("video_cache")
         .delete()
         .eq("tmdb_id", Number(id))
-        .eq("content_type", cType)
+        .in("content_type", cTypes)
         .eq("audio_type", aType);
       if (season) delQuery = delQuery.eq("season", season);
-      else delQuery = delQuery.is("season", null);
+      else delQuery = delQuery.eq("season", 0);
       if (episode) delQuery = delQuery.eq("episode", episode);
-      else delQuery = delQuery.is("episode", null);
+      else delQuery = delQuery.eq("episode", 0);
       await delQuery;
     }
 
     // 2. Call extract-video edge function
+    const extractCType = isMovie ? "movie" : "tv";
     try {
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 25000));
       const extractPromise = supabase.functions.invoke("extract-video", {
-        body: { tmdb_id: Number(id), imdb_id: imdbId, content_type: cType, audio_type: aType, season, episode },
+        body: { tmdb_id: Number(id), imdb_id: imdbId, content_type: extractCType, audio_type: aType, season, episode },
       });
 
       const { data, error: fnError } = await Promise.race([extractPromise, timeoutPromise]) as any;

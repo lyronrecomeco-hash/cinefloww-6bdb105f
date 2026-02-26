@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { syncContentAudioType } from "@/lib/syncContentAudioType";
 import { Upload, Trash2, Film, Tv, Loader2, CheckCircle, XCircle, Cloud, HardDrive, Search, Link } from "lucide-react";
 import { searchMulti } from "@/services/tmdb";
 
@@ -160,7 +161,7 @@ const R2UploadPage = () => {
 
     setIndexingManual(true);
     try {
-      const contentType = selectedTmdb.media_type === "movie" ? "movie" : "series";
+      const contentType = selectedTmdb.media_type === "movie" ? "movie" : "tv";
       const { error } = await supabase.functions.invoke("upload-r2", {
         body: {
           action: "index",
@@ -177,9 +178,11 @@ const R2UploadPage = () => {
 
       if (error) throw error;
       toast({ title: "✅ Indexado com sucesso!", description: `${selectedTmdb.title || selectedTmdb.name} → video_cache` });
+      // Sync content.audio_type
+      syncContentAudioType(selectedTmdb.id, contentType);
       
       // Auto-increment episode for series
-      if (contentType === "series") {
+      if (contentType !== "movie") {
         setIndexForm(prev => ({ ...prev, episode: prev.episode + 1 }));
       }
       setManualUrl("");

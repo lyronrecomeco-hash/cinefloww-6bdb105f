@@ -8,6 +8,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { searchMulti, getMovieDetails, getSeriesDetails, getSeasonDetails, posterUrl, TMDBMovie, TMDBMovieDetail } from "@/services/tmdb";
 import CustomPlayer from "@/components/CustomPlayer";
+import { syncContentAudioType } from "@/lib/syncContentAudioType";
 
 /* ──────────── Sem Vídeo 2026 Tab ──────────── */
 interface NoVideoItem {
@@ -100,6 +101,8 @@ const NoVideo2026Tab = () => {
       toast({ title: "Erro ao salvar", description: error.message, variant: "destructive" });
     } else {
       toast({ title: "✅ Link salvo!" });
+      // Sync content.audio_type
+      syncContentAudioType(modalItem.tmdb_id, contentType);
       if (isMovie) {
         // Remove from list
         setMovies(prev => prev.filter(m => m.tmdb_id !== modalItem.tmdb_id));
@@ -542,6 +545,8 @@ const ContentSourcesPage = () => {
     });
     setManualInput(null);
     toast({ title: "✅ Link salvo!", description: "Vídeo indexado com sucesso" });
+    // Sync content.audio_type
+    syncContentAudioType(selectedItem.id, contentType);
   };
 
   const deleteVideoCache = async (key: string) => {
