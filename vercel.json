@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/vd/:path*", "destination": "https://9ac3a98b47868b3da1233701107390a6.r2.cloudflarestorage.com/lyne/vd/:path*" },
     { "source": "/vps/:path*", "destination": "http://147.93.12.83:3377/:path*" },
     { "source": "/v/a/:path*", "destination": "https://cdn.cineveo.site/:path*" },
     { "source": "/v/b/:path*", "destination": "https://watch.brstream.cc/:path*" },
@@ -28,6 +29,15 @@
         { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
         { "key": "Cache-Control", "value": "private, no-store" },
         { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    },
+    {
+      "source": "/vd/(.*)",
+      "headers": [
+        { "key": "X-Robots-Tag", "value": "noindex, nofollow" },
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
       ]
     },
     {

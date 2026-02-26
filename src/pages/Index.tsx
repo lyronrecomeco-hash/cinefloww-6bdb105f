@@ -46,33 +46,29 @@ const Index = () => {
         media_type: "tv" as const,
       }));
 
-    const loadDoramas = () =>
-      fetchCatalogRow("dorama", 20).then((items) => setDoramas(mapToTMDB(items)));
-
-    const loadAnimes = () =>
-      fetchCatalogRow("anime", 20).then((items) => setAnimes(mapToTMDB(items)));
-
-    // Load hero first for fast perceived load
-    getTrending().then((t) => {
-      setTrending(t.results);
-      setLoading(false);
-    }).catch(() => setLoading(false));
-
-    // Load sections in parallel after hero
+    // Load ALL sections in parallel for maximum speed
     Promise.all([
-      getNowPlayingMovies(),
-      getAiringTodaySeries(),
-      getPopularMovies(),
-      getPopularSeries(),
-      loadDoramas(),
-      loadAnimes(),
-    ]).then(([np, at, pm, ps]) => {
+      getTrending().catch(() => ({ results: [] })),
+      getNowPlayingMovies().catch(() => ({ results: [] })),
+      getAiringTodaySeries().catch(() => ({ results: [] })),
+      getPopularMovies().catch(() => ({ results: [] })),
+      getPopularSeries().catch(() => ({ results: [] })),
+      fetchCatalogRow("dorama", 20).catch(() => []),
+      fetchCatalogRow("anime", 20).catch(() => []),
+    ]).then(([t, np, at, pm, ps, doramaItems, animeItems]) => {
+      setTrending(t.results);
       const launches = [...np.results.slice(0, 10), ...at.results.slice(0, 10)];
       setNowPlaying(sortByYear(launches));
       setPopularMovies(sortByYear(pm.results));
       setPopularSeries(sortByYear(ps.results));
+      setDoramas(mapToTMDB(doramaItems as any[]));
+      setAnimes(mapToTMDB(animeItems as any[]));
+      setLoading(false);
       setSectionsReady(true);
-    }).catch(() => setSectionsReady(true));
+    }).catch(() => {
+      setLoading(false);
+      setSectionsReady(true);
+    });
   }, []);
 
   if (loading) {
