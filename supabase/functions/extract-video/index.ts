@@ -219,28 +219,37 @@ Deno.serve(async (req) => {
     const keyEpisode = episode || 0;
     const cacheTypes = cType === "tv" ? ["tv", "series"] : [cType];
 
-    // 0. Manual sempre vence: nunca sobrescrever com extração automática
+    // 0. Cache com prioridade para provedores automáticos (CineVeo).
+    // Manual vira fallback quando houver link automático válido para o mesmo episódio.
     if (!force_provider) {
-      const { data: manualRows } = await supabase
+      const { data: cachedRows } = await supabase
         .from("video_cache")
-        .select("video_url, video_type, provider")
+        .select("video_url, video_type, provider, created_at")
         .eq("tmdb_id", tmdb_id)
         .in("content_type", cacheTypes)
         .eq("audio_type", aType)
         .eq("season", keySeason)
         .eq("episode", keyEpisode)
-        .eq("provider", "manual")
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: false })
-        .limit(1);
+        .limit(20);
 
-      const manual = manualRows?.[0];
-      if (manual?.video_url) {
-        console.log(`[extract] Manual preserved for tmdb_id=${tmdb_id} s=${keySeason} e=${keyEpisode}`);
+      const providerRank = (provider?: string) => {
+        const p = (provider || "").toLowerCase();
+        if (p === "cineveo-api") return 120;
+        if (p === "cineveo") return 110;
+        if (p === "mega") return 95;
+        if (p === "manual") return 40;
+        return 70;
+      };
+
+      const bestCached = (cachedRows || []).sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
+      if (bestCached?.video_url) {
+        console.log(`[extract] Cache hit for tmdb_id=${tmdb_id} provider=${bestCached.provider}`);
         return new Response(JSON.stringify({
-          url: manual.video_url,
-          type: manual.video_type,
-          provider: "manual",
+          url: bestCached.video_url,
+          type: bestCached.video_type,
+          provider: bestCached.provider,
           cached: true,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
@@ -273,28 +282,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 1. Check cache (manual tem prioridade se houver duplicidade)
-    if (!force_provider) {
-      const { data: cachedRows } = await supabase
-        .from("video_cache")
-        .select("video_url, video_type, provider, created_at")
-        .eq("tmdb_id", tmdb_id)
-        .in("content_type", cacheTypes)
-        .eq("audio_type", aType)
-        .eq("season", keySeason)
-        .eq("episode", keyEpisode)
-        .gt("expires_at", new Date().toISOString())
-        .order("created_at", { ascending: false })
-        .limit(10);
-
-      const cached = (cachedRows || []).find((row: any) => row.provider === "manual") || cachedRows?.[0] || null;
-      if (cached) {
-        console.log(`[extract] Cache hit for tmdb_id=${tmdb_id} provider=${cached.provider}`);
-        return new Response(JSON.stringify({
-          url: cached.video_url, type: cached.video_type, provider: cached.provider, cached: true,
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-    }
 
     // 2. Try CineVeo Catalog API (sole provider)
     let videoUrl: string | null = null;

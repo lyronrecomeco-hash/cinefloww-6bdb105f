@@ -448,7 +448,7 @@ const ContentSourcesPage = () => {
       .order("created_at", { ascending: false });
 
     const map = new Map<string, { url: string; type: string; provider: string }>();
-    const providerRank = (provider: string) => (provider === "manual" ? 100 : provider === "mega" ? 90 : 10);
+    const providerRank = (provider: string) => (provider === "cineveo-api" ? 120 : provider === "cineveo" ? 110 : provider === "mega" ? 90 : provider === "manual" ? 40 : 70);
 
     data?.forEach((d: any) => {
       const key = d.season != null ? `${d.season}-${d.episode}` : "movie";
@@ -742,9 +742,9 @@ const ContentSourcesPage = () => {
         )}
         <button
           onClick={() => extractVideo(tmdbId, type, season, episode)}
-          disabled={isExtracting || status?.provider === "manual"}
+          disabled={isExtracting}
           className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10 disabled:opacity-50"
-          title={status?.provider === "manual" ? "Link manual protegido (não sobrescrever)" : "Extrair das fontes"}
+          title="Extrair das fontes"
         >
           {isExtracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
         </button>
