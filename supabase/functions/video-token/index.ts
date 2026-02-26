@@ -57,16 +57,29 @@ function getClientUA(req: Request): string {
   return (req.headers.get("user-agent") || "unknown").substring(0, 150);
 }
 
-// Build first-party stream URL using client origin
+// Build stream URL. Use first-party /b proxy only on domains that actually route /b.
 function buildStreamUrl(req: Request, token: string): string {
-  const clientOrigin = req.headers.get("origin") || req.headers.get("referer")?.replace(/\/[^/]*$/, "") || "";
+  const originHeader = req.headers.get("origin") || req.headers.get("referer") || "";
+  let origin = "";
+  let host = "";
+  try {
+    const parsed = new URL(originHeader);
+    origin = parsed.origin;
+    host = parsed.hostname;
+  } catch {}
+
   const streamPath = `/functions/v1/video-token?action=stream&t=${encodeURIComponent(token)}`;
-  
-  // Always prefer client origin to fully mask backend
-  if (clientOrigin && !clientOrigin.includes("supabase")) {
-    return `${clientOrigin}/b${streamPath}`;
+
+  // Only custom first-party domains with configured /b proxy should use cloaked URL.
+  const canUseProxy = !!host && (
+    host === "lyneflix.online" || host.endsWith(".lyneflix.online")
+  );
+
+  if (canUseProxy && origin) {
+    return `${origin}/b${streamPath}`;
   }
-  // Fallback to supabase URL (only in dev)
+
+  // Default/fallback: direct backend URL (works in preview and lovable.app domains)
   return `${Deno.env.get("SUPABASE_URL") || ""}${streamPath}`;
 }
 
