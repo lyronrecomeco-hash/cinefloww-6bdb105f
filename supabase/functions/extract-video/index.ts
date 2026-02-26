@@ -215,6 +215,36 @@ Deno.serve(async (req) => {
     const isMovie = cType === "movie";
     const s = season || 1;
     const e = episode || 1;
+    const keySeason = season || 0;
+    const keyEpisode = episode || 0;
+    const cacheTypes = cType === "tv" ? ["tv", "series"] : [cType];
+
+    // 0. Manual sempre vence: nunca sobrescrever com extração automática
+    if (!force_provider) {
+      const { data: manualRows } = await supabase
+        .from("video_cache")
+        .select("video_url, video_type, provider")
+        .eq("tmdb_id", tmdb_id)
+        .in("content_type", cacheTypes)
+        .eq("audio_type", aType)
+        .eq("season", keySeason)
+        .eq("episode", keyEpisode)
+        .eq("provider", "manual")
+        .gt("expires_at", new Date().toISOString())
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      const manual = manualRows?.[0];
+      if (manual?.video_url) {
+        console.log(`[extract] Manual preserved for tmdb_id=${tmdb_id} s=${keySeason} e=${keyEpisode}`);
+        return new Response(JSON.stringify({
+          url: manual.video_url,
+          type: manual.video_type,
+          provider: "manual",
+          cached: true,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
 
     // ── Handle Mega.nz manual link ──
     if (mega_url) {
@@ -243,23 +273,23 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 1. Check cache
+    // 1. Check cache (manual tem prioridade se houver duplicidade)
     if (!force_provider) {
-      let query = supabase
+      const { data: cachedRows } = await supabase
         .from("video_cache")
-        .select("*")
+        .select("video_url, video_type, provider, created_at")
         .eq("tmdb_id", tmdb_id)
-        .eq("content_type", cType)
+        .in("content_type", cacheTypes)
         .eq("audio_type", aType)
-        .gt("expires_at", new Date().toISOString());
+        .eq("season", keySeason)
+        .eq("episode", keyEpisode)
+        .gt("expires_at", new Date().toISOString())
+        .order("created_at", { ascending: false })
+        .limit(10);
 
-      query = query.eq("season", season || 0);
-      query = query.eq("episode", episode || 0);
-
-      const { data: cachedRows } = await query.order("created_at", { ascending: false }).limit(1);
-      const cached = cachedRows?.[0] || null;
+      const cached = (cachedRows || []).find((row: any) => row.provider === "manual") || cachedRows?.[0] || null;
       if (cached) {
-        console.log(`[extract] Cache hit for tmdb_id=${tmdb_id}`);
+        console.log(`[extract] Cache hit for tmdb_id=${tmdb_id} provider=${cached.provider}`);
         return new Response(JSON.stringify({
           url: cached.video_url, type: cached.video_type, provider: cached.provider, cached: true,
         }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
