@@ -15,9 +15,16 @@ export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
   if (!rawUrl) return rawUrl;
   if (rawUrl.includes("action=stream") || rawUrl.includes("video-token")) return rawUrl;
 
-  // Cloudflare R2/CDF links can return anti-bot HTML when proxied via backend.
-  // Keep these links direct so the browser loads the media natively.
-  if (rawUrl.includes("cdf.lyneflix.online/vd/")) return rawUrl;
+  // Cloudflare R2/CDF links e CineVeo links diretos podem falhar via proxy/token em alguns ambientes.
+  // Nesses casos, mantemos URL direta para o browser carregar nativamente.
+  const directHosts = [
+    "cdf.lyneflix.online/vd/",
+    "cinetvembed.cineveo.site/",
+    "cdn.cineveo.site/",
+    "cineveo.site/movie/",
+    "cineveo.site/series/",
+  ];
+  if (directHosts.some((h) => rawUrl.includes(h))) return rawUrl;
 
   // Check cache
   if (_tokenCache && _tokenCache.rawUrl === rawUrl && Date.now() < _tokenCache.expires - REFRESH_MARGIN_MS) {
