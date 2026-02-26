@@ -46,15 +46,10 @@ const BancoPage = () => {
   const [playerUrlLoading, setPlayerUrlLoading] = useState(false);
   const [providerMenu, setProviderMenu] = useState<string | null>(null);
   const [resolvingItems, setResolvingItems] = useState<Set<string>>(new Set());
-  // VisionCine removed
-  // IPTV CiineVeo import state
+  // CineVeo unified import state
   const [iptvImporting, setIptvImporting] = useState(false);
   const [iptvProgress, setIptvProgress] = useState<{ phase: string; entries: number; valid: number; cache: number; content: number; done: boolean } | null>(null);
   const [iptvDbStats, setIptvDbStats] = useState<{ links: number; content: number }>({ links: 0, content: 0 });
-  // CineVeo API import state
-  const [cineveoImporting, setCineveoImporting] = useState(false);
-  const [cineveoProgress, setCineveoProgress] = useState<any>(null);
-  const [cineveoDbStats, setCineveoDbStats] = useState<{ links: number; content: number }>({ links: 0, content: 0 });
 
   // Load everything in ONE parallel blast
   const fetchAll = useCallback(async () => {
@@ -414,70 +409,27 @@ const BancoPage = () => {
 
   // VisionCine removed
 
-  // Load IPTV DB stats on mount
+  // Load CineVeo DB stats on mount (both providers combined)
   const loadIptvDbStats = useCallback(async () => {
-    const { count: linkCount } = await supabase.from("video_cache").select("*", { count: "exact", head: true }).eq("provider", "cineveo-iptv");
-    // Use a simple count approach: count content that has at least one cineveo-iptv link
-    // We use the count from the progress + actual link count for display
-    const { count: contentWithIptv } = await supabase
-      .from("content")
-      .select("*", { count: "exact", head: true });
-    setIptvDbStats({ links: linkCount || 0, content: contentWithIptv || 0 });
+    const [{ count: iptvLinks }, { count: apiLinks }, { count: contentTotal }] = await Promise.all([
+      supabase.from("video_cache").select("*", { count: "exact", head: true }).eq("provider", "cineveo-iptv"),
+      supabase.from("video_cache").select("*", { count: "exact", head: true }).eq("provider", "cineveo-api"),
+      supabase.from("content").select("*", { count: "exact", head: true }),
+    ]);
+    setIptvDbStats({ links: (iptvLinks || 0) + (apiLinks || 0), content: contentTotal || 0 });
   }, []);
   useEffect(() => { loadIptvDbStats(); }, [loadIptvDbStats]);
 
-  // CineVeo API stats
-  const loadCineveoDbStats = useCallback(async () => {
-    const { count: linkCount } = await supabase.from("video_cache").select("*", { count: "exact", head: true }).eq("provider", "cineveo-api");
-    setCineveoDbStats({ links: linkCount || 0, content: 0 });
-  }, []);
-  useEffect(() => { loadCineveoDbStats(); }, [loadCineveoDbStats]);
-
-  // CineVeo API import
-  const startCineveoImport = async () => {
-    setCineveoImporting(true);
-    setCineveoProgress({ phase: "syncing", total: 0, imported_content: 0, imported_cache: 0 });
-    supabase.functions.invoke("import-cineveo-catalog", {
-      body: { types: ["movies", "series"], brute: true, reset: true, pages_per_run: 12 },
-    }).catch(() => {});
-  };
-
-  // Poll CineVeo progress
-  useEffect(() => {
-    if (!cineveoImporting) return;
-    const interval = setInterval(async () => {
-      const { data } = await supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle();
-      if (data?.value) {
-        const p = data.value as any;
-        setCineveoProgress(p);
-        if (p.done) {
-          clearInterval(interval);
-          setCineveoImporting(false);
-          if (p.phase === "error") {
-            toast({ title: "Erro CineVeo API", description: p.error || "Falha na importação", variant: "destructive" });
-          } else {
-            toast({ title: "✅ Importação CineVeo API concluída", description: `${p.imported_content || 0} conteúdos, ${p.imported_cache || 0} links` });
-          }
-          fetchAll();
-          loadCineveoDbStats();
-        }
-      }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [cineveoImporting]);
-
-  // IPTV CineVeo — JSON API com rotação automática
+  // CineVeo unified import — uses import-iptv with JSON API rotation
   const startIptvImport = async () => {
     setIptvImporting(true);
     setIptvProgress({ phase: "syncing", entries: 0, valid: 0, cache: 0, content: 0, done: false });
-
-    // Fire once with reset — auto-chains all pages server-side
     supabase.functions.invoke("import-iptv", {
       body: { reset: true, pages_per_run: 15 },
     }).catch(() => {});
   };
 
-  // Poll IPTV progress from site_settings
+  // Poll progress
   useEffect(() => {
     if (!iptvImporting) return;
     const interval = setInterval(async () => {
@@ -496,12 +448,9 @@ const BancoPage = () => {
           clearInterval(interval);
           setIptvImporting(false);
           if (p.phase === "error") {
-            toast({ title: "Erro IPTV", description: p.error || "Falha na importação", variant: "destructive" });
+            toast({ title: "Erro CineVeo", description: p.error || "Falha na importação", variant: "destructive" });
           } else {
-            toast({
-              title: "✅ Importação IPTV concluída",
-              description: `${p.imported_cache_total || 0} links, ${p.imported_content_total || 0} conteúdos`,
-            });
+            toast({ title: "✅ Importação CineVeo concluída", description: `${p.imported_cache_total || 0} links, ${p.imported_content_total || 0} conteúdos` });
           }
           fetchAll();
           loadIptvDbStats();
@@ -510,6 +459,7 @@ const BancoPage = () => {
     }, 2000);
     return () => clearInterval(interval);
   }, [iptvImporting]);
+
 
   const filteredItems = filterStatus === "all"
     ? items
@@ -582,18 +532,19 @@ const BancoPage = () => {
 
       {/* VisionCine removed */}
 
-      {/* CiineVeo IPTV Import — JSON API com rotação automática */}
-      <div className="glass p-3 sm:p-4 rounded-xl">
+      {/* CineVeo API — importação unificada com rotação automática */}
+      <div className="glass p-3 sm:p-4 rounded-xl border border-primary/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Link2 className="w-4 h-4 text-primary" />
-            <span className="text-xs sm:text-sm font-semibold">CineVeo IPTV</span>
-            <span className="text-[10px] text-muted-foreground">(JSON API — rotação automática)</span>
+            <Zap className="w-4 h-4 text-primary" />
+            <span className="text-xs sm:text-sm font-semibold">CineVeo API</span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold">AUTOMÁTICO</span>
+            <span className="text-[9px] text-muted-foreground">rotação por páginas</span>
           </div>
           {!iptvImporting ? (
             <button onClick={startIptvImport}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/15 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/25 transition-colors">
-              <Upload className="w-3.5 h-3.5" /> Importar Tudo
+              <RefreshCw className="w-3.5 h-3.5" /> Importar Tudo
             </button>
           ) : (
             <span className="flex items-center gap-1.5 text-xs text-primary"><Loader2 className="w-3.5 h-3.5 animate-spin" />Importando...</span>
@@ -619,47 +570,6 @@ const BancoPage = () => {
         {!iptvImporting && (
           <p className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1">
             <CheckCircle className="w-3 h-3" />{iptvDbStats.links.toLocaleString()} links importados ({iptvDbStats.content.toLocaleString()} no catálogo)
-          </p>
-        )}
-      </div>
-
-      {/* CineVeo API Import (automático a cada 4h) */}
-      <div className="glass p-3 sm:p-4 rounded-xl border border-primary/20">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-primary" />
-            <span className="text-xs sm:text-sm font-semibold">CineVeo API</span>
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold">AUTOMÁTICO</span>
-            <span className="text-[9px] text-muted-foreground">a cada 4h</span>
-          </div>
-          {!cineveoImporting ? (
-            <button onClick={startCineveoImport}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-muted-foreground text-xs font-medium hover:bg-white/10 transition-colors">
-              <RefreshCw className="w-3.5 h-3.5" /> Forçar Atualização
-            </button>
-          ) : (
-            <span className="flex items-center gap-1.5 text-xs text-primary"><Loader2 className="w-3.5 h-3.5 animate-spin" />Importando...</span>
-          )}
-        </div>
-        {cineveoImporting && cineveoProgress && (
-          <div className="mt-2 space-y-1">
-            <div className="relative h-1.5 rounded-full bg-muted overflow-hidden">
-              <div className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all"
-                style={{ width: cineveoProgress.total > 0 ? `${Math.round(((cineveoProgress.imported_content || 0) + (cineveoProgress.imported_cache || 0)) / Math.max(cineveoProgress.total * 2, 1) * 100)}%` : '10%' }} />
-            </div>
-            <p className="text-[10px] text-muted-foreground">
-              {cineveoProgress.phase === "fetching_catalog" ? "Buscando catálogo da API..." :
-               cineveoProgress.phase === "processing" ? `Processando ${cineveoProgress.total} itens...` :
-               cineveoProgress.phase === "importing_content" ? `Importando conteúdo... ${cineveoProgress.imported_content || 0}` :
-               cineveoProgress.phase === "done" ? `✅ ${cineveoProgress.imported_content || 0} conteúdos, ${cineveoProgress.imported_cache || 0} links` :
-               cineveoProgress.phase === "error" ? `❌ ${cineveoProgress.error}` :
-               "Processando..."}
-            </p>
-          </div>
-        )}
-        {!cineveoImporting && (
-          <p className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1">
-            <CheckCircle className="w-3 h-3" />{cineveoDbStats.links.toLocaleString()} links via CineVeo API — atualização automática ativa
           </p>
         )}
       </div>
