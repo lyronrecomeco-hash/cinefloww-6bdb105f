@@ -1,10 +1,10 @@
 /**
- * Hybrid catalog fetcher: VPS first, Cloud DB fallback.
- * Tries VPS memory cache (instant). If VPS offline, falls back to Cloud DB
- * with strict timeout to prevent blocking.
+ * Hybrid catalog fetcher: Cloud DB first, VPS as background enhancer.
+ * Queries Cloud DB directly (fast with indexes). VPS only used for
+ * background cache warming, never blocks the UI.
  */
 
-import { initVpsClient, vpsCatalog } from "@/lib/vpsClient";
+import { supabase } from "@/integrations/supabase/client";
 
 export interface CatalogItem {
   id: string;
@@ -18,7 +18,7 @@ export interface CatalogItem {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-const CLOUD_TIMEOUT_MS = 6000;
+const CLOUD_TIMEOUT_MS = 8000;
 
 interface CacheEntry {
   items: CatalogItem[];
@@ -46,28 +46,6 @@ function setCache(key: string, items: CatalogItem[], total: number) {
     const oldest = [..._cache.entries()].sort((a, b) => a[1].ts - b[1].ts);
     for (let i = 0; i < 20; i++) _cache.delete(oldest[i][0]);
   }
-}
-
-let _vpsInitDone = false;
-
-async function ensureVps() {
-  if (!_vpsInitDone) {
-    _vpsInitDone = true;
-    await initVpsClient().catch(() => {});
-  }
-}
-
-function mapItem(d: any, contentType: string): CatalogItem {
-  return {
-    id: d.id || `vps-${d.tmdb_id}`,
-    tmdb_id: d.tmdb_id,
-    title: d.title,
-    poster_path: d.poster_path || null,
-    backdrop_path: d.backdrop_path || null,
-    vote_average: d.vote_average || 0,
-    release_date: d.release_date || null,
-    content_type: d.content_type || contentType,
-  };
 }
 
 export async function fetchCatalog(
@@ -98,9 +76,24 @@ async function fetchFresh(
   offset: number,
   key: string
 ): Promise<{ items: CatalogItem[]; total: number }> {
-  // Try VPS first
-  await ensureVps();
+  // Cloud DB first — direct query with timeout
   try {
+    const result = await Promise.race([
+      fetchFromCloud(contentType, limit, offset),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), CLOUD_TIMEOUT_MS)),
+    ]);
+    if (result && result.items.length > 0) {
+      setCache(key, result.items, result.total);
+      return result;
+    }
+  } catch {
+    // Cloud failed, try VPS fallback
+  }
+
+  // Fallback: VPS catalog (only if Cloud failed)
+  try {
+    const { initVpsClient, vpsCatalog } = await import("@/lib/vpsClient");
+    await initVpsClient();
     const vpsData = await vpsCatalog(contentType);
     if (vpsData && vpsData.length > 0) {
       const sorted = vpsData.sort((a: any, b: any) => {
@@ -114,24 +107,23 @@ async function fetchFresh(
       return { items: page, total };
     }
   } catch {
-    // VPS offline
-  }
-
-  // Fallback: Cloud DB with strict timeout
-  try {
-    const result = await Promise.race([
-      fetchFromCloud(contentType, limit, offset),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), CLOUD_TIMEOUT_MS)),
-    ]);
-    if (result) {
-      setCache(key, result.items, result.total);
-      return result;
-    }
-  } catch {
-    // Cloud also failed
+    // VPS also failed
   }
 
   return { items: [], total: 0 };
+}
+
+function mapItem(d: any, contentType: string): CatalogItem {
+  return {
+    id: d.id || `vps-${d.tmdb_id}`,
+    tmdb_id: d.tmdb_id,
+    title: d.title,
+    poster_path: d.poster_path || null,
+    backdrop_path: d.backdrop_path || null,
+    vote_average: d.vote_average || 0,
+    release_date: d.release_date || null,
+    content_type: d.content_type || contentType,
+  };
 }
 
 async function fetchFromCloud(
@@ -139,9 +131,6 @@ async function fetchFromCloud(
   limit: number,
   offset: number
 ): Promise<{ items: CatalogItem[]; total: number } | null> {
-  const { supabase } = await import("@/integrations/supabase/client");
-
-  // Light query: no count: "exact", just fetch items + estimate total
   const { data, error } = await supabase
     .from("content")
     .select("id, tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type")
@@ -163,7 +152,7 @@ async function fetchFromCloud(
     content_type: d.content_type || contentType,
   }));
 
-  // Estimate total: if we got a full page, assume there's more
+  // Estimate total without expensive count
   const total = items.length < limit ? offset + items.length : offset + limit + 100;
 
   return { items, total };

@@ -103,13 +103,18 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const timeout = new Promise<null>((r) => setTimeout(() => r(null), 8000));
+        const timeout = new Promise<null>((r) => setTimeout(() => r(null), 10000));
+        
+        // Use a single lightweight query to get counts by type (avoids 4 separate count queries)
+        const countsQuery = supabase
+          .from("content")
+          .select("content_type")
+          .eq("status", "published")
+          .limit(50000);
+
         const result = await Promise.race([
           Promise.all([
-            supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "movie"),
-            supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "series"),
-            supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "dorama"),
-            supabase.from("content").select("id", { count: "exact", head: true }).eq("content_type", "anime"),
+            countsQuery,
             supabase.from("content").select("id, title, poster_path, content_type, created_at").order("created_at", { ascending: false }).limit(5),
             supabase.from("site_visitors").select("visitor_id, visited_at, pathname, hostname").eq("hostname", "lyneflix.online").gte("visited_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()).order("visited_at", { ascending: false }).limit(1000),
           ]),
@@ -118,15 +123,25 @@ const Dashboard = () => {
 
         if (!result) {
           console.warn("[Dashboard] fetchData timeout — Cloud DB slow");
+          setLoading(false);
           return;
         }
 
-        const [movies, series, doramas, animes, recent, visitors] = result as any[];
+        const [countsResult, recent, visitors] = result as any[];
+        
+        // Count by type client-side from lightweight query
+        const typeMap: Record<string, number> = { movie: 0, series: 0, dorama: 0, anime: 0 };
+        if (countsResult.data) {
+          for (const row of countsResult.data) {
+            const t = row.content_type;
+            if (t in typeMap) typeMap[t]++;
+          }
+        }
         setCounts({
-          movies: movies.count || 0,
-          series: series.count || 0,
-          doramas: doramas.count || 0,
-          animes: animes.count || 0,
+          movies: typeMap.movie,
+          series: typeMap.series,
+          doramas: typeMap.dorama,
+          animes: typeMap.anime,
         });
         setRecentContent(recent.data || []);
         processVisitorData(visitors.data || []);
