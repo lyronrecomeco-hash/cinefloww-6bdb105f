@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS idx_video_cache_provider_expires_tmdb ON video_cache(provider, tmdb_id) WHERE expires_at > '2025-01-01'::timestamptz;
