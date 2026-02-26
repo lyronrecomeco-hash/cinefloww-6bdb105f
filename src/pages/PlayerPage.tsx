@@ -163,17 +163,18 @@ const PlayerPage = () => {
     try {
       if (!skipCache) {
         // 1. Title + cache check in parallel (FAST)
+        const isSeriesType = params.type !== "movie";
         let cacheQuery = supabase
           .from("video_cache")
-          .select("video_url, video_type, provider, created_at")
+          .select("video_url, video_type, provider, created_at, season, episode")
           .eq("tmdb_id", tmdbId)
           .in("content_type", cTypes)
           .eq("audio_type", aType)
           .gt("expires_at", new Date().toISOString());
         if (season) cacheQuery = cacheQuery.eq("season", season);
-        else cacheQuery = cacheQuery.eq("season", 0);
+        else if (!isSeriesType) cacheQuery = cacheQuery.eq("season", 0);
         if (episode) cacheQuery = cacheQuery.eq("episode", episode);
-        else cacheQuery = cacheQuery.eq("episode", 0);
+        else if (!isSeriesType) cacheQuery = cacheQuery.eq("episode", 0);
 
         const [titleResult, cacheResult] = await Promise.all([
           supabase.from("content").select("title").eq("tmdb_id", tmdbId).in("content_type", cTypes).maybeSingle(),
@@ -209,15 +210,15 @@ const PlayerPage = () => {
         if (!bestCached) {
           let anyAudioQuery = supabase
             .from("video_cache")
-            .select("video_url, video_type, provider, created_at")
+            .select("video_url, video_type, provider, created_at, season, episode")
             .eq("tmdb_id", tmdbId)
             .in("content_type", cTypes)
             .gt("expires_at", new Date().toISOString());
 
           if (season) anyAudioQuery = anyAudioQuery.eq("season", season);
-          else anyAudioQuery = anyAudioQuery.eq("season", 0);
+          else if (!isSeriesType) anyAudioQuery = anyAudioQuery.eq("season", 0);
           if (episode) anyAudioQuery = anyAudioQuery.eq("episode", episode);
-          else anyAudioQuery = anyAudioQuery.eq("episode", 0);
+          else if (!isSeriesType) anyAudioQuery = anyAudioQuery.eq("episode", 0);
 
           const { data: anyAudioRows } = await anyAudioQuery.order("created_at", { ascending: false }).limit(20);
           bestCached = pickBest(anyAudioRows || []);
