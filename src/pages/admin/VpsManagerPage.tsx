@@ -1241,6 +1241,7 @@ const VpsManagerPage = () => {
   const [serviceRoleKey, setServiceRoleKey] = useState("");
   const [heartbeat, setHeartbeat] = useState<VpsHeartbeat | null>(null);
   const [isOnline, setIsOnline] = useState(false);
+  const [directVpsOk, setDirectVpsOk] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [savingKey, setSavingKey] = useState(false);
   const [fetchingKey, setFetchingKey] = useState(false);
@@ -1313,13 +1314,37 @@ const VpsManagerPage = () => {
       })
       .subscribe();
 
-    const iv = setInterval(async () => {
-      const { data } = await supabase.from("site_settings").select("value").eq("key", "vps_heartbeat").maybeSingle();
-      apply(data?.value);
-    }, 10000);
-
-    return () => { mounted = false; clearInterval(iv); supabase.removeChannel(ch); };
+    return () => { mounted = false; supabase.removeChannel(ch); };
   }, []);
+
+  // Prova direta da VPS (não depende do banco)
+  useEffect(() => {
+    if (!vpsApiUrl) {
+      setDirectVpsOk(false);
+      return;
+    }
+
+    let active = true;
+    const probe = async () => {
+      try {
+        const res = await fetch(`${vpsApiUrl.replace(/\/+$/, "")}/health`, {
+          signal: AbortSignal.timeout(4000),
+        });
+        if (!active) return;
+        const contentType = res.headers.get("content-type") || "";
+        setDirectVpsOk(res.ok && !contentType.includes("text/html"));
+      } catch {
+        if (active) setDirectVpsOk(false);
+      }
+    };
+
+    probe();
+    const interval = setInterval(probe, 15000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [vpsApiUrl]);
 
   // ── Save key ──
   const saveKey = async () => {
@@ -1403,18 +1428,9 @@ const VpsManagerPage = () => {
     }
   };
 
-  // ── Load links ──
   const loadLinks = useCallback(async () => {
     setLinksLoading(true);
     try {
-      // Count
-      let countQuery = supabase.from("video_cache").select("id", { count: "exact", head: true });
-      if (providerFilter !== "all") countQuery = countQuery.eq("provider", providerFilter);
-      if (typeFilter !== "all") countQuery = countQuery.eq("video_type", typeFilter);
-      const { count } = await countQuery;
-      setLinksTotal(count || 0);
-
-      // Fetch page
       let query = supabase
         .from("video_cache")
         .select("id, tmdb_id, content_type, audio_type, video_type, provider, season, episode, expires_at, created_at, video_url")
@@ -1424,19 +1440,35 @@ const VpsManagerPage = () => {
       if (providerFilter !== "all") query = query.eq("provider", providerFilter);
       if (typeFilter !== "all") query = query.eq("video_type", typeFilter);
 
-      const { data } = await query;
-      let items = (data || []) as CachedLink[];
+      const result = await Promise.race([
+        query,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+      ]);
 
-      // Enrich with titles
-      const tmdbIds = [...new Set(items.map((i) => i.tmdb_id))];
-      if (tmdbIds.length > 0) {
-        const { data: contentData } = await supabase.from("content").select("tmdb_id, title, content_type").in("tmdb_id", tmdbIds);
-        const titleMap = new Map<string, string>();
-        contentData?.forEach((c) => titleMap.set(`${c.tmdb_id}_${c.content_type}`, c.title));
-        items = items.map((i) => ({ ...i, title: titleMap.get(`${i.tmdb_id}_${i.content_type}`) || `ID:${i.tmdb_id}` }));
+      if (!result) {
+        toast.error("Banco lento no momento. Tente novamente em alguns segundos.");
+        return;
       }
 
-      // Client-side text filter
+      const { data } = result as any;
+      let items = (data || []) as CachedLink[];
+
+      // Enrich with titles (best-effort)
+      const tmdbIds = [...new Set(items.map((i) => i.tmdb_id))];
+      if (tmdbIds.length > 0) {
+        const titleResult = await Promise.race([
+          supabase.from("content").select("tmdb_id, title, content_type").in("tmdb_id", tmdbIds),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+        ]);
+
+        if (titleResult) {
+          const contentData = (titleResult as any).data || [];
+          const titleMap = new Map<string, string>();
+          contentData.forEach((c: any) => titleMap.set(`${c.tmdb_id}_${c.content_type}`, c.title));
+          items = items.map((i) => ({ ...i, title: titleMap.get(`${i.tmdb_id}_${i.content_type}`) || `ID:${i.tmdb_id}` }));
+        }
+      }
+
       if (linksFilter.trim()) {
         const f = linksFilter.toLowerCase();
         items = items.filter((i) => (i.title || "").toLowerCase().includes(f) || String(i.tmdb_id).includes(f));
@@ -1444,17 +1476,29 @@ const VpsManagerPage = () => {
 
       setLinks(items);
 
-      // Provider stats (first load only)
+      // Estimativa para paginação sem count exact (mais estável)
+      const estimatedTotal =
+        linksPage === 0 && items.length < ITEMS_PER_PAGE
+          ? items.length
+          : Math.max(linksTotal, linksPage * ITEMS_PER_PAGE + items.length + (items.length === ITEMS_PER_PAGE ? ITEMS_PER_PAGE : 0));
+      setLinksTotal(estimatedTotal);
+
       if (providerStats.length === 0) {
-        const { data: stats } = await supabase.rpc("get_video_stats_by_provider");
-        if (stats) setProviderStats(stats);
+        const statsResult = await Promise.race([
+          supabase.rpc("get_video_stats_by_provider"),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+        ]);
+        if (statsResult) {
+          const stats = (statsResult as any).data;
+          if (stats) setProviderStats(stats);
+        }
       }
     } catch (err: any) {
       toast.error("Erro ao carregar links: " + err.message);
     } finally {
       setLinksLoading(false);
     }
-  }, [linksPage, providerFilter, typeFilter, linksFilter, providerStats.length]);
+  }, [linksPage, providerFilter, typeFilter, linksFilter, providerStats.length, linksTotal]);
 
   // ── Delete link ──
   const deleteLink = async (id: string) => {
@@ -1493,6 +1537,7 @@ const VpsManagerPage = () => {
 
   const workerEntries = heartbeat?.workers ? Object.entries(heartbeat.workers) : [];
   const totalPages = Math.ceil(linksTotal / ITEMS_PER_PAGE);
+  const online = isOnline || directVpsOk;
 
   return (
     <div className="space-y-6">
@@ -1506,58 +1551,37 @@ const VpsManagerPage = () => {
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">Gerenciamento completo da infraestrutura</p>
         </div>
         <Badge
-          variant={isOnline ? "default" : "secondary"}
+          variant={online ? "default" : "secondary"}
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold ${
-            isOnline ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-white/5 text-muted-foreground border border-white/10"
+            online ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30" : "bg-white/5 text-muted-foreground border border-white/10"
           }`}
         >
-          {isOnline ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
-          {isOnline ? "CONECTADO VPS" : "DESCONECTADO"}
+          {online ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+          {online ? "CONECTADO VPS" : "DESCONECTADO"}
         </Badge>
       </div>
 
       {/* Live Status */}
-      {isOnline && heartbeat && (
-        <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/15 space-y-4">
+      {online ? (
+        <div className="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/15 space-y-3">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <p className="text-sm font-semibold text-emerald-400">VPS Online</p>
-            {heartbeat.last_beat && (
+            {heartbeat?.last_beat && (
               <span className="text-xs text-muted-foreground ml-auto">Último beat: {new Date(heartbeat.last_beat).toLocaleTimeString("pt-BR")}</span>
-            )}
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {heartbeat.hostname && (
-              <div className="flex items-center gap-2 text-xs"><HardDrive className="w-3.5 h-3.5 text-muted-foreground" /><span className="text-muted-foreground">Host:</span><span className="font-medium">{heartbeat.hostname}</span></div>
-            )}
-            {heartbeat.uptime_seconds != null && (
-              <div className="flex items-center gap-2 text-xs"><Clock className="w-3.5 h-3.5 text-muted-foreground" /><span className="text-muted-foreground">Uptime:</span><span className="font-medium">{formatUptime(heartbeat.uptime_seconds)}</span></div>
-            )}
-            {heartbeat.memory_mb != null && (
-              <div className="flex items-center gap-2 text-xs"><Cpu className="w-3.5 h-3.5 text-muted-foreground" /><span className="text-muted-foreground">RAM:</span><span className="font-medium">{heartbeat.memory_mb} MB</span></div>
-            )}
-            {heartbeat.node_version && (
-              <div className="flex items-center gap-2 text-xs"><Terminal className="w-3.5 h-3.5 text-muted-foreground" /><span className="text-muted-foreground">Node:</span><span className="font-medium">{heartbeat.node_version}</span></div>
             )}
           </div>
           {workerEntries.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {workerEntries.map(([name, status]) => (
-                <Badge key={name} variant="secondary" className={`text-[10px] px-2 py-0.5 ${
-                  status === "online" ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/20" :
-                  status === "stopped" ? "bg-white/5 text-muted-foreground border-white/10" :
-                  "bg-amber-500/15 text-amber-400 border-amber-500/20"
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full mr-1.5 inline-block ${status === "online" ? "bg-emerald-400" : status === "stopped" ? "bg-muted-foreground" : "bg-amber-400"}`} />
-                  {name}
+                <Badge key={name} variant="secondary" className="text-[10px] px-2 py-0.5">
+                  {name}: {status}
                 </Badge>
               ))}
             </div>
           )}
         </div>
-      )}
-
-      {!isOnline && (
+      ) : (
         <div className="p-4 rounded-2xl bg-white/[0.03] border border-white/5">
           <p className="text-xs text-muted-foreground">⏳ Aguardando conexão... Instale o script na aba <strong>Scripts</strong> e salve a Service Role Key.</p>
         </div>

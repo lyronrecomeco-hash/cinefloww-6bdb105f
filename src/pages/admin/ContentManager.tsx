@@ -50,25 +50,53 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
     const from = page * ITEMS_PER_PAGE;
     const to = from + ITEMS_PER_PAGE - 1;
 
-    let query = supabase
-      .from("content")
-      .select("*", { count: "exact" })
-      .eq("content_type", contentType)
-      .order("created_at", { ascending: false })
-      .range(from, to);
+    try {
+      let query = supabase
+        .from("content")
+        .select("*")
+        .eq("content_type", contentType)
+        .order("created_at", { ascending: false })
+        .range(from, to);
 
-    if (filterText.trim()) {
-      query = query.ilike("title", `%${filterText.trim()}%`);
+      if (filterText.trim()) {
+        query = query.ilike("title", `%${filterText.trim()}%`);
+      }
+
+      const result = await Promise.race([
+        query,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+      ]);
+
+      if (!result) {
+        setItems([]);
+        return totalCount;
+      }
+
+      const { data, error } = result as any;
+      if (!error) {
+        setItems(data || []);
+
+        // Só calcula contagem exata quando necessário (filtro ativo)
+        if (filterText.trim()) {
+          const countResult = await Promise.race([
+            supabase
+              .from("content")
+              .select("id", { count: "exact", head: true })
+              .eq("content_type", contentType)
+              .ilike("title", `%${filterText.trim()}%`),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+          ]);
+          if (countResult) setTotalCount((countResult as any).count || 0);
+        } else if (page === 0) {
+          setTotalCount((data || []).length);
+        }
+      }
+    } finally {
+      setLoading(false);
     }
 
-    const { data, error, count } = await query;
-    if (!error) {
-      setItems(data || []);
-      setTotalCount(count || 0);
-    }
-    setLoading(false);
-    return count || 0;
-  }, [contentType, page, filterText]);
+    return totalCount;
+  }, [contentType, page, filterText, totalCount]);
 
   useEffect(() => { fetchContent(); }, [fetchContent]);
 
@@ -79,12 +107,15 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
 
     const autoImport = async () => {
       // Check if we already have doramas
-      const { count } = await supabase
-        .from("content")
-        .select("id", { count: "exact", head: true })
-        .eq("content_type", "dorama");
+      const countResult = await Promise.race([
+        supabase
+          .from("content")
+          .select("id", { count: "exact", head: true })
+          .eq("content_type", "dorama"),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+      ]);
 
-      if ((count || 0) > 50) return; // Already populated, skip
+      const count = countResult ? (countResult as any).count : 100;
 
       setAutoImportStatus("🔄 Importando doramas automaticamente...");
       cancelRef.current = false;
