@@ -1,6 +1,7 @@
 /**
- * VPS-first catalog fetcher.
+ * VPS-first catalog fetcher with in-memory cache.
  * Tries VPS memory cache first (instant), falls back to Cloud DB.
+ * Client-side TTL cache prevents repeated DB queries on navigation.
  */
 
 import { supabase } from "@/integrations/supabase/client";
@@ -17,6 +18,44 @@ export interface CatalogItem {
   content_type: string;
 }
 
+// ── In-memory cache ─────────────────────────────────────────────────
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min stale-while-revalidate
+interface CacheEntry {
+  items: CatalogItem[];
+  total: number;
+  ts: number;
+}
+const _cache = new Map<string, CacheEntry>();
+
+function cacheKey(contentType: string, limit: number, offset: number): string {
+  return `${contentType}:${limit}:${offset}`;
+}
+
+function getCached(key: string): CacheEntry | null {
+  const entry = _cache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    // Stale but return it — we'll revalidate in background
+    return entry;
+  }
+  return entry;
+}
+
+function isFresh(key: string): boolean {
+  const entry = _cache.get(key);
+  return !!entry && Date.now() - entry.ts < CACHE_TTL_MS;
+}
+
+function setCache(key: string, items: CatalogItem[], total: number) {
+  _cache.set(key, { items, total, ts: Date.now() });
+  // Keep cache size bounded
+  if (_cache.size > 100) {
+    const oldest = [..._cache.entries()].sort((a, b) => a[1].ts - b[1].ts);
+    for (let i = 0; i < 20; i++) _cache.delete(oldest[i][0]);
+  }
+}
+
+// ── VPS init (single attempt) ───────────────────────────────────────
 let _vpsInitDone = false;
 
 async function ensureVps() {
@@ -26,9 +65,23 @@ async function ensureVps() {
   }
 }
 
+// ── Mapper ──────────────────────────────────────────────────────────
+function mapItem(d: any, contentType: string): CatalogItem {
+  return {
+    id: d.id || `vps-${d.tmdb_id}`,
+    tmdb_id: d.tmdb_id,
+    title: d.title,
+    poster_path: d.poster_path || null,
+    backdrop_path: d.backdrop_path || null,
+    vote_average: d.vote_average || 0,
+    release_date: d.release_date || null,
+    content_type: d.content_type || contentType,
+  };
+}
+
 /**
  * Fetch catalog items by content_type.
- * VPS-first with Cloud DB fallback.
+ * VPS-first with Cloud DB fallback + client-side cache.
  */
 export async function fetchCatalog(
   contentType: string,
@@ -36,34 +89,47 @@ export async function fetchCatalog(
 ): Promise<{ items: CatalogItem[]; total: number }> {
   const limit = opts?.limit ?? 100;
   const offset = opts?.offset ?? 0;
+  const key = cacheKey(contentType, limit, offset);
 
+  // 0. Return from cache if fresh
+  if (isFresh(key)) {
+    const cached = getCached(key)!;
+    return { items: cached.items, total: cached.total };
+  }
+
+  // If stale cache exists, return immediately and revalidate in background
+  const stale = getCached(key);
+  if (stale) {
+    // Fire-and-forget background revalidation
+    fetchFresh(contentType, limit, offset, key).catch(() => {});
+    return { items: stale.items, total: stale.total };
+  }
+
+  // No cache at all — fetch synchronously
+  return fetchFresh(contentType, limit, offset, key);
+}
+
+async function fetchFresh(
+  contentType: string,
+  limit: number,
+  offset: number,
+  key: string
+): Promise<{ items: CatalogItem[]; total: number }> {
   // 1. Try VPS first
   await ensureVps();
   try {
     const vpsData = await vpsCatalog(contentType);
     if (vpsData && vpsData.length > 0) {
       console.log(`[CatalogFetcher] VPS hit: ${vpsData.length} ${contentType} items`);
-      // Sort by release_date desc
       const sorted = vpsData.sort((a: any, b: any) => {
         const da = a.release_date || "0000";
         const db = b.release_date || "0000";
         return db.localeCompare(da);
       });
       const total = sorted.length;
-      const page = sorted.slice(offset, offset + limit);
-      return {
-        items: page.map((d: any) => ({
-          id: d.id || `vps-${d.tmdb_id}`,
-          tmdb_id: d.tmdb_id,
-          title: d.title,
-          poster_path: d.poster_path || null,
-          backdrop_path: d.backdrop_path || null,
-          vote_average: d.vote_average || 0,
-          release_date: d.release_date || null,
-          content_type: d.content_type || contentType,
-        })),
-        total,
-      };
+      const page = sorted.slice(offset, offset + limit).map((d: any) => mapItem(d, contentType));
+      setCache(key, page, total);
+      return { items: page, total };
     }
   } catch {
     /* VPS offline, fallback */
@@ -82,10 +148,10 @@ export async function fetchCatalog(
     .order("release_date", { ascending: false, nullsFirst: false })
     .range(from, to);
 
-  return {
-    items: (data || []) as CatalogItem[],
-    total: count || 0,
-  };
+  const items = (data || []) as CatalogItem[];
+  const total = count || 0;
+  setCache(key, items, total);
+  return { items, total };
 }
 
 /**
