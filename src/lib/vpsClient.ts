@@ -9,7 +9,10 @@ const VPS_URL_STORAGE_KEY = "_vps_url";
 
 // Hardcoded fallback VPS URL — used when localStorage is empty
 const HARDCODED_VPS_URL = "http://147.93.12.83:3377";
-const CLOUD_VPS_PROXY_URL = "/functions/v1/vps-proxy";
+const PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+const CLOUD_VPS_PROXY_URL = PROJECT_ID
+  ? `https://${PROJECT_ID}.supabase.co/functions/v1/vps-proxy`
+  : "/functions/v1/vps-proxy";
 const PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
 let _vpsBaseUrl: string | null = null;
