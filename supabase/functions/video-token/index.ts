@@ -166,10 +166,27 @@ Deno.serve(async (req) => {
         return new Response("Forbidden", { status: 403, headers: corsHeaders });
       }
 
-      // 5. Decrypt and proxy
+      // 5. Decrypt and validate target URL
       const realUrl = decryptUrl(encrypted);
       if (!realUrl.startsWith("http")) {
         return new Response("Bad Request", { status: 400, headers: corsHeaders });
+      }
+
+      // Cloudflare R2/CDF links can block server-side fetches with anti-bot HTML.
+      // For these hosts, keep token validation here and then redirect browser directly.
+      let realHost = "";
+      try { realHost = new URL(realUrl).hostname; } catch {}
+      if (realHost === "cdf.lyneflix.online" || realHost.endsWith(".lyneflix.online")) {
+        return new Response(null, {
+          status: 302,
+          headers: {
+            ...corsHeaders,
+            "Location": realUrl,
+            "Cache-Control": "no-store, private",
+            "Referrer-Policy": "no-referrer",
+            "X-Robots-Tag": "noindex",
+          },
+        });
       }
 
       const fetchHeaders: Record<string, string> = {
