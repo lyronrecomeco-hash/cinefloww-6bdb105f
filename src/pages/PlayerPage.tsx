@@ -356,13 +356,23 @@ const PlayerPage = () => {
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     const useNativeHLS = src.type === "m3u8" && !Hls.isSupported() && video.canPlayType("application/vnd.apple.mpegurl");
 
-    if (src.type === "mp4" || useNativeHLS) {
-      // iOS native HLS and mp4: remove crossOrigin to avoid CORS failures
+    if (src.type === "m3u8" && Hls.isSupported()) {
+      video.crossOrigin = "anonymous";
+    } else if (src.type === "mp4") {
+      const isTokenStream = src.url.includes("/functions/v1/video-token") || src.url.includes(".supabase.co/functions/v1/video-token");
+      if (isTokenStream) {
+        // Token stream endpoint returns proper CORS headers; use CORS mode to avoid ORB blocking
+        video.crossOrigin = "anonymous";
+      } else {
+        // Direct mp4 links often break on iOS/CORS with anonymous mode
+        video.removeAttribute("crossorigin");
+      }
+    } else if (useNativeHLS) {
+      // iOS native HLS: keep native behavior
       video.removeAttribute("crossorigin");
     } else {
       video.crossOrigin = "anonymous";
     }
-
     if (src.type === "m3u8" && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
