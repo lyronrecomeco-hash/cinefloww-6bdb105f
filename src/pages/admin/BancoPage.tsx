@@ -37,6 +37,7 @@ const BancoPage = () => {
   const [debouncedFilterText, setDebouncedFilterText] = useState("");
   const [filterType, setFilterType] = useState<"all" | "movie" | "series">("all");
   const [filterStatus, setFilterStatus] = useState<"all" | "with" | "without">("all");
+  const [resolving, setResolving] = useState(false);
   const [resolveProgress, setResolveProgress] = useState({ current: 0, total: 0 });
   const cancelRef = useRef(false);
   const { toast } = useToast();
