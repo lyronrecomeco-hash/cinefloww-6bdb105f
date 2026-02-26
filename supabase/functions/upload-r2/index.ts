@@ -211,6 +211,24 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ error: upsertErr.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
 
+      // Sync content.audio_type array
+      try {
+        const cTypes = content_type === "movie" ? ["movie"] : ["series", "tv"];
+        const { data: audioRows } = await supabase
+          .from("video_cache")
+          .select("audio_type")
+          .eq("tmdb_id", tmdb_id)
+          .in("content_type", cTypes)
+          .gt("expires_at", new Date().toISOString());
+        
+        const audioTypes = [...new Set((audioRows || []).map((d: any) => d.audio_type))];
+        await supabase
+          .from("content")
+          .update({ audio_type: audioTypes })
+          .eq("tmdb_id", tmdb_id)
+          .in("content_type", cTypes);
+      } catch { /* non-blocking */ }
+
       return new Response(JSON.stringify({ success: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 

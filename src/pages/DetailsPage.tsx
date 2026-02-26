@@ -184,17 +184,17 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
   // Prefetch: check if video is cached (existence only, no URL exposed)
   const prefetchSource = async (audio: string) => {
-    const cType = type === "movie" ? "movie" : "series";
+    const cTypes = type === "movie" ? ["movie"] : ["series", "tv"];
     try {
       // Only select metadata, NOT video_url — URL stays server-side
       const { data: rows } = await supabase
         .from("video_cache")
         .select("video_type, provider")
         .eq("tmdb_id", id)
-        .eq("content_type", cType)
+        .in("content_type", cTypes)
         .eq("audio_type", audio)
-        .is("season", null)
-        .is("episode", null)
+        .eq("season", 0)
+        .eq("episode", 0)
         .gt("expires_at", new Date().toISOString())
         .order("created_at", { ascending: false })
         .limit(1);

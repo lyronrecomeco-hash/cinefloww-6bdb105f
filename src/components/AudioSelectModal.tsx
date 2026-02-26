@@ -39,8 +39,8 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSe
       if (season !== undefined && episode !== undefined) {
         query = query.eq("season", season).eq("episode", episode);
       } else if (type === "movie") {
-        // Movies: only entries without season/episode
-        query = query.is("season", null).is("episode", null);
+        // Movies: entries with season=0, episode=0
+        query = query.eq("season", 0).eq("episode", 0);
       }
       // For series without specific ep, check any available audio across all episodes
 
