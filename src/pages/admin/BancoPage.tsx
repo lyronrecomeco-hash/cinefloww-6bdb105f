@@ -449,6 +449,11 @@ const BancoPage = () => {
     setIptvImporting(true);
     setIptvProgress({ phase: "syncing", entries: 0, valid: 0, cache: 0, content: 0, done: false });
 
+    // RESET: limpa todo o cache de vídeo antes de reimportar
+    toast({ title: "🔄 Resetando...", description: "Limpando cache antigo antes de importar..." });
+    await supabase.from("video_cache").delete().neq("provider", "manual");
+    await supabase.from("resolve_failures").delete().gte("attempted_at", "2000-01-01");
+
     // Check if VPS is online for heavy lifting
     await initVpsClient();
     const vpsUrl = getVpsUrl();
@@ -461,16 +466,21 @@ const BancoPage = () => {
         await fetch(`${vpsUrl}/api/trigger-cineveo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reset: true }),
           signal: AbortSignal.timeout(10_000),
         }).catch(() => {});
       } catch { /* VPS will process */ }
     } else {
-      // Cloud fallback
-      toast({ title: "☁️ Cloud Mode", description: "VPS offline, usando Cloud..." });
-      supabase.functions.invoke("import-iptv", {
-        body: { reset: true, pages_per_run: 15 },
+      // Cloud fallback — usa import-cineveo-catalog (NÃO import-iptv)
+      toast({ title: "☁️ Cloud Mode", description: "VPS offline, usando Cloud CineVeo API..." });
+      supabase.functions.invoke("import-cineveo-catalog", {
+        body: { reset: true, brute: true, pages_per_run: 20 },
       }).catch(() => {});
     }
+
+    // Refresh stats after reset
+    fetchAll();
+    loadIptvDbStats();
   };
 
   // Poll progress from both VPS and Cloud sources
@@ -480,7 +490,7 @@ const BancoPage = () => {
       // Check VPS progress first, then Cloud
       const [vpsProgress, cloudProgress] = await Promise.all([
         supabase.from("site_settings").select("value").eq("key", "cineveo_vps_progress").maybeSingle(),
-        supabase.from("site_settings").select("value").eq("key", "iptv_import_progress").maybeSingle(),
+        supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
       ]);
 
       const p = (vpsProgress.data?.value || cloudProgress.data?.value) as any;
