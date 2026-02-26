@@ -9,6 +9,7 @@ import { useToast } from "@/hooks/use-toast";
 import { searchMulti, getMovieDetails, getSeriesDetails, getSeasonDetails, posterUrl, TMDBMovie, TMDBMovieDetail } from "@/services/tmdb";
 import CustomPlayer from "@/components/CustomPlayer";
 import { syncContentAudioType } from "@/lib/syncContentAudioType";
+import { secureVideoUrl } from "@/lib/videoUrl";
 
 /* ──────────── Sem Vídeo 2026 Tab ──────────── */
 interface NoVideoItem {
@@ -607,12 +608,22 @@ const ContentSourcesPage = () => {
     }
   };
 
-  const openPlayer = (url: string, type: string, title: string) => {
+  const openProtectedExternal = async (url: string) => {
+    try {
+      const safeUrl = await secureVideoUrl(url);
+      window.open(safeUrl, "_blank", "noopener,noreferrer");
+    } catch {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const openPlayer = async (url: string, type: string, title: string) => {
     if (type === "iframe-proxy") {
-      window.open(url, "_blank");
+      window.open(url, "_blank", "noopener,noreferrer");
       return;
     }
-    setPlayerUrl(url);
+    const safeUrl = await secureVideoUrl(url);
+    setPlayerUrl(safeUrl);
     setPlayerType(type as "m3u8" | "mp4");
     setPlayerTitle(title);
   };
@@ -686,12 +697,13 @@ const ContentSourcesPage = () => {
             >
               <Play className="w-3 h-3" />
             </button>
-            <a href={status.url} target="_blank" rel="noopener noreferrer"
+            <button
+              onClick={() => openProtectedExternal(status.url)}
               className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10"
               title="Abrir link"
             >
               <ExternalLink className="w-3 h-3" />
-            </a>
+            </button>
             {/* Edit/swap link */}
             <button
               onClick={() => setManualInput(isManualOpen ? null : { key, url: status.url.includes("proxy-player") ? decodeURIComponent(status.url.split("url=")[1] || "") : status.url, type: status.type as any })}

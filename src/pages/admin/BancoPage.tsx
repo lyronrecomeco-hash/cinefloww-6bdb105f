@@ -4,6 +4,7 @@ import { Database, Film, Tv, Loader2, Play, RefreshCw, CheckCircle, XCircle, Sea
 import { useToast } from "@/hooks/use-toast";
 import CustomPlayer from "@/components/CustomPlayer";
 import { initVpsClient, isVpsOnline, getVpsUrl } from "@/lib/vpsClient";
+import { secureVideoUrl } from "@/lib/videoUrl";
 
 interface ContentItem {
   id: string;
@@ -41,6 +42,8 @@ const BancoPage = () => {
   const { toast } = useToast();
   const [stats, setStats] = useState({ total: 0, withVideo: 0, withoutVideo: 0, byProvider: {} as Record<string, number> });
   const [playerItem, setPlayerItem] = useState<ContentItem | null>(null);
+  const [protectedPlayerUrl, setProtectedPlayerUrl] = useState<string | null>(null);
+  const [playerUrlLoading, setPlayerUrlLoading] = useState(false);
   const [providerMenu, setProviderMenu] = useState<string | null>(null);
   const [resolvingItems, setResolvingItems] = useState<Set<string>>(new Set());
   // VisionCine removed
@@ -161,6 +164,44 @@ const BancoPage = () => {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [resolving]);
+
+  useEffect(() => {
+    let alive = true;
+
+    const resolveProtectedPlayerUrl = async () => {
+      if (!playerItem) {
+        setProtectedPlayerUrl(null);
+        setPlayerUrlLoading(false);
+        return;
+      }
+
+      const status = videoStatuses.get(playerItem.tmdb_id);
+      if (!status?.has_video || !status.video_url) {
+        setProtectedPlayerUrl(null);
+        setPlayerUrlLoading(false);
+        return;
+      }
+
+      if (status.video_type === "iframe-proxy") {
+        setProtectedPlayerUrl(status.video_url);
+        setPlayerUrlLoading(false);
+        return;
+      }
+
+      setPlayerUrlLoading(true);
+      try {
+        const safeUrl = await secureVideoUrl(status.video_url);
+        if (alive) setProtectedPlayerUrl(safeUrl);
+      } catch {
+        if (alive) setProtectedPlayerUrl(status.video_url);
+      } finally {
+        if (alive) setPlayerUrlLoading(false);
+      }
+    };
+
+    resolveProtectedPlayerUrl();
+    return () => { alive = false; };
+  }, [playerItem, videoStatuses]);
 
   const resolveLink = async (item: ContentItem, forceProvider?: string) => {
     try {
@@ -356,6 +397,16 @@ const BancoPage = () => {
   // Build API-style link using hosted URL
   const getApiLink = (item: ContentItem) => {
     return `/player/${item.content_type}/${item.tmdb_id}`;
+  };
+
+  const openProtectedLink = async (rawUrl?: string) => {
+    if (!rawUrl) return;
+    try {
+      const safeUrl = await secureVideoUrl(rawUrl);
+      window.open(safeUrl, "_blank", "noopener,noreferrer");
+    } catch {
+      window.open(rawUrl, "_blank", "noopener,noreferrer");
+    }
   };
 
   // VisionCine removed
@@ -797,9 +848,13 @@ const BancoPage = () => {
                                 <button onClick={() => setPlayerItem(item)} className="w-7 h-7 rounded-lg bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30" title="Abrir player">
                                   <Play className="w-3.5 h-3.5" />
                                 </button>
-                                <a href={status.video_url} target="_blank" rel="noopener noreferrer" className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10" title="Link direto">
+                                <button
+                                  onClick={() => openProtectedLink(status.video_url)}
+                                  className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10"
+                                  title="Link direto"
+                                >
                                   <ExternalLink className="w-3.5 h-3.5" />
-                                </a>
+                                </button>
                               </>
                             )}
                           </div>
@@ -829,23 +884,35 @@ const BancoPage = () => {
         </>
       )}
 
-      {/* Player Modal - uses cached video_url directly */}
+      {/* Player Modal - URL sempre assinada antes de reproduzir */}
       {playerItem && (() => {
         const status = videoStatuses.get(playerItem.tmdb_id);
         if (!status?.has_video || !status.video_url) return null;
         return (
           <div className="fixed inset-0 z-[100] bg-black animate-fade-in">
-            <CustomPlayer
-              sources={[{
-                url: status.video_url,
-                quality: "auto",
-                provider: status.provider || "cache",
-                type: (status.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
-              }]}
-              title={playerItem.title}
-              onClose={() => setPlayerItem(null)}
-              onError={() => setPlayerItem(null)}
-            />
+            {playerUrlLoading || !protectedPlayerUrl ? (
+              <div className="w-full h-full flex items-center justify-center">
+                <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              </div>
+            ) : (
+              <CustomPlayer
+                sources={[{
+                  url: protectedPlayerUrl,
+                  quality: "auto",
+                  provider: status.provider || "cache",
+                  type: (status.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
+                }]}
+                title={playerItem.title}
+                onClose={() => {
+                  setPlayerItem(null);
+                  setProtectedPlayerUrl(null);
+                }}
+                onError={() => {
+                  setPlayerItem(null);
+                  setProtectedPlayerUrl(null);
+                }}
+              />
+            )}
           </div>
         );
       })()}
