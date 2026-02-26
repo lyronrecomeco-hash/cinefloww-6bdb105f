@@ -32,3 +32,12 @@ verify_jwt = false
 
 [functions.upload-r2]
 verify_jwt = false
+
+[functions.import-iptv]
+verify_jwt = false
+
+[functions.import-cineveo-catalog]
+verify_jwt = false
+
+[functions.import-json-catalog]
+verify_jwt = false

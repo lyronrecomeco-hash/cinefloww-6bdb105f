@@ -582,18 +582,18 @@ const BancoPage = () => {
 
       {/* VisionCine removed */}
 
-      {/* CiineVeo IPTV Import */}
+      {/* CiineVeo IPTV Import — JSON API com rotação automática */}
       <div className="glass p-3 sm:p-4 rounded-xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Link2 className="w-4 h-4 text-primary" />
-            <span className="text-xs sm:text-sm font-semibold">CiineVeo IPTV</span>
-            <span className="text-[10px] text-muted-foreground">(links diretos .mp4)</span>
+            <span className="text-xs sm:text-sm font-semibold">CineVeo IPTV</span>
+            <span className="text-[10px] text-muted-foreground">(JSON API — rotação automática)</span>
           </div>
           {!iptvImporting ? (
             <button onClick={startIptvImport}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/15 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/25 transition-colors">
-              <Upload className="w-3.5 h-3.5" /> Importar Lista
+              <Upload className="w-3.5 h-3.5" /> Importar Tudo
             </button>
           ) : (
             <span className="flex items-center gap-1.5 text-xs text-primary"><Loader2 className="w-3.5 h-3.5 animate-spin" />Importando...</span>
@@ -603,13 +603,16 @@ const BancoPage = () => {
           <div className="mt-2 space-y-1">
             <div className="relative h-1.5 rounded-full bg-muted overflow-hidden">
               <div className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all"
-                style={{ width: iptvProgress.entries > 0 ? `${Math.round((iptvProgress.cache / Math.max(iptvProgress.valid, 1)) * 100)}%` : '0%' }} />
+                style={{ width: iptvProgress.valid > 0 ? `${Math.min(99, Math.round((iptvProgress.entries / Math.max(iptvProgress.valid / 20, 1)) * 100))}%` : '5%' }} />
             </div>
             <p className="text-[10px] text-muted-foreground">
-              {iptvProgress.phase === "downloading" ? "Baixando lista..." :
-               iptvProgress.phase === "importing_cache" ? `Importando links... ${iptvProgress.cache.toLocaleString()}/${iptvProgress.valid.toLocaleString()}` :
-               iptvProgress.phase === "enriching_content" ? `Enriquecendo catálogo... ${iptvProgress.content} novos` :
-               `${iptvProgress.entries.toLocaleString()} entradas, ${iptvProgress.cache} links, ${iptvProgress.content} conteúdos`}
+              {iptvProgress.phase === "syncing"
+                ? `Página ${iptvProgress.entries} — ${iptvProgress.cache.toLocaleString()} links, ${iptvProgress.content.toLocaleString()} conteúdos`
+                : iptvProgress.phase === "complete"
+                ? `✅ Concluído: ${iptvProgress.cache.toLocaleString()} links, ${iptvProgress.content.toLocaleString()} conteúdos`
+                : iptvProgress.phase === "error"
+                ? `❌ Erro na importação`
+                : `Processando...`}
             </p>
           </div>
         )}
