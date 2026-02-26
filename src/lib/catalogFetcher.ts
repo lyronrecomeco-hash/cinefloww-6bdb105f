@@ -55,6 +55,16 @@ function setCache(key: string, items: CatalogItem[], total: number) {
   }
 }
 
+async function withTimeout<T>(promise: Promise<T>, ms = 6000): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timeout")), ms);
+    promise
+      .then((v) => resolve(v))
+      .catch((e) => reject(e))
+      .finally(() => clearTimeout(timer));
+  });
+}
+
 // ── VPS init (single attempt) ───────────────────────────────────────
 let _vpsInitDone = false;
 
@@ -140,13 +150,27 @@ async function fetchFresh(
   const from = offset;
   const to = offset + limit - 1;
 
-  const { data, count } = await supabase
-    .from("content")
-    .select("id, tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type", { count: "exact" })
-    .eq("content_type", contentType)
-    .eq("status", "published")
-    .order("release_date", { ascending: false, nullsFirst: false })
-    .range(from, to);
+  let data: any[] | null = null;
+  let count: number | null = 0;
+
+  try {
+    const res = await withTimeout(
+      (async () => await supabase
+        .from("content")
+        .select("id, tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type", { count: "exact" })
+        .eq("content_type", contentType)
+        .eq("status", "published")
+        .order("release_date", { ascending: false, nullsFirst: false })
+        .range(from, to))(),
+      6000
+    );
+    data = res.data || [];
+    count = res.count || 0;
+  } catch {
+    // Prevent infinite UI spinner on backend slowdowns
+    data = [];
+    count = 0;
+  }
 
   const items = (data || []) as CatalogItem[];
   const total = count || 0;

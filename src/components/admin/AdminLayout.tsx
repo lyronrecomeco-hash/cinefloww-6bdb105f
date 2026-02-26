@@ -28,6 +28,15 @@ const menuItems = [
   { label: "Configurações", path: "/admin/config", icon: Settings },
 ];
 
+const withTimeout = <T,>(promise: Promise<T>, ms = 6000): Promise<T> =>
+  new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("timeout")), ms);
+    promise
+      .then((value) => resolve(value))
+      .catch((err) => reject(err))
+      .finally(() => clearTimeout(timer));
+  });
+
 const playNotificationSound = () => {
   try {
     const ctx = new AudioContext();
@@ -77,16 +86,20 @@ const AdminLayout = () => {
 
     const checkAuth = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const { data: { session } } = await withTimeout(supabase.auth.getSession(), 6000);
         if (!isMounted) return;
         if (!session) { navigate("/admin/login"); return; }
 
         // Check admin or moderator role
-        const { data: roles } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", session.user.id)
-          .in("role", ["admin", "moderator"]);
+        const rolesResp = await withTimeout(
+          (async () => await supabase
+            .from("user_roles")
+            .select("role")
+            .eq("user_id", session.user.id)
+            .in("role", ["admin", "moderator"]))(),
+          6000
+        );
+        const { data: roles } = rolesResp;
 
         if (!isMounted) return;
         if (!roles?.length) { await supabase.auth.signOut(); navigate("/admin/login"); return; }
@@ -97,11 +110,15 @@ const AdminLayout = () => {
 
         // If moderator, load allowed paths
         if (role === "moderator") {
-          const { data: perms } = await supabase
-            .from("admin_permissions")
-            .select("allowed_paths")
-            .eq("user_id", session.user.id)
-            .maybeSingle();
+          const permsResp = await withTimeout(
+            (async () => await supabase
+              .from("admin_permissions")
+              .select("allowed_paths")
+              .eq("user_id", session.user.id)
+              .maybeSingle())(),
+            6000
+          );
+          const { data: perms } = permsResp;
 
           if (isMounted && perms?.allowed_paths) {
             setAllowedPaths(perms.allowed_paths as string[]);
