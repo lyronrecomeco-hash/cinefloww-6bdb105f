@@ -21,7 +21,53 @@ function fetchWithTimeout(url: string, opts: RequestInit & { timeout?: number } 
   return fetch(url, { ...fetchOpts, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
-// ── CineVeo Catalog API: fetch stream_url for a given tmdb_id ───────
+// ── CineVeo Catalog API: fetch stream_url for a given tmdb_id (com paginação real) ───────
+function normalizeAudioLabel(input?: string): "dublado" | "legendado" | "cam" {
+  const v = (input || "").toLowerCase();
+  if (v.includes("dub") || v.includes("pt") || v.includes("port")) return "dublado";
+  if (v.includes("cam")) return "cam";
+  return "legendado";
+}
+
+function pickStreamUrl(record: any): string | null {
+  return record?.stream_url || record?.streamUrl || record?.url || record?.video_url || record?.link || record?.embed_url || null;
+}
+
+function pickEpisodeStream(
+  episodes: any[],
+  season?: number,
+  episode?: number,
+): { url: string; audio: "dublado" | "legendado" | "cam" } | null {
+  if (!Array.isArray(episodes) || episodes.length === 0) return null;
+
+  const normalized = episodes
+    .map((ep) => ({
+      season: Number(ep?.season ?? ep?.temporada ?? ep?.s ?? 1) || 1,
+      episode: Number(ep?.episode ?? ep?.ep ?? ep?.e ?? 1) || 1,
+      audio: normalizeAudioLabel(ep?.language || ep?.audio || ep?.lang),
+      url: pickStreamUrl(ep),
+    }))
+    .filter((ep) => !!ep.url);
+
+  if (!normalized.length) return null;
+
+  let candidates = normalized;
+  if (season && episode) {
+    const exact = normalized.filter((ep) => ep.season === season && ep.episode === episode);
+    if (exact.length) candidates = exact;
+  }
+
+  const audioRank = (a: "dublado" | "legendado" | "cam") => {
+    if (a === "dublado") return 3;
+    if (a === "legendado") return 2;
+    return 1;
+  };
+
+  const best = candidates.sort((a, b) => audioRank(b.audio) - audioRank(a.audio))[0];
+  if (!best?.url) return null;
+  return { url: best.url, audio: best.audio };
+}
+
 async function tryCineveoCatalog(
   tmdbId: number,
   contentType: string,
@@ -31,97 +77,78 @@ async function tryCineveoCatalog(
   const isMovie = contentType === "movie";
   const apiType = isMovie ? "movies" : "series";
 
-  const catalogUrl = `${CINEVEO_API_BASE}/catalog.php?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=${apiType}`;
-  console.log(`[cineveo-api] Fetching catalog: ${apiType}`);
+  let page = 1;
+  let totalPages = 1;
+  const MAX_PAGES = 2500;
 
-  try {
-    const res = await fetchWithTimeout(catalogUrl, {
-      timeout: 15000,
-      headers: { "User-Agent": UA, Accept: "application/json" },
-    });
+  while (page <= totalPages && page <= MAX_PAGES) {
+    const catalogUrl = `${CINEVEO_API_BASE}/catalog.php?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=${apiType}&page=${page}`;
 
-    if (!res.ok) {
-      console.log(`[cineveo-api] Catalog returned ${res.status}`);
-      return null;
-    }
-
-    const data = await res.json();
-    const items = Array.isArray(data) ? data : data?.results || data?.data || [];
-
-    if (!Array.isArray(items) || items.length === 0) {
-      console.log(`[cineveo-api] No items in catalog response`);
-      return null;
-    }
-
-    console.log(`[cineveo-api] Catalog has ${items.length} items`);
-
-    // Find match by tmdb_id
-    const tmdbStr = String(tmdbId);
-    const match = items.find((item: any) =>
-      String(item.tmdb_id) === tmdbStr ||
-      String(item.tmdbId) === tmdbStr ||
-      String(item.id) === tmdbStr
-    );
-
-    if (!match) {
-      console.log(`[cineveo-api] tmdb_id=${tmdbId} not found in catalog`);
-      return null;
-    }
-
-    console.log(`[cineveo-api] Found match: ${match.title || match.name || tmdbId}`);
-
-    // Extract stream URL - try multiple possible field names
-    let streamUrl = match.stream_url || match.streamUrl || match.url || match.video_url || match.link || match.embed_url || null;
-
-    // For series, check if there's episode-specific data
-    if (!isMovie && (season || episode)) {
-      const episodes = match.episodes || match.seasons || null;
-      if (Array.isArray(episodes)) {
-        const epMatch = episodes.find((ep: any) =>
-          (ep.season === season || ep.s === season) &&
-          (ep.episode === episode || ep.e === episode || ep.ep === episode)
-        );
-        if (epMatch) {
-          streamUrl = epMatch.stream_url || epMatch.streamUrl || epMatch.url || epMatch.video_url || epMatch.link || streamUrl;
-        }
-      }
-      // Try season/episode in URL pattern
-      if (streamUrl && !isMovie) {
-        // Append season/episode if the URL supports it
-        if (streamUrl.includes("{season}")) {
-          streamUrl = streamUrl.replace("{season}", String(season || 1)).replace("{episode}", String(episode || 1));
-        }
-      }
-    }
-
-    if (!streamUrl) {
-      console.log(`[cineveo-api] No stream_url in match`);
-      return null;
-    }
-
-    // Determine type
-    const type: "mp4" | "m3u8" = streamUrl.includes(".m3u8") ? "m3u8" : "mp4";
-    console.log(`[cineveo-api] Stream URL found (${type})`);
-
-    // Validate URL is accessible
     try {
-      const headRes = await fetchWithTimeout(streamUrl, {
-        method: "HEAD",
-        timeout: 5000,
-        headers: { "User-Agent": UA },
+      const res = await fetchWithTimeout(catalogUrl, {
+        timeout: 12000,
+        headers: { "User-Agent": UA, Accept: "application/json" },
       });
-      if (!headRes.ok && headRes.status !== 405 && headRes.status !== 403) {
-        console.log(`[cineveo-api] Stream URL returned ${headRes.status}, trying anyway`);
-      }
-    } catch {
-      console.log(`[cineveo-api] HEAD check failed, using URL anyway`);
-    }
 
-    return { url: streamUrl, type };
-  } catch (err) {
-    console.log(`[cineveo-api] Error: ${err}`);
-    return null;
+      if (!res.ok) {
+        console.log(`[cineveo-api] page=${page} returned ${res.status}`);
+        page += 1;
+        continue;
+      }
+
+      const payload = await res.json();
+      const items = Array.isArray(payload)
+        ? payload
+        : payload?.data || payload?.results || payload?.items || [];
+
+      if (payload?.pagination?.total_pages) {
+        totalPages = Number(payload.pagination.total_pages) || totalPages;
+      }
+
+      if (!Array.isArray(items) || items.length === 0) {
+        page += 1;
+        continue;
+      }
+
+      const tmdbStr = String(tmdbId);
+      const match = items.find((item: any) =>
+        String(item?.tmdb_id) === tmdbStr ||
+        String(item?.tmdbId) === tmdbStr ||
+        String(item?.id) === tmdbStr,
+      );
+
+      if (!match) {
+        page += 1;
+        continue;
+      }
+
+      console.log(`[cineveo-api] Found tmdb_id=${tmdbId} on page=${page}/${totalPages}`);
+
+      let streamUrl: string | null = null;
+
+      if (isMovie) {
+        streamUrl = pickStreamUrl(match);
+      } else {
+        const epCandidate = pickEpisodeStream(match?.episodes || [], season, episode);
+        streamUrl = epCandidate?.url || pickStreamUrl(match);
+      }
+
+      if (!streamUrl) {
+        console.log(`[cineveo-api] Match found but without stream URL`);
+        return null;
+      }
+
+      const type: "mp4" | "m3u8" = streamUrl.includes(".m3u8") ? "m3u8" : "mp4";
+      return { url: streamUrl, type };
+    } catch (err) {
+      console.log(`[cineveo-api] page=${page} error: ${err}`);
+      page += 1;
+      continue;
+    }
   }
+
+  console.log(`[cineveo-api] tmdb_id=${tmdbId} not found after scanning ${Math.min(totalPages, MAX_PAGES)} pages`);
+  return null;
 }
 
 // ── Mega.nz link handling ────────────────────────────────────────────
