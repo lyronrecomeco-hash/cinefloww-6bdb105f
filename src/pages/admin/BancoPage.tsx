@@ -116,7 +116,7 @@ const BancoPage = () => {
     const { data, count } = await contentQuery;
     if (data) {
       setItems(data);
-      setTotalCount(needsExactCount ? (count || 0) : stats.total);
+      setTotalCount((prev) => (needsExactCount ? (count || 0) : prev));
 
       const tmdbIds = data.map((i) => i.tmdb_id);
       const cTypes = [...new Set(data.map((i) => (i.content_type === "movie" ? "movie" : "series")))];
@@ -162,13 +162,16 @@ const BancoPage = () => {
       }
     }
     setLoading(false);
-  }, [page, filterType, debouncedFilterText, stats.total]);
+  }, [page, filterType, debouncedFilterText]);
 
-  // Load on mount and filter changes
+  // Load on mount / updates (separated to avoid query loop)
   useEffect(() => {
     loadStats();
+  }, [loadStats]);
+
+  useEffect(() => {
     loadItems();
-  }, [loadStats, loadItems]);
+  }, [loadItems]);
 
   // Check for ongoing import on mount
   useEffect(() => {
@@ -254,7 +257,7 @@ const BancoPage = () => {
       }
     }, 3000);
     return () => clearInterval(interval);
-  }, [importing, loadStats, loadItems, toast]);
+  }, [importing, loadStats, toast]);
 
   // === START IMPORT ===
   const startImport = async () => {
