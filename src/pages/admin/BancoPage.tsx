@@ -327,10 +327,10 @@ const BancoPage = () => {
         }).catch(() => {});
       } catch { /* VPS will process */ }
     } else {
-      toast({ title: "☁️ Cloud Mode", description: "VPS offline, usando Cloud..." });
-      supabase.functions.invoke("import-cineveo-catalog", {
-        body: { reset: true, brute: true, pages_per_run: 15 },
-      }).catch(() => {});
+      toast({ title: "❌ VPS Offline", description: "Importação pesada só roda na VPS." , variant: "destructive"});
+      setImporting(false);
+      setImportProgress(null);
+      return;
     }
 
     setImportProgress({ phase: "syncing", contentTotal: 0, cacheTotal: 0, pagesProcessed: 0, done: false });
@@ -338,16 +338,30 @@ const BancoPage = () => {
 
   const resolveLink = async (item: ContentItem, forceProvider?: string) => {
     try {
-      const { data } = await supabase.functions.invoke("extract-video", {
-        body: {
+      await initVpsClient();
+      const vpsUrl = getVpsUrl();
+      const vpsAvailable = !!vpsUrl && (await refreshVpsHealth()) && isVpsOnline();
+
+      if (!vpsAvailable) {
+        toast({ title: "❌ VPS Offline", description: `Resolver link exige VPS ativa: ${item.title}`, variant: "destructive" });
+        return { tmdb_id: item.tmdb_id, has_video: false };
+      }
+
+      const res = await fetch(`${vpsUrl}/api/extract-video`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           tmdb_id: item.tmdb_id,
           imdb_id: item.imdb_id,
           content_type: item.content_type,
           audio_type: "legendado",
           force_provider: forceProvider || undefined,
           title: item.title,
-        },
+        }),
+        signal: AbortSignal.timeout(20_000),
       });
+
+      const data = await res.json().catch(() => ({} as any));
       const newStatus: VideoStatus = {
         tmdb_id: item.tmdb_id,
         has_video: !!data?.url,
@@ -357,7 +371,7 @@ const BancoPage = () => {
       };
       setVideoStatuses(prev => new Map(prev).set(item.tmdb_id, newStatus));
       if (data?.url) {
-        toast({ title: "✅ Link extraído!", description: `${item.title} — via ${data.provider}` });
+        toast({ title: "✅ Link extraído!", description: `${item.title} — via ${data.provider || "vps"}` });
       } else {
         toast({ title: "❌ Não encontrado", description: data?.message || item.title, variant: "destructive" });
       }
@@ -397,11 +411,15 @@ const BancoPage = () => {
     setResolveProgress({ current: 0, total: initialWithout });
 
     try {
-      const launchFn = vpsAvailable
-        ? () => fetch(`${vpsUrl}/api/batch-resolve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ _wave: 0 }), signal: AbortSignal.timeout(10_000) }).catch(() => {})
-        : () => supabase.functions.invoke("turbo-resolve").catch(() => {});
+      if (!vpsAvailable) {
+        toast({ title: "❌ VPS Offline", description: "Resolver em lote só roda na VPS.", variant: "destructive" });
+        setResolving(false);
+        return;
+      }
 
-      toast({ title: vpsAvailable ? "⚡ VPS Online" : "☁️ Cloud Mode", description: "Resolução iniciada..." });
+      const launchFn = () => fetch(`${vpsUrl}/api/batch-resolve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ _wave: 0 }), signal: AbortSignal.timeout(10_000) }).catch(() => {});
+
+      toast({ title: "⚡ VPS Online", description: "Resolução iniciada..." });
       await launchFn();
 
       let lastRemaining = initialWithout;
