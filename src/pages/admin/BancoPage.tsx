@@ -4,7 +4,6 @@ import { Database, Film, Tv, Loader2, Play, RefreshCw, CheckCircle, XCircle, Sea
 import { useToast } from "@/hooks/use-toast";
 import CustomPlayer from "@/components/CustomPlayer";
 import { initVpsClient, isVpsOnline, getVpsUrl, refreshVpsHealth } from "@/lib/vpsClient";
-import { secureVideoUrl } from "@/lib/videoUrl";
 
 interface ContentItem {
   id: string;
@@ -38,21 +37,54 @@ const BancoPage = () => {
   const [resolving, setResolving] = useState(false);
   const [resolveProgress, setResolveProgress] = useState({ current: 0, total: 0 });
   const cancelRef = useRef(false);
-  const autoResolveStarted = useRef(false);
   const { toast } = useToast();
   const [stats, setStats] = useState({ total: 0, withVideo: 0, withoutVideo: 0, byProvider: {} as Record<string, number> });
   const [playerItem, setPlayerItem] = useState<ContentItem | null>(null);
-  const [protectedPlayerUrl, setProtectedPlayerUrl] = useState<string | null>(null);
-  const [playerUrlLoading, setPlayerUrlLoading] = useState(false);
   const [providerMenu, setProviderMenu] = useState<string | null>(null);
   const [resolvingItems, setResolvingItems] = useState<Set<string>>(new Set());
-  // CineVeo unified import state
-  const [iptvImporting, setIptvImporting] = useState(false);
-  const [iptvProgress, setIptvProgress] = useState<{ phase: string; entries: number; valid: number; cache: number; content: number; done: boolean } | null>(null);
-  const [iptvDbStats, setIptvDbStats] = useState<{ links: number; content: number }>({ links: 0, content: 0 });
 
-  // Load everything in ONE parallel blast
-  const fetchAll = useCallback(async () => {
+  // CineVeo import state
+  const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<{
+    phase: string;
+    currentType?: string;
+    currentPage?: number;
+    totalPages?: number;
+    contentTotal: number;
+    cacheTotal: number;
+    pagesProcessed: number;
+    done: boolean;
+  } | null>(null);
+
+  // Load stats from DB — always precise
+  const loadStats = useCallback(async () => {
+    const [totalResult, providerResult] = await Promise.all([
+      supabase.from("content").select("*", { count: "exact", head: true }),
+      supabase.rpc("get_video_stats_by_provider" as any),
+    ]);
+
+    const total = totalResult.count || 0;
+    const providerData = providerResult.data;
+    const byProvider: Record<string, number> = {};
+    let withVideo = 0;
+
+    if (providerData && Array.isArray(providerData)) {
+      for (const row of providerData as any[]) {
+        byProvider[row.provider] = Number(row.cnt);
+        withVideo += Number(row.cnt);
+      }
+    }
+
+    setStats({
+      total,
+      withVideo,
+      withoutVideo: Math.max(0, total - withVideo),
+      byProvider,
+    });
+  }, []);
+
+  // Load paginated content list
+  const loadItems = useCallback(async () => {
     setLoading(true);
     const from = page * ITEMS_PER_PAGE;
     const to = from + ITEMS_PER_PAGE - 1;
@@ -66,19 +98,12 @@ const BancoPage = () => {
     if (filterType !== "all") contentQuery = contentQuery.eq("content_type", filterType);
     if (filterText.trim()) contentQuery = contentQuery.ilike("title", `%${filterText.trim()}%`);
 
-    // Fire ALL queries in parallel — zero sequential waits
-    const [contentResult, statsResult, providerResult] = await Promise.all([
-      contentQuery,
-      supabase.from("content").select("*", { count: "exact", head: true }),
-      supabase.rpc("get_video_stats_by_provider" as any),
-    ]);
-
-    const { data, count } = contentResult;
+    const { data, count } = await contentQuery;
     if (data) {
       setItems(data);
       setTotalCount(count || 0);
 
-      // Fetch video statuses in parallel with setting items
+      // Fetch video statuses for visible items
       const tmdbIds = data.map(i => i.tmdb_id);
       if (tmdbIds.length > 0) {
         const { data: cached } = await supabase
@@ -102,127 +127,142 @@ const BancoPage = () => {
         setVideoStatuses(statusMap);
       }
     }
-
-    // Process stats
-    const total = statsResult.count || 0;
-    const providerData = providerResult.data;
-    if (providerData && Array.isArray(providerData)) {
-      const byProvider: Record<string, number> = {};
-      let uniqueWithVideo = 0;
-      for (const row of providerData as any[]) {
-        byProvider[row.provider] = Number(row.cnt);
-        uniqueWithVideo += Number(row.cnt);
-      }
-      setStats({ total, withVideo: uniqueWithVideo, withoutVideo: Math.max(0, total - uniqueWithVideo), byProvider });
-    } else {
-      const { count: withVideo } = await supabase
-        .from("video_cache")
-        .select("tmdb_id", { count: "exact", head: true })
-        .gt("expires_at", new Date().toISOString());
-      setStats({ total, withVideo: withVideo || 0, withoutVideo: Math.max(0, total - (withVideo || 0)), byProvider: {} });
-    }
-
     setLoading(false);
   }, [page, filterType, filterText]);
 
+  // Load on mount and filter changes
   useEffect(() => {
-    fetchAll();
-  }, [fetchAll]);
+    loadStats();
+    loadItems();
+  }, [loadStats, loadItems]);
 
+  // Check for ongoing import on mount
+  useEffect(() => {
+    const checkOngoingImport = async () => {
+      const [vps, cloud] = await Promise.all([
+        supabase.from("site_settings").select("value").eq("key", "cineveo_vps_progress").maybeSingle(),
+        supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
+      ]);
+      const p = (vps.data?.value || cloud.data?.value) as any;
+      if (p && p.phase === "syncing" && !p.done) {
+        // Import is ongoing from a previous session
+        setImporting(true);
+        setImportProgress({
+          phase: p.phase,
+          currentType: p.current_type,
+          currentPage: p.current_page,
+          totalPages: p.total_pages_for_type,
+          contentTotal: p.imported_content_total || p.content_total || 0,
+          cacheTotal: p.imported_cache_total || p.cache_total || 0,
+          pagesProcessed: p.processed_pages || p.pages_processed || 0,
+          done: false,
+        });
+      }
+    };
+    checkOngoingImport();
+  }, []);
 
-  // Realtime subscription for live updates (content + video_cache)
+  // Realtime for stats updates
   useEffect(() => {
     const channel = supabase
       .channel('banco-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'video_cache' }, (payload) => {
-        const newItem = payload.new as any;
-        setStats(prev => {
-          const byProvider = { ...prev.byProvider };
-          byProvider[newItem.provider] = (byProvider[newItem.provider] || 0) + 1;
-          return {
-            ...prev,
-            withVideo: prev.withVideo + 1,
-            withoutVideo: Math.max(0, prev.withoutVideo - 1),
-            byProvider,
-          };
-        });
-        setVideoStatuses(prev => {
-          const next = new Map(prev);
-          next.set(newItem.tmdb_id, {
-            tmdb_id: newItem.tmdb_id,
-            has_video: true,
-            video_url: newItem.video_url,
-            provider: newItem.provider,
-            video_type: newItem.video_type,
-          });
-          return next;
-        });
-        setIptvDbStats(prev => ({ ...prev, links: prev.links + 1 }));
-        if (resolving) {
-          setResolveProgress(prev => ({ ...prev, current: prev.current + 1 }));
-        }
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'video_cache' }, () => {
+        // Reload precise stats
+        loadStats();
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'content' }, () => {
-        setStats(prev => ({ ...prev, total: prev.total + 1, withoutVideo: prev.withoutVideo + 1 }));
-        setIptvDbStats(prev => ({ ...prev, content: prev.content + 1 }));
+        loadStats();
       })
-      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'video_cache' }, (payload) => {
-        const old = payload.old as any;
-        if (old?.tmdb_id) {
-          setStats(prev => ({
-            ...prev,
-            withVideo: Math.max(0, prev.withVideo - 1),
-            withoutVideo: prev.withoutVideo + 1,
-          }));
-          setIptvDbStats(prev => ({ ...prev, links: Math.max(0, prev.links - 1) }));
-        }
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'video_cache' }, () => {
+        loadStats();
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'content' }, () => {
-        setStats(prev => ({ ...prev, total: Math.max(0, prev.total - 1) }));
-        setIptvDbStats(prev => ({ ...prev, content: Math.max(0, prev.content - 1) }));
+        loadStats();
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [resolving]);
+  }, [loadStats]);
 
+  // Poll import progress
   useEffect(() => {
-    let alive = true;
+    if (!importing) return;
+    const interval = setInterval(async () => {
+      const [vps, cloud] = await Promise.all([
+        supabase.from("site_settings").select("value").eq("key", "cineveo_vps_progress").maybeSingle(),
+        supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
+      ]);
+      const p = (vps.data?.value || cloud.data?.value) as any;
+      if (!p) return;
 
-    const resolveProtectedPlayerUrl = async () => {
-      if (!playerItem) {
-        setProtectedPlayerUrl(null);
-        setPlayerUrlLoading(false);
-        return;
+      setImportProgress({
+        phase: p.phase || "syncing",
+        currentType: p.current_type,
+        currentPage: p.current_page,
+        totalPages: p.total_pages_for_type,
+        contentTotal: p.imported_content_total || p.content_total || 0,
+        cacheTotal: p.imported_cache_total || p.cache_total || 0,
+        pagesProcessed: p.processed_pages || p.pages_processed || 0,
+        done: !!p.done,
+      });
+
+      // Also refresh stats
+      loadStats();
+      loadItems();
+
+      if (p.done) {
+        clearInterval(interval);
+        setImporting(false);
+        if (p.phase === "error") {
+          toast({ title: "❌ Erro na importação", description: p.error || "Falha", variant: "destructive" });
+        } else {
+          toast({ title: "✅ Importação concluída!", description: `${p.imported_cache_total || p.cache_total || 0} links, ${p.imported_content_total || p.content_total || 0} conteúdos` });
+        }
       }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [importing, loadStats, loadItems, toast]);
 
-      const status = videoStatuses.get(playerItem.tmdb_id);
-      if (!status?.has_video || !status.video_url) {
-        setProtectedPlayerUrl(null);
-        setPlayerUrlLoading(false);
-        return;
-      }
+  // === START IMPORT ===
+  const startImport = async () => {
+    setImporting(true);
+    setImportProgress({ phase: "resetting", contentTotal: 0, cacheTotal: 0, pagesProcessed: 0, done: false });
 
-      if (status.video_type === "iframe-proxy") {
-        setProtectedPlayerUrl(status.video_url);
-        setPlayerUrlLoading(false);
-        return;
-      }
+    // Reset: clear video_cache (except manual), resolve_failures, progress
+    toast({ title: "🔄 Resetando...", description: "Limpando dados antigos..." });
+    await Promise.all([
+      supabase.from("video_cache").delete().neq("provider", "manual"),
+      supabase.from("resolve_failures").delete().gte("attempted_at", "2000-01-01"),
+      supabase.from("site_settings").delete().in("key", ["cineveo_import_progress", "cineveo_vps_progress"]),
+    ]);
 
-      setPlayerUrlLoading(true);
+    // Refresh stats after reset
+    await loadStats();
+    await loadItems();
+
+    // Check VPS
+    await initVpsClient();
+    const vpsUrl = getVpsUrl();
+    const vpsAvailable = !!vpsUrl && (await refreshVpsHealth()) && isVpsOnline();
+
+    if (vpsAvailable) {
+      toast({ title: "⚡ VPS Online", description: "Importação via VPS..." });
       try {
-        const safeUrl = await secureVideoUrl(status.video_url);
-        const isProtected = safeUrl.includes("action=stream") || safeUrl.includes("video-token");
-        if (alive) setProtectedPlayerUrl(isProtected ? safeUrl : null);
-      } catch {
-        if (alive) setProtectedPlayerUrl(null);
-      } finally {
-        if (alive) setPlayerUrlLoading(false);
-      }
-    };
+        await fetch(`${vpsUrl}/api/trigger-cineveo`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reset: true }),
+          signal: AbortSignal.timeout(10_000),
+        }).catch(() => {});
+      } catch { /* VPS will process */ }
+    } else {
+      toast({ title: "☁️ Cloud Mode", description: "VPS offline, usando Cloud..." });
+      supabase.functions.invoke("import-cineveo-catalog", {
+        body: { reset: true, brute: true, pages_per_run: 15 },
+      }).catch(() => {});
+    }
 
-    resolveProtectedPlayerUrl();
-    return () => { alive = false; };
-  }, [playerItem, videoStatuses]);
+    setImportProgress({ phase: "syncing", contentTotal: 0, cacheTotal: 0, pagesProcessed: 0, done: false });
+  };
 
   const resolveLink = async (item: ContentItem, forceProvider?: string) => {
     try {
@@ -247,11 +287,7 @@ const BancoPage = () => {
       if (data?.url) {
         toast({ title: "✅ Link extraído!", description: `${item.title} — via ${data.provider}` });
       } else {
-        toast({
-          title: "❌ Não encontrado",
-          description: data?.message || `${item.title} — ${forceProvider || "nenhum provedor"} não possui este conteúdo`,
-          variant: "destructive",
-        });
+        toast({ title: "❌ Não encontrado", description: data?.message || item.title, variant: "destructive" });
       }
       return newStatus;
     } catch {
@@ -266,260 +302,65 @@ const BancoPage = () => {
     try {
       await resolveLink(item, provider);
     } finally {
-      setResolvingItems(prev => {
-        const next = new Set(prev);
-        next.delete(item.id);
-        return next;
-      });
+      setResolvingItems(prev => { const n = new Set(prev); n.delete(item.id); return n; });
     }
   };
 
-  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
-  // Resolve ALL links — VPS-first, fallback to turbo-resolve
+  // Resolve ALL links
   const resolveAllLinks = async () => {
     setResolving(true);
     cancelRef.current = false;
 
-    // Init VPS and check if online
     await initVpsClient();
     const vpsUrl = getVpsUrl();
     const vpsAvailable = !!vpsUrl && (await refreshVpsHealth()) && isVpsOnline();
 
-    const { count: totalContent } = await supabase
-      .from("content")
-      .select("*", { count: "exact", head: true });
-    const { count: cachedCount } = await supabase
-      .from("video_cache")
-      .select("*", { count: "exact", head: true })
-      .gt("expires_at", new Date().toISOString());
-    const { count: failedCount } = await supabase
-      .from("resolve_failures")
-      .select("*", { count: "exact", head: true });
+    const { count: totalContent } = await supabase.from("content").select("*", { count: "exact", head: true });
+    const { count: cachedCount } = await supabase.from("video_cache").select("*", { count: "exact", head: true }).gt("expires_at", new Date().toISOString());
+    const { count: failedCount } = await supabase.from("resolve_failures").select("*", { count: "exact", head: true });
 
     const initialWithout = Math.max(0, (totalContent || 0) - (cachedCount || 0) - (failedCount || 0));
     setResolveProgress({ current: 0, total: initialWithout });
 
     try {
-      if (vpsAvailable) {
-        // === VPS MODE: trigger batch-resolve on VPS ===
-        toast({ title: "⚡ VPS Online", description: "Resolução sendo executada na VPS..." });
+      const launchFn = vpsAvailable
+        ? () => fetch(`${vpsUrl}/api/batch-resolve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ _wave: 0 }), signal: AbortSignal.timeout(10_000) }).catch(() => {})
+        : () => supabase.functions.invoke("turbo-resolve").catch(() => {});
 
-        // Fire batch-resolve on the VPS
-        const launchVpsWave = async () => {
-          try {
-            await fetch(`${vpsUrl}/api/batch-resolve`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ _wave: 0 }),
-              signal: AbortSignal.timeout(10_000),
-            });
-          } catch { /* VPS will process in background */ }
-        };
+      toast({ title: vpsAvailable ? "⚡ VPS Online" : "☁️ Cloud Mode", description: "Resolução iniciada..." });
+      await launchFn();
 
-        await launchVpsWave();
-
-        // Poll progress
-        let lastRemaining = initialWithout;
-        let stagnantPolls = 0;
-        let elapsedMs = 0;
-        const MAX_DURATION_MS = 15 * 60 * 1000;
-
-        while (!cancelRef.current && elapsedMs < MAX_DURATION_MS) {
-          await sleep(4000);
-          elapsedMs += 4000;
-
-          const [{ count: totalNow }, { count: cachedNow }, { count: failedNow }] = await Promise.all([
-            supabase.from("content").select("*", { count: "exact", head: true }),
-            supabase.from("video_cache").select("*", { count: "exact", head: true }).gt("expires_at", new Date().toISOString()),
-            supabase.from("resolve_failures").select("*", { count: "exact", head: true }),
-          ]);
-
-          const remaining = Math.max(0, (totalNow || 0) - (cachedNow || 0) - (failedNow || 0));
-          const current = Math.max(0, initialWithout - remaining);
-          setResolveProgress({ current, total: initialWithout });
-
-          if (remaining <= 0) break;
-
-          if (remaining >= lastRemaining) {
-            stagnantPolls += 1;
-          } else {
-            stagnantPolls = 0;
-          }
-
-          // Re-launch VPS wave if stagnant
-          if (stagnantPolls >= 6) {
-            await launchVpsWave();
-            stagnantPolls = 0;
-          }
-
-          lastRemaining = remaining;
-        }
-      } else {
-        // === CLOUD FALLBACK: use turbo-resolve edge function ===
-        toast({ title: "☁️ Cloud Mode", description: "VPS offline, usando resolução Cloud..." });
-
-        const launchWave = async () => {
-          const { error } = await supabase.functions.invoke("turbo-resolve");
-          if (error) throw error;
-        };
-
-        await launchWave();
-
-        let lastRemaining = initialWithout;
-        let stagnantPolls = 0;
-        let elapsedMs = 0;
-        const MAX_DURATION_MS = 15 * 60 * 1000;
-
-        while (!cancelRef.current && elapsedMs < MAX_DURATION_MS) {
-          await sleep(4000);
-          elapsedMs += 4000;
-
-          const [{ count: totalNow }, { count: cachedNow }, { count: failedNow }] = await Promise.all([
-            supabase.from("content").select("*", { count: "exact", head: true }),
-            supabase.from("video_cache").select("*", { count: "exact", head: true }).gt("expires_at", new Date().toISOString()),
-            supabase.from("resolve_failures").select("*", { count: "exact", head: true }),
-          ]);
-
-          const remaining = Math.max(0, (totalNow || 0) - (cachedNow || 0) - (failedNow || 0));
-          const current = Math.max(0, initialWithout - remaining);
-          setResolveProgress({ current, total: initialWithout });
-
-          if (remaining <= 0) break;
-
-          if (remaining >= lastRemaining) {
-            stagnantPolls += 1;
-          } else {
-            stagnantPolls = 0;
-          }
-
-          if (stagnantPolls >= 6) {
-            await launchWave();
-            stagnantPolls = 0;
-          }
-
-          lastRemaining = remaining;
-        }
+      let lastRemaining = initialWithout;
+      let stagnant = 0;
+      let elapsed = 0;
+      while (!cancelRef.current && elapsed < 15 * 60 * 1000) {
+        await sleep(4000);
+        elapsed += 4000;
+        const [{ count: t }, { count: c }, { count: f }] = await Promise.all([
+          supabase.from("content").select("*", { count: "exact", head: true }),
+          supabase.from("video_cache").select("*", { count: "exact", head: true }).gt("expires_at", new Date().toISOString()),
+          supabase.from("resolve_failures").select("*", { count: "exact", head: true }),
+        ]);
+        const remaining = Math.max(0, (t || 0) - (c || 0) - (f || 0));
+        setResolveProgress({ current: Math.max(0, initialWithout - remaining), total: initialWithout });
+        if (remaining <= 0) break;
+        if (remaining >= lastRemaining) stagnant++; else stagnant = 0;
+        if (stagnant >= 6) { await launchFn(); stagnant = 0; }
+        lastRemaining = remaining;
       }
-
-      toast({
-        title: cancelRef.current ? "Resolução cancelada" : "Resolução concluída",
-        description: vpsAvailable ? "Processado via VPS ⚡" : "Processado via Cloud ☁️",
-      });
-    } catch (e) {
-      console.error("[banco] resolve error:", e);
-      toast({ title: "Erro", description: "Falha na resolução em lote", variant: "destructive" });
+      toast({ title: cancelRef.current ? "Cancelado" : "Concluído" });
+    } catch {
+      toast({ title: "Erro", description: "Falha na resolução", variant: "destructive" });
     }
 
     setResolving(false);
-    fetchAll();
+    loadStats();
+    loadItems();
   };
 
-  // Build API-style link using hosted URL
-  const getApiLink = (item: ContentItem) => {
-    return `/player/${item.content_type}/${item.tmdb_id}`;
-  };
-
-  const openProtectedLink = async (rawUrl?: string) => {
-    if (!rawUrl) return;
-    try {
-      const safeUrl = await secureVideoUrl(rawUrl);
-      const isProtected = safeUrl.includes("action=stream") || safeUrl.includes("video-token");
-      if (!isProtected) throw new Error("Token inválido");
-      window.open(safeUrl, "_blank", "noopener,noreferrer");
-    } catch {
-      toast({ title: "Falha ao abrir", description: "Não foi possível gerar o link protegido.", variant: "destructive" });
-    }
-  };
-
-  // VisionCine removed
-
-  // Load CineVeo DB stats on mount
-  const loadIptvDbStats = useCallback(async () => {
-    const [{ count: apiLinks }, { count: contentTotal }] = await Promise.all([
-      supabase.from("video_cache").select("*", { count: "exact", head: true }).eq("provider", "cineveo-api"),
-      supabase.from("content").select("*", { count: "exact", head: true }),
-    ]);
-    setIptvDbStats({ links: apiLinks || 0, content: contentTotal || 0 });
-  }, []);
-  useEffect(() => { loadIptvDbStats(); }, [loadIptvDbStats]);
-
-  // CineVeo unified import — VPS-first, Cloud fallback
-  const startIptvImport = async () => {
-    setIptvImporting(true);
-    setIptvProgress({ phase: "syncing", entries: 0, valid: 0, cache: 0, content: 0, done: false });
-
-    // RESET: limpa todo o cache de vídeo antes de reimportar
-    toast({ title: "🔄 Resetando...", description: "Limpando cache antigo antes de importar..." });
-    await supabase.from("video_cache").delete().neq("provider", "manual");
-    await supabase.from("resolve_failures").delete().gte("attempted_at", "2000-01-01");
-
-    // Check if VPS is online for heavy lifting
-    await initVpsClient();
-    const vpsUrl = getVpsUrl();
-    const vpsAvailable = !!vpsUrl && (await refreshVpsHealth()) && isVpsOnline();
-
-    if (vpsAvailable) {
-      // Trigger VPS cineveo-catalog worker directly
-      toast({ title: "⚡ VPS Online", description: "Importação pesada sendo processada na VPS..." });
-      try {
-        await fetch(`${vpsUrl}/api/trigger-cineveo`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reset: true }),
-          signal: AbortSignal.timeout(10_000),
-        }).catch(() => {});
-      } catch { /* VPS will process */ }
-    } else {
-      // Cloud fallback — usa import-cineveo-catalog (NÃO import-iptv)
-      toast({ title: "☁️ Cloud Mode", description: "VPS offline, usando Cloud CineVeo API..." });
-      supabase.functions.invoke("import-cineveo-catalog", {
-        body: { reset: true, brute: true, pages_per_run: 20 },
-      }).catch(() => {});
-    }
-
-    // Refresh stats after reset
-    fetchAll();
-    loadIptvDbStats();
-  };
-
-  // Poll progress from both VPS and Cloud sources
-  useEffect(() => {
-    if (!iptvImporting) return;
-    const interval = setInterval(async () => {
-      // Check VPS progress first, then Cloud
-      const [vpsProgress, cloudProgress] = await Promise.all([
-        supabase.from("site_settings").select("value").eq("key", "cineveo_vps_progress").maybeSingle(),
-        supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
-      ]);
-
-      const p = (vpsProgress.data?.value || cloudProgress.data?.value) as any;
-      if (!p) return;
-
-      setIptvProgress({
-        phase: p.phase || "syncing",
-        entries: p.pages_processed || p.processed_pages || 0,
-        valid: p.total_pages_for_type || 0,
-        cache: p.cache_total || p.imported_cache_total || 0,
-        content: p.content_total || p.imported_content_total || 0,
-        done: p.done || false,
-      });
-
-      if (p.done) {
-        clearInterval(interval);
-        setIptvImporting(false);
-        if (p.phase === "error") {
-          toast({ title: "Erro CineVeo", description: p.error || "Falha na importação", variant: "destructive" });
-        } else {
-          toast({ title: "✅ Importação CineVeo concluída", description: `${p.cache_total || p.imported_cache_total || 0} links, ${p.content_total || p.imported_content_total || 0} conteúdos` });
-        }
-        fetchAll();
-        loadIptvDbStats();
-      }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [iptvImporting]);
-
+  const getApiLink = (item: ContentItem) => `/player/${item.content_type}/${item.tmdb_id}`;
 
   const filteredItems = filterStatus === "all"
     ? items
@@ -529,6 +370,13 @@ const BancoPage = () => {
       });
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
+
+  // Calculate import progress percentage
+  const importPercent = importProgress
+    ? importProgress.totalPages
+      ? Math.min(99, Math.round((importProgress.pagesProcessed / (importProgress.totalPages * 2)) * 100))
+      : importProgress.pagesProcessed > 0 ? Math.min(95, importProgress.pagesProcessed) : 5
+    : 0;
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -557,7 +405,7 @@ const BancoPage = () => {
         </button>
       </div>
 
-      {/* Stats */}
+      {/* Stats — always precise from DB */}
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <div className="glass p-3 sm:p-4 rounded-xl text-center">
           <p className="text-lg sm:text-2xl font-bold text-primary">{stats.total.toLocaleString()}</p>
@@ -590,19 +438,16 @@ const BancoPage = () => {
         </div>
       )}
 
-      {/* VisionCine removed */}
-
-      {/* CineVeo API — importação unificada com rotação automática */}
+      {/* CineVeo API Import */}
       <div className="glass p-3 sm:p-4 rounded-xl border border-primary/20">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-primary" />
             <span className="text-xs sm:text-sm font-semibold">CineVeo API</span>
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold">AUTOMÁTICO</span>
-            <span className="text-[9px] text-muted-foreground">rotação por páginas</span>
+            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold">EXCLUSIVO</span>
           </div>
-          {!iptvImporting ? (
-            <button onClick={startIptvImport}
+          {!importing ? (
+            <button onClick={startImport}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/15 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/25 transition-colors">
               <RefreshCw className="w-3.5 h-3.5" /> Importar Tudo
             </button>
@@ -610,26 +455,29 @@ const BancoPage = () => {
             <span className="flex items-center gap-1.5 text-xs text-primary"><Loader2 className="w-3.5 h-3.5 animate-spin" />Importando...</span>
           )}
         </div>
-        {iptvImporting && iptvProgress && (
-          <div className="mt-2 space-y-1">
-            <div className="relative h-1.5 rounded-full bg-muted overflow-hidden">
-              <div className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all"
-                style={{ width: iptvProgress.valid > 0 ? `${Math.min(99, Math.round((iptvProgress.entries / Math.max(iptvProgress.valid / 20, 1)) * 100))}%` : '5%' }} />
+
+        {importing && importProgress && (
+          <div className="mt-3 space-y-2">
+            <div className="relative h-2 rounded-full bg-muted overflow-hidden">
+              <div className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all duration-500"
+                style={{ width: `${importPercent}%` }} />
             </div>
-            <p className="text-[10px] text-muted-foreground">
-              {iptvProgress.phase === "syncing"
-                ? `Página ${iptvProgress.entries} — ${iptvProgress.cache.toLocaleString()} links, ${iptvProgress.content.toLocaleString()} conteúdos`
-                : iptvProgress.phase === "complete"
-                ? `✅ Concluído: ${iptvProgress.cache.toLocaleString()} links, ${iptvProgress.content.toLocaleString()} conteúdos`
-                : iptvProgress.phase === "error"
-                ? `❌ Erro na importação`
-                : `Processando...`}
-            </p>
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>
+                {importProgress.currentType === "movies" ? "🎬 Filmes" : "📺 Séries"} — Página {importProgress.currentPage || 0}
+                {importProgress.totalPages ? ` / ${importProgress.totalPages}` : ""}
+              </span>
+              <span className="font-medium text-primary">
+                {importProgress.contentTotal.toLocaleString()} conteúdos • {importProgress.cacheTotal.toLocaleString()} links
+              </span>
+            </div>
           </div>
         )}
-        {!iptvImporting && (
+
+        {!importing && (
           <p className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1">
-            <CheckCircle className="w-3 h-3" />{iptvDbStats.links.toLocaleString()} links importados ({iptvDbStats.content.toLocaleString()} no catálogo)
+            <CheckCircle className="w-3 h-3" />
+            {stats.withVideo.toLocaleString()} links • {stats.total.toLocaleString()} no catálogo
           </p>
         )}
       </div>
@@ -638,7 +486,7 @@ const BancoPage = () => {
       {resolving && resolveProgress.total > 0 && (
         <div className="glass p-3 sm:p-4 rounded-xl space-y-2">
           <div className="flex items-center justify-between text-xs sm:text-sm">
-            <span className="text-muted-foreground">Resolvendo links (pág por pág, A→Z)...</span>
+            <span className="text-muted-foreground">Resolvendo links...</span>
             <span className="font-medium text-primary">
               {resolveProgress.current}/{resolveProgress.total} ({Math.round((resolveProgress.current / resolveProgress.total) * 100)}%)
             </span>
@@ -689,7 +537,9 @@ const BancoPage = () => {
       ) : filteredItems.length === 0 ? (
         <div className="glass p-8 sm:p-12 text-center">
           <Database className="w-10 h-10 sm:w-12 sm:h-12 text-muted-foreground/30 mx-auto mb-3" />
-          <p className="text-muted-foreground text-xs sm:text-sm">Nenhum conteúdo encontrado</p>
+          <p className="text-muted-foreground text-xs sm:text-sm">
+            {stats.total === 0 ? "Catálogo vazio — clique em Importar Tudo para começar" : "Nenhum conteúdo encontrado"}
+          </p>
         </div>
       ) : (
         <>
@@ -700,7 +550,7 @@ const BancoPage = () => {
               return (
                 <div key={item.id} className="glass p-3 rounded-xl flex items-center gap-3">
                   {item.poster_path ? (
-                    <img src={`https://image.tmdb.org/t/p/w92${item.poster_path}`} alt={item.title} className="w-10 h-14 rounded-lg object-cover flex-shrink-0" />
+                    <img src={item.poster_path.startsWith("http") ? item.poster_path : `https://image.tmdb.org/t/p/w92${item.poster_path}`} alt={item.title} className="w-10 h-14 rounded-lg object-cover flex-shrink-0" />
                   ) : (
                     <div className="w-10 h-14 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
                       <Film className="w-3 h-3" />
@@ -712,15 +562,8 @@ const BancoPage = () => {
                       <span className={`text-[9px] px-1.5 py-0.5 rounded-full border ${
                         item.content_type === "movie" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-purple-500/10 text-purple-400 border-purple-500/20"
                       }`}>{item.content_type === "movie" ? "Filme" : "Série"}</span>
-                      {status?.has_video ? (
-                        <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                      ) : (
-                        <XCircle className="w-3.5 h-3.5 text-muted-foreground/40" />
-                      )}
+                      {status?.has_video ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> : <XCircle className="w-3.5 h-3.5 text-muted-foreground/40" />}
                     </div>
-                    {status?.has_video && (
-                      <p className="text-[9px] text-primary/60 font-mono mt-0.5 truncate">{getApiLink(item)}</p>
-                    )}
                   </div>
                   <div className="flex items-center gap-1 relative">
                     <button
@@ -733,7 +576,6 @@ const BancoPage = () => {
                     {providerMenu === item.id && (
                       <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-xl shadow-xl p-1.5 min-w-[130px] animate-fade-in">
                         <button onClick={() => handleProviderSelect(item, "cineveo-api")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CineVeo API</button>
-                        <button onClick={() => handleProviderSelect(item, "mega")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">Mega.nz</button>
                       </div>
                     )}
                     {status?.has_video && (
@@ -756,7 +598,7 @@ const BancoPage = () => {
                     <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">Título</th>
                     <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">Tipo</th>
                     <th className="text-center text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">Vídeo</th>
-                    <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3 hidden md:table-cell">Link API</th>
+                    <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3 hidden md:table-cell">Link</th>
                     <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3 hidden lg:table-cell">Provider</th>
                     <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">Ações</th>
                   </tr>
@@ -769,7 +611,7 @@ const BancoPage = () => {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-3">
                             {item.poster_path ? (
-                              <img src={`https://image.tmdb.org/t/p/w92${item.poster_path}`} alt={item.title} className="w-8 h-12 rounded-lg object-cover flex-shrink-0" />
+                              <img src={item.poster_path.startsWith("http") ? item.poster_path : `https://image.tmdb.org/t/p/w92${item.poster_path}`} alt={item.title} className="w-8 h-12 rounded-lg object-cover flex-shrink-0" />
                             ) : (
                               <div className="w-8 h-12 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0"><Film className="w-3 h-3" /></div>
                             )}
@@ -789,8 +631,8 @@ const BancoPage = () => {
                         </td>
                         <td className="px-4 py-3 hidden md:table-cell">
                           {status?.has_video ? (
-                            <span className="text-[10px] text-primary/70 font-mono bg-primary/5 px-2 py-1 rounded-lg border border-primary/10">
-                              {getApiLink(item)}
+                            <span className="text-[10px] text-primary/70 font-mono bg-primary/5 px-2 py-1 rounded-lg border border-primary/10 truncate block max-w-[200px]">
+                              {status.video_url?.substring(0, 60)}...
                             </span>
                           ) : (
                             <span className="text-[10px] text-muted-foreground/40">—</span>
@@ -812,23 +654,13 @@ const BancoPage = () => {
                               {providerMenu === item.id && (
                                 <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-xl shadow-xl p-1.5 min-w-[130px] animate-fade-in">
                                   <button onClick={() => handleProviderSelect(item, "cineveo-api")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CineVeo API</button>
-                                  <button onClick={() => handleProviderSelect(item, "mega")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">Mega.nz</button>
                                 </div>
                               )}
                             </div>
                             {status?.has_video && (
-                              <>
-                                <button onClick={() => setPlayerItem(item)} className="w-7 h-7 rounded-lg bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30" title="Abrir player">
-                                  <Play className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => openProtectedLink(status.video_url)}
-                                  className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10"
-                                  title="Link direto"
-                                >
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                </button>
-                              </>
+                              <button onClick={() => setPlayerItem(item)} className="w-7 h-7 rounded-lg bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30" title="Abrir player">
+                                <Play className="w-3.5 h-3.5" />
+                              </button>
                             )}
                           </div>
                         </td>
@@ -857,35 +689,23 @@ const BancoPage = () => {
         </>
       )}
 
-      {/* Player Modal - URL sempre assinada antes de reproduzir */}
+      {/* Player Modal — Direct URL, no proxy for CineVeo mp4 */}
       {playerItem && (() => {
         const status = videoStatuses.get(playerItem.tmdb_id);
         if (!status?.has_video || !status.video_url) return null;
         return (
           <div className="fixed inset-0 z-[100] bg-black animate-fade-in">
-            {playerUrlLoading || !protectedPlayerUrl ? (
-              <div className="w-full h-full flex items-center justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-primary" />
-              </div>
-            ) : (
-              <CustomPlayer
-                sources={[{
-                  url: protectedPlayerUrl,
-                  quality: "auto",
-                  provider: status.provider || "cache",
-                  type: (status.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
-                }]}
-                title={playerItem.title}
-                onClose={() => {
-                  setPlayerItem(null);
-                  setProtectedPlayerUrl(null);
-                }}
-                onError={() => {
-                  setPlayerItem(null);
-                  setProtectedPlayerUrl(null);
-                }}
-              />
-            )}
+            <CustomPlayer
+              sources={[{
+                url: status.video_url,
+                quality: "auto",
+                provider: status.provider || "cache",
+                type: (status.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
+              }]}
+              title={playerItem.title}
+              onClose={() => setPlayerItem(null)}
+              onError={() => setPlayerItem(null)}
+            />
           </div>
         );
       })()}
