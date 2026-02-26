@@ -442,15 +442,22 @@ const ContentSourcesPage = () => {
     // Query ALL content_types for this tmdb_id (series/tv/anime/dorama/movie can vary)
     const { data } = await supabase
       .from("video_cache")
-      .select("tmdb_id, video_url, video_type, provider, season, episode, content_type")
+      .select("tmdb_id, video_url, video_type, provider, season, episode, content_type, created_at")
       .eq("tmdb_id", tmdbId)
-      .gt("expires_at", new Date().toISOString());
+      .gt("expires_at", new Date().toISOString())
+      .order("created_at", { ascending: false });
 
     const map = new Map<string, { url: string; type: string; provider: string }>();
-    data?.forEach(d => {
+    const providerRank = (provider: string) => (provider === "manual" ? 100 : provider === "mega" ? 90 : 10);
+
+    data?.forEach((d: any) => {
       const key = d.season != null ? `${d.season}-${d.episode}` : "movie";
-      map.set(key, { url: d.video_url, type: d.video_type, provider: d.provider });
+      const current = map.get(key);
+      if (!current || providerRank(d.provider || "") > providerRank(current.provider || "")) {
+        map.set(key, { url: d.video_url, type: d.video_type, provider: d.provider });
+      }
     });
+
     setVideoStatuses(map);
     setLoadingVideos(false);
   };
@@ -736,9 +743,9 @@ const ContentSourcesPage = () => {
         )}
         <button
           onClick={() => extractVideo(tmdbId, type, season, episode)}
-          disabled={isExtracting}
+          disabled={isExtracting || status?.provider === "manual"}
           className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10 disabled:opacity-50"
-          title="Extrair das fontes"
+          title={status?.provider === "manual" ? "Link manual protegido (não sobrescrever)" : "Extrair das fontes"}
         >
           {isExtracting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
         </button>
