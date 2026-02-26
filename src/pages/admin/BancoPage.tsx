@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Database, Film, Tv, Loader2, Play, RefreshCw, CheckCircle, XCircle, Search, ExternalLink, Link2, X, Upload, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import CustomPlayer from "@/components/CustomPlayer";
 import { initVpsClient, isVpsOnline, getVpsUrl, refreshVpsHealth } from "@/lib/vpsClient";
+import { toSlug } from "@/lib/slugify";
 
 interface ContentItem {
   id: string;
@@ -26,6 +27,7 @@ interface VideoStatus {
 const ITEMS_PER_PAGE = 50;
 
 const BancoPage = () => {
+  const navigate = useNavigate();
   const [items, setItems] = useState<ContentItem[]>([]);
   const [videoStatuses, setVideoStatuses] = useState<Map<number, VideoStatus>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -39,7 +41,7 @@ const BancoPage = () => {
   const cancelRef = useRef(false);
   const { toast } = useToast();
   const [stats, setStats] = useState({ total: 0, withVideo: 0, withoutVideo: 0, byProvider: {} as Record<string, number> });
-  const [playerItem, setPlayerItem] = useState<ContentItem | null>(null);
+  // playerItem removed — now navigates to native player
   const [providerMenu, setProviderMenu] = useState<string | null>(null);
   const [resolvingItems, setResolvingItems] = useState<Set<string>>(new Set());
 
@@ -360,6 +362,22 @@ const BancoPage = () => {
     loadItems();
   };
 
+  const openNativePlayer = (item: ContentItem) => {
+    const status = videoStatuses.get(item.tmdb_id);
+    if (!status?.has_video || !status.video_url) return;
+    const slug = toSlug(item.title, item.tmdb_id);
+    const playerType = item.content_type === "movie" ? "movie" : "tv";
+    const params = new URLSearchParams({
+      title: item.title,
+      url: status.video_url,
+      type: status.video_type === "mp4" ? "mp4" : "m3u8",
+      audio: "legendado",
+      tmdb: String(item.tmdb_id),
+      ct: playerType,
+    });
+    navigate(`/player/${playerType}/${slug}?${params.toString()}`);
+  };
+
   const getApiLink = (item: ContentItem) => `/player/${item.content_type}/${item.tmdb_id}`;
 
   const filteredItems = filterStatus === "all"
@@ -579,7 +597,7 @@ const BancoPage = () => {
                       </div>
                     )}
                     {status?.has_video && (
-                      <button onClick={() => setPlayerItem(item)} className="w-7 h-7 rounded-lg bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30">
+                      <button onClick={() => openNativePlayer(item)} className="w-7 h-7 rounded-lg bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30">
                         <Play className="w-3 h-3" />
                       </button>
                     )}
@@ -658,7 +676,7 @@ const BancoPage = () => {
                               )}
                             </div>
                             {status?.has_video && (
-                              <button onClick={() => setPlayerItem(item)} className="w-7 h-7 rounded-lg bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30" title="Abrir player">
+                              <button onClick={() => openNativePlayer(item)} className="w-7 h-7 rounded-lg bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30" title="Abrir player">
                                 <Play className="w-3.5 h-3.5" />
                               </button>
                             )}
@@ -689,26 +707,6 @@ const BancoPage = () => {
         </>
       )}
 
-      {/* Player Modal — Direct URL, no proxy for CineVeo mp4 */}
-      {playerItem && (() => {
-        const status = videoStatuses.get(playerItem.tmdb_id);
-        if (!status?.has_video || !status.video_url) return null;
-        return (
-          <div className="fixed inset-0 z-[100] bg-black animate-fade-in">
-            <CustomPlayer
-              sources={[{
-                url: status.video_url,
-                quality: "auto",
-                provider: status.provider || "cache",
-                type: (status.video_type === "mp4" ? "mp4" : "m3u8") as "mp4" | "m3u8",
-              }]}
-              title={playerItem.title}
-              onClose={() => setPlayerItem(null)}
-              onError={() => setPlayerItem(null)}
-            />
-          </div>
-        );
-      })()}
     </div>
   );
 };
