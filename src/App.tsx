@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense } from "react";
 import SiteAlertModal from "./components/SiteAlertModal";
+import MaintenanceModal from "./components/MaintenanceModal";
 
 import PushPrompt from "./components/PushPrompt";
 import Index from "./pages/Index";
@@ -80,6 +81,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <SiteAlertModal />
+      <MaintenanceModal />
       
       <PushPrompt />
       <BrowserRouter>
