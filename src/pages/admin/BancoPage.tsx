@@ -208,9 +208,8 @@ const BancoPage = () => {
         done: !!p.done,
       });
 
-      // Also refresh stats
+      // Also refresh stats (silently — don't trigger loading spinner)
       loadStats();
-      loadItems();
 
       if (p.done) {
         clearInterval(interval);
