@@ -163,7 +163,7 @@ const PlayerPage = () => {
         // 1. Title + cache check in parallel (FAST)
         let cacheQuery = supabase
           .from("video_cache")
-          .select("video_url, video_type, provider")
+          .select("video_url, video_type, provider, created_at")
           .eq("tmdb_id", tmdbId)
           .in("content_type", cTypes)
           .eq("audio_type", aType)
@@ -175,24 +175,36 @@ const PlayerPage = () => {
 
         const [titleResult, cacheResult] = await Promise.all([
           supabase.from("content").select("title").eq("tmdb_id", tmdbId).in("content_type", cTypes).maybeSingle(),
-          cacheQuery.order("created_at", { ascending: false }).limit(1).maybeSingle(),
+          cacheQuery.order("created_at", { ascending: false }).limit(20),
         ]);
 
         if (titleResult.data?.title) setBankTitle(titleResult.data.title);
 
+        const providerRank = (provider?: string) => {
+          const p = (provider || "").toLowerCase();
+          if (p === "cineveo-api") return 120;
+          if (p === "cineveo") return 110;
+          if (p === "mega") return 95;
+          if (p === "manual") return 40;
+          return 70;
+        };
+
+        const bestCached = (cacheResult.data || [])
+          .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
+
         // 2. If cache hit, use instantly
-        if (cacheResult.data?.video_url && cacheResult.data.video_type !== "iframe-proxy") {
+        if (bestCached?.video_url && bestCached.video_type !== "iframe-proxy") {
           // Try to sign the URL; if signing fails, use the raw URL as fallback
-          let finalUrl = cacheResult.data.video_url;
+          let finalUrl = bestCached.video_url;
           try {
-            const signed = await secureVideoUrl(cacheResult.data.video_url);
-            if (signed && signed !== cacheResult.data.video_url) finalUrl = signed;
+            const signed = await secureVideoUrl(bestCached.video_url);
+            if (signed && signed !== bestCached.video_url) finalUrl = signed;
           } catch { /* use raw */ }
           setBankSources([{
             url: finalUrl,
             quality: "auto",
-            provider: cacheResult.data.provider || "cache",
-            type: cacheResult.data.video_type === "mp4" ? "mp4" : "m3u8",
+            provider: bestCached.provider || "cache",
+            type: bestCached.video_type === "mp4" ? "mp4" : "m3u8",
           }]);
           setBankLoading(false);
           return;
