@@ -618,11 +618,9 @@ const ContentSourcesPage = () => {
   const openProtectedExternal = async (url: string) => {
     try {
       const safeUrl = await secureVideoUrl(url);
-      const isProtected = safeUrl.includes("action=stream") || safeUrl.includes("video-token");
-      if (!isProtected) throw new Error("Token inválido");
-      window.open(safeUrl, "_blank", "noopener,noreferrer");
+      window.open(safeUrl || url, "_blank", "noopener,noreferrer");
     } catch {
-      toast({ title: "Falha ao abrir", description: "Não foi possível gerar o link protegido.", variant: "destructive" });
+      window.open(url, "_blank", "noopener,noreferrer");
     }
   };
 
@@ -631,16 +629,17 @@ const ContentSourcesPage = () => {
       window.open(url, "_blank", "noopener,noreferrer");
       return;
     }
+
+    let finalUrl = url;
     try {
-      const safeUrl = await secureVideoUrl(url);
-      const isProtected = safeUrl.includes("action=stream") || safeUrl.includes("video-token");
-      if (!isProtected) throw new Error("Token inválido");
-      setPlayerUrl(safeUrl);
-      setPlayerType(type as "m3u8" | "mp4");
-      setPlayerTitle(title);
+      finalUrl = await secureVideoUrl(url);
     } catch {
-      toast({ title: "Falha no player", description: "Não foi possível gerar o link protegido.", variant: "destructive" });
+      finalUrl = url;
     }
+
+    setPlayerUrl(finalUrl);
+    setPlayerType(type as "m3u8" | "mp4");
+    setPlayerTitle(title);
   };
 
   const extractAllEpisodes = async (seasonNum: number) => {
