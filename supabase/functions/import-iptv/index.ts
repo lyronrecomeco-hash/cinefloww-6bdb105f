@@ -10,138 +10,88 @@ const IPTV_URL = "https://cineveo.site/api/generate_iptv_list.php?user=lyneflix-
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 interface ParsedItem {
-  title: string;
   tmdb_id: number;
   content_type: "movie" | "series";
+  title: string;
   stream_url: string;
   season: number;
   episode: number;
-  group: string;
   poster: string | null;
 }
 
-function parseM3U(text: string): ParsedItem[] {
-  const lines = text.split("\n");
-  const items: ParsedItem[] = [];
+function parseLine(extinf: string, url: string): ParsedItem | null {
+  const idMatch = extinf.match(/tvg-id="(movie|serie|tv|series)[:\s]*(\d+)"/i);
+  if (!idMatch) return null;
+  const tmdbId = Number(idMatch[2]);
+  if (!tmdbId) return null;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line.startsWith("#EXTINF:")) continue;
+  const rawType = idMatch[1].toLowerCase();
+  const contentType = rawType === "movie" ? "movie" as const : "series" as const;
 
-    const urlLine = (lines[i + 1] || "").trim();
-    if (!urlLine || urlLine.startsWith("#")) continue;
+  const logoMatch = extinf.match(/tvg-logo="([^"]*)"/);
+  const poster = logoMatch?.[1] || null;
 
-    // Extract group-title
-    const groupMatch = line.match(/group-title="([^"]*)"/);
-    const group = groupMatch?.[1] || "";
+  const titleMatch = extinf.match(/,(.+)$/);
+  const title = titleMatch?.[1]?.trim() || `TMDB ${tmdbId}`;
 
-    // Extract tvg-logo
-    const logoMatch = line.match(/tvg-logo="([^"]*)"/);
-    const poster = logoMatch?.[1] || null;
-
-    // Extract tmdb id from tvg-id or title
-    const idMatch = line.match(/tvg-id="(\d+)"/);
-    
-    // Extract title (after the last comma)
-    const titleMatch = line.match(/,(.+)$/);
-    const rawTitle = titleMatch?.[1]?.trim() || "";
-
-    let tmdbId = idMatch ? Number(idMatch[1]) : 0;
-    
-    // Try to extract TMDB ID from URL patterns like /movie/12345 or /tv/12345
-    if (!tmdbId) {
-      const urlTmdbMatch = urlLine.match(/\/(movie|tv|serie)\/(\d+)/i);
-      if (urlTmdbMatch) tmdbId = Number(urlTmdbMatch[2]);
-    }
-
-    // Try from title pattern "Title (TMDB:12345)"
-    if (!tmdbId) {
-      const titleTmdbMatch = rawTitle.match(/\(TMDB[:\s]*(\d+)\)/i);
-      if (titleTmdbMatch) tmdbId = Number(titleTmdbMatch[1]);
-    }
-
-    if (!tmdbId || !urlLine) continue;
-
-    // Determine content type from group
-    const isSeries = /s[eé]rie|novela|anime|dorama|temporada/i.test(group) || 
-                     /S\d+E\d+/i.test(rawTitle);
-    const contentType = isSeries ? "series" : "movie";
-
-    // Extract season/episode from title like "S01E05" or "T1 E5"
-    let season = 0, episode = 0;
-    const seMatch = rawTitle.match(/S(\d+)\s*E(\d+)/i) || rawTitle.match(/T(\d+)\s*E(\d+)/i);
-    if (seMatch) {
-      season = Number(seMatch[1]);
-      episode = Number(seMatch[2]);
-    }
-
-    // Clean title
-    const cleanTitle = rawTitle
-      .replace(/S\d+\s*E\d+/gi, "")
-      .replace(/T\d+\s*E\d+/gi, "")
-      .replace(/\(TMDB[:\s]*\d+\)/gi, "")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-
-    items.push({
-      title: cleanTitle || rawTitle,
-      tmdb_id: tmdbId,
-      content_type: contentType,
-      stream_url: urlLine,
-      season,
-      episode,
-      group,
-      poster,
-    });
+  let season = 0, episode = 0;
+  if (contentType === "series") {
+    // URL pattern: /.../tmdbid/season/episode.mp4
+    const seMatch = url.match(/\/(\d+)\/(\d+)\.mp4$/);
+    if (seMatch) { season = Number(seMatch[1]); episode = Number(seMatch[2]); }
   }
 
-  return items;
+  return { tmdb_id: tmdbId, content_type: contentType, title, stream_url: url, season, episode, poster };
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
+  const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
   try {
-    // 1. Fetch the IPTV list
-    console.log("[iptv-import] Fetching IPTV list...");
-    const res = await fetch(IPTV_URL, {
-      headers: { "User-Agent": UA },
-      signal: AbortSignal.timeout(120000),
-    });
+    const body = await req.json().catch(() => ({}));
+    const offset = Number(body.offset || 0);
+    const limit = Number(body.limit || 50000); // Process in chunks
 
-    if (!res.ok) throw new Error(`IPTV fetch failed: ${res.status}`);
+    console.log(`[iptv] Fetching list (offset=${offset}, limit=${limit})...`);
+    const res = await fetch(IPTV_URL, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(90000) });
+    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
     const text = await res.text();
-    console.log(`[iptv-import] Downloaded ${text.length} bytes`);
 
-    // 2. Parse M3U
-    const items = parseM3U(text);
-    console.log(`[iptv-import] Parsed ${items.length} items`);
+    // Parse all lines
+    const lines = text.split("\n");
+    const allItems: ParsedItem[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line.startsWith("#EXTINF:")) continue;
+      const urlLine = (lines[i + 1] || "").trim();
+      if (!urlLine || urlLine.startsWith("#")) continue;
+      const item = parseLine(line, urlLine);
+      if (item) allItems.push(item);
+    }
 
-    if (items.length === 0) {
-      return new Response(JSON.stringify({ error: "No items parsed from IPTV list" }), {
-        status: 400,
+    console.log(`[iptv] Total parsed: ${allItems.length}`);
+
+    // Slice the chunk to process
+    const chunk = allItems.slice(offset, offset + limit);
+    if (chunk.length === 0) {
+      return new Response(JSON.stringify({ done: true, total_parsed: allItems.length, offset }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // 3. Deduplicate by tmdb_id for content, keep all unique stream entries for cache
+    // Deduplicate content
     const contentMap = new Map<string, any>();
     const cacheRows: any[] = [];
 
-    for (const item of items) {
+    for (const item of chunk) {
       const key = `${item.tmdb_id}-${item.content_type}`;
       if (!contentMap.has(key)) {
         contentMap.set(key, {
           tmdb_id: item.tmdb_id,
           content_type: item.content_type,
-          title: item.title,
+          title: item.title.replace(/\s*\(\d{4}\)\s*$/, "").trim() || item.title,
           poster_path: item.poster,
           overview: "",
           vote_average: 0,
@@ -151,15 +101,13 @@ Deno.serve(async (req) => {
         });
       }
 
-      // Video cache entry
       if (item.stream_url) {
-        const isM3u8 = item.stream_url.includes(".m3u8");
         cacheRows.push({
           tmdb_id: item.tmdb_id,
           content_type: item.content_type,
           audio_type: "dublado",
           video_url: item.stream_url,
-          video_type: isM3u8 ? "m3u8" : "mp4",
+          video_type: item.stream_url.includes(".m3u8") ? "m3u8" : "mp4",
           provider: "cineveo-iptv",
           season: item.season,
           episode: item.episode,
@@ -169,53 +117,52 @@ Deno.serve(async (req) => {
     }
 
     const contentRows = Array.from(contentMap.values());
-    console.log(`[iptv-import] ${contentRows.length} unique content, ${cacheRows.length} cache entries`);
+    let contentOk = 0, cacheOk = 0;
 
-    // 4. Upsert content (won't overwrite existing)
-    let contentOk = 0, contentErr = 0;
-    for (let i = 0; i < contentRows.length; i += 200) {
-      const batch = contentRows.slice(i, i + 200);
-      const { error } = await supabase.from("content").upsert(batch, {
-        onConflict: "tmdb_id,content_type",
-        ignoreDuplicates: true, // Don't overwrite existing records
-      });
-      if (error) { contentErr += batch.length; console.error("[iptv-import] content error:", error.message); }
-      else contentOk += batch.length;
+    // Upsert content (ignoreDuplicates = don't overwrite existing)
+    for (let i = 0; i < contentRows.length; i += 500) {
+      const batch = contentRows.slice(i, i + 500);
+      const { error } = await supabase.from("content").upsert(batch, { onConflict: "tmdb_id,content_type", ignoreDuplicates: true });
+      if (!error) contentOk += batch.length;
+      else console.error("[iptv] content err:", error.message);
     }
 
-    // 5. Upsert video cache (only insert if not exists - lower priority than cineveo-api)
-    let cacheOk = 0, cacheErr = 0;
-    for (let i = 0; i < cacheRows.length; i += 200) {
-      const batch = cacheRows.slice(i, i + 200);
-      const { error } = await supabase.from("video_cache").upsert(batch, {
-        onConflict: "tmdb_id,content_type,audio_type,season,episode",
-        ignoreDuplicates: true, // Don't overwrite higher-priority providers
-      });
-      if (error) { cacheErr += batch.length; console.error("[iptv-import] cache error:", error.message); }
-      else cacheOk += batch.length;
+    // Upsert cache (ignoreDuplicates = don't overwrite higher-priority providers like cineveo-api)
+    for (let i = 0; i < cacheRows.length; i += 500) {
+      const batch = cacheRows.slice(i, i + 500);
+      const { error } = await supabase.from("video_cache").upsert(batch, { onConflict: "tmdb_id,content_type,audio_type,season,episode", ignoreDuplicates: true });
+      if (!error) cacheOk += batch.length;
+      else console.error("[iptv] cache err:", error.message);
     }
 
+    const hasMore = offset + limit < allItems.length;
     const result = {
-      parsed: items.length,
+      done: !hasMore,
+      total_parsed: allItems.length,
+      chunk_processed: chunk.length,
       unique_content: contentRows.length,
       cache_entries: cacheRows.length,
-      content_upserted: contentOk,
-      content_errors: contentErr,
-      cache_upserted: cacheOk,
-      cache_errors: cacheErr,
+      content_ok: contentOk,
+      cache_ok: cacheOk,
+      next_offset: hasMore ? offset + limit : null,
     };
 
-    console.log("[iptv-import] Done:", JSON.stringify(result));
+    // Auto-chain if more to process
+    if (hasMore) {
+      const selfUrl = `${Deno.env.get("SUPABASE_URL")!}/functions/v1/import-iptv`;
+      fetch(selfUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}` },
+        body: JSON.stringify({ offset: offset + limit, limit }),
+      }).catch(() => {});
+    }
 
-    return new Response(JSON.stringify(result), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    console.log("[iptv] Result:", JSON.stringify(result));
+    return new Response(JSON.stringify(result), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
-    console.error("[iptv-import] Error:", error);
+    console.error("[iptv] Error:", error);
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Import failed" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });
-
