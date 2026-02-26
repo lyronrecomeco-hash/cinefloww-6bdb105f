@@ -29,33 +29,57 @@ function shouldUseProxy(vpsBaseUrl: string): boolean {
   return false;
 }
 
-/** Load VPS API URL from site_settings and check health */
+/** Load VPS API URL from localStorage cache or site_settings */
 export function initVpsClient(): Promise<void> {
   if (_initPromise) return _initPromise;
   _initPromise = (async () => {
     try {
-      const { data } = await supabase
-        .from("site_settings")
-        .select("value")
-        .eq("key", "vps_api_url")
-        .maybeSingle();
-      if (data?.value) {
-        const val = data.value as any;
-        _vpsBaseUrl = typeof val === "string" ? val.replace(/^"|"$/g, "") : val.url || null;
-        if (_vpsBaseUrl) {
-          _vpsBaseUrl = _vpsBaseUrl.replace(/\/+$/, "");
-          // Prefer proxy in hosted environments to avoid mixed content/CORS.
-          if (shouldUseProxy(_vpsBaseUrl)) {
-            _vpsProxyUrl = `${window.location.origin}/vps`;
-          } else {
-            _vpsProxyUrl = _vpsBaseUrl;
-          }
-          await checkVpsHealth();
+      // 1. Try localStorage cache first (avoids Cloud DB query)
+      const cached = localStorage.getItem("_vps_url");
+      if (cached) {
+        _vpsBaseUrl = cached;
+        _vpsBaseUrl = _vpsBaseUrl.replace(/\/+$/, "");
+        if (shouldUseProxy(_vpsBaseUrl)) {
+          _vpsProxyUrl = `${window.location.origin}/vps`;
+        } else {
+          _vpsProxyUrl = _vpsBaseUrl;
         }
+        // Check health with cached URL — don't block on DB query
+        await checkVpsHealth();
+        // Refresh from DB in background (fire-and-forget)
+        refreshVpsUrlFromDb().catch(() => {});
+        return;
       }
+
+      // 2. No cache — fetch from DB
+      await refreshVpsUrlFromDb();
+      if (_vpsBaseUrl) await checkVpsHealth();
     } catch { /* silent */ }
   })();
   return _initPromise;
+}
+
+async function refreshVpsUrlFromDb(): Promise<void> {
+  try {
+    const { data } = await supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "vps_api_url")
+      .maybeSingle();
+    if (data?.value) {
+      const val = data.value as any;
+      const url = typeof val === "string" ? val.replace(/^"|"$/g, "") : val.url || null;
+      if (url) {
+        _vpsBaseUrl = url.replace(/\/+$/, "");
+        localStorage.setItem("_vps_url", _vpsBaseUrl);
+        if (shouldUseProxy(_vpsBaseUrl)) {
+          _vpsProxyUrl = `${window.location.origin}/vps`;
+        } else {
+          _vpsProxyUrl = _vpsBaseUrl;
+        }
+      }
+    }
+  } catch { /* silent */ }
 }
 
 async function checkVpsHealth(): Promise<boolean> {
