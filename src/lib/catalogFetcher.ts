@@ -1,12 +1,10 @@
 /**
- * Catalog fetcher with VPS-first strategy and Cloud DB fallback (strict timeout).
- * 1. Try VPS memory cache (instant)
- * 2. If VPS offline → Cloud DB with 4s timeout (prevents infinite loading)
- * 3. If both fail → return empty (never blocks UI)
+ * VPS-only catalog fetcher with in-memory cache.
+ * Tries VPS memory cache (instant). If VPS is offline, returns empty.
+ * NO Cloud DB fallback for catalog reads — prevents overloading Cloud.
  */
 
-import { initVpsClient, vpsCatalog, isVpsOnline } from "@/lib/vpsClient";
-import { supabase } from "@/integrations/supabase/client";
+import { initVpsClient, vpsCatalog } from "@/lib/vpsClient";
 
 export interface CatalogItem {
   id: string;
@@ -19,7 +17,6 @@ export interface CatalogItem {
   content_type: string;
 }
 
-// ── In-memory cache ─────────────────────────────────────────────────
 const CACHE_TTL_MS = 5 * 60 * 1000;
 interface CacheEntry {
   items: CatalogItem[];
@@ -49,7 +46,6 @@ function setCache(key: string, items: CatalogItem[], total: number) {
   }
 }
 
-// ── VPS init ────────────────────────────────────────────────────────
 let _vpsInitDone = false;
 
 async function ensureVps() {
@@ -59,7 +55,6 @@ async function ensureVps() {
   }
 }
 
-// ── Mapper ──────────────────────────────────────────────────────────
 function mapItem(d: any, contentType: string): CatalogItem {
   return {
     id: d.id || `vps-${d.tmdb_id}`,
@@ -73,10 +68,6 @@ function mapItem(d: any, contentType: string): CatalogItem {
   };
 }
 
-/**
- * Fetch catalog items by content_type.
- * VPS-first, Cloud DB fallback with strict timeout.
- */
 export async function fetchCatalog(
   contentType: string,
   opts?: { limit?: number; offset?: number; orderBy?: string }
@@ -85,20 +76,17 @@ export async function fetchCatalog(
   const offset = opts?.offset ?? 0;
   const key = cacheKey(contentType, limit, offset);
 
-  // Return from cache if fresh
   if (isFresh(key)) {
     const cached = getCached(key)!;
     return { items: cached.items, total: cached.total };
   }
 
-  // If stale cache exists, return immediately and revalidate in background
   const stale = getCached(key);
   if (stale) {
     fetchFresh(contentType, limit, offset, key).catch(() => {});
     return { items: stale.items, total: stale.total };
   }
 
-  // No cache — fetch synchronously
   return fetchFresh(contentType, limit, offset, key);
 }
 
@@ -108,12 +96,10 @@ async function fetchFresh(
   offset: number,
   key: string
 ): Promise<{ items: CatalogItem[]; total: number }> {
-  // 1. Try VPS first
   await ensureVps();
   try {
     const vpsData = await vpsCatalog(contentType);
     if (vpsData && vpsData.length > 0) {
-      console.log(`[CatalogFetcher] VPS hit: ${vpsData.length} ${contentType} items`);
       const sorted = vpsData.sort((a: any, b: any) => {
         const da = a.release_date || "0000";
         const db = b.release_date || "0000";
@@ -125,64 +111,12 @@ async function fetchFresh(
       return { items: page, total };
     }
   } catch {
-    /* VPS offline */
+    // VPS offline
   }
 
-  // 2. Cloud DB fallback with strict 4s timeout
-  console.log(`[CatalogFetcher] VPS offline for ${contentType} — trying Cloud DB (4s timeout)`);
-  try {
-    const result = await Promise.race([
-      fetchFromCloud(contentType, limit, offset),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
-    ]);
-
-    if (result && result.items.length > 0) {
-      console.log(`[CatalogFetcher] Cloud hit: ${result.items.length} ${contentType} items`);
-      setCache(key, result.items, result.total);
-      return result;
-    }
-  } catch {
-    /* Cloud also failed */
-  }
-
-  // 3. Both failed — return empty (never blocks UI)
-  console.log(`[CatalogFetcher] Both VPS and Cloud failed for ${contentType} — returning empty`);
   return { items: [], total: 0 };
 }
 
-/** Cloud DB read with no pagination overhead */
-async function fetchFromCloud(
-  contentType: string,
-  limit: number,
-  offset: number
-): Promise<{ items: CatalogItem[]; total: number }> {
-  const query = supabase
-    .from("content")
-    .select("id, tmdb_id, title, poster_path, backdrop_path, vote_average, release_date, content_type", { count: "exact" })
-    .eq("content_type", contentType)
-    .order("release_date", { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  const { data, count, error } = await query;
-  if (error || !data) return { items: [], total: 0 };
-
-  const items: CatalogItem[] = data.map((d: any) => ({
-    id: d.id,
-    tmdb_id: d.tmdb_id,
-    title: d.title,
-    poster_path: d.poster_path,
-    backdrop_path: d.backdrop_path,
-    vote_average: d.vote_average,
-    release_date: d.release_date,
-    content_type: d.content_type,
-  }));
-
-  return { items, total: count || items.length };
-}
-
-/**
- * Quick fetch for homepage rows (small limit, no pagination needed).
- */
 export async function fetchCatalogRow(contentType: string, limit = 20): Promise<CatalogItem[]> {
   const { items } = await fetchCatalog(contentType, { limit, offset: 0 });
   return items;

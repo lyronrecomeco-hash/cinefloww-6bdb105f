@@ -110,6 +110,10 @@ cat > .env << 'ENVFILE'
 SUPABASE_URL=${supabaseUrl}
 SUPABASE_SERVICE_ROLE_KEY=${keyOrPlaceholder}
 VPS_API_PORT=${vpsPort}
+# Compatibilidade com scripts antigos
+BATCH_SIZE=8
+CONCURRENCY=2
+# Configuração nova (preferida)
 RESOLVE_CONCURRENCY=2
 RESOLVE_BATCH_SIZE=8
 RESOLVE_LOOP_DELAY_MS=4000
@@ -876,7 +880,9 @@ import { config } from "dotenv";
 config();
 
 var sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
-var CONC = parseInt(process.env.CONCURRENCY || "10");
+var CONC = parseInt(process.env.RESOLVE_CONCURRENCY || process.env.CONCURRENCY || "2");
+var SWEEP_BATCH = parseInt(process.env.RESOLVE_BATCH_SIZE || process.env.BATCH_SIZE || "30");
+var LOOP_DELAY = parseInt(process.env.RESOLVE_LOOP_DELAY_MS || "4000");
 var resolveQueue = [];
 var processing = false;
 
@@ -887,7 +893,7 @@ async function resolveItem(item) {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + process.env.SUPABASE_SERVICE_ROLE_KEY },
       body: JSON.stringify({ tmdb_id: item.tmdb_id, imdb_id: item.imdb_id || null, content_type: item.content_type, title: item.title }),
-      signal: AbortSignal.timeout(120000),
+      signal: AbortSignal.timeout(45000),
     });
     var data = await res.json();
     if (data && data.url && data.type !== "iframe-proxy") {
@@ -900,6 +906,8 @@ async function resolveItem(item) {
   }
 }
 
+function sleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
+
 async function processQueue() {
   if (processing || resolveQueue.length === 0) return;
   processing = true;
@@ -907,6 +915,7 @@ async function processQueue() {
   while (resolveQueue.length > 0) {
     var batch = resolveQueue.splice(0, CONC);
     await Promise.all(batch.map(resolveItem));
+    await sleep(LOOP_DELAY);
   }
   processing = false;
 }
@@ -925,20 +934,43 @@ function startWatcher() {
     });
 }
 
-// Also do initial sweep for unresolved
+// Initial sweep leve (não agressivo) para evitar timeout no banco
 async function initialSweep() {
-  console.log("[content-watcher] Initial sweep for unresolved content...");
-  var r = await sb.rpc("get_unresolved_content", { batch_limit: 200 });
-  if (r.error) { console.error("[content-watcher] Sweep error:", r.error.message); return; }
-  var items = r.data || [];
-  if (items.length === 0) { console.log("[content-watcher] All resolved!"); return; }
-  console.log("[content-watcher] " + items.length + " unresolved found, queueing...");
-  resolveQueue.push(...items);
-  processQueue();
+  console.log("[content-watcher] Initial sweep (light)...");
+  try {
+    var result = await Promise.race([
+      sb.rpc("get_unresolved_content", { batch_limit: SWEEP_BATCH }),
+      new Promise(function(resolve) { setTimeout(function(){ resolve(null); }, 6000); })
+    ]);
+
+    if (!result) {
+      console.log("[content-watcher] Sweep skipped (timeout)");
+      return;
+    }
+
+    var r = result;
+    if (r.error) {
+      console.error("[content-watcher] Sweep error:", r.error.message);
+      return;
+    }
+
+    var items = r.data || [];
+    if (items.length === 0) {
+      console.log("[content-watcher] All resolved!");
+      return;
+    }
+
+    console.log("[content-watcher] " + items.length + " unresolved found, queueing...");
+    resolveQueue.push.apply(resolveQueue, items);
+    processQueue();
+  } catch (e) {
+    console.error("[content-watcher] Sweep error:", e.message || e);
+  }
 }
 
 startWatcher();
-initialSweep();
+setTimeout(initialSweep, 15000);
+setInterval(initialSweep, 20 * 60 * 1000);
 // Keep alive
 setInterval(function() {}, 60000);
 SCRIPTEOF
