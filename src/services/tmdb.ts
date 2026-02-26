@@ -7,13 +7,27 @@ const headers = {
   "Content-Type": "application/json",
 };
 
+const TMDB_TIMEOUT_MS = 6000;
+
 async function fetchTMDB<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
   const url = new URL(`${BASE_URL}${endpoint}`);
   url.searchParams.set("language", "pt-BR");
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url.toString(), { headers });
-  if (!res.ok) throw new Error(`TMDB error: ${res.status}`);
-  return res.json();
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TMDB_TIMEOUT_MS);
+  try {
+    const res = await fetch(url.toString(), { headers, signal: controller.signal });
+    if (!res.ok) throw new Error(`TMDB error: ${res.status}`);
+    return res.json();
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("TMDB timeout");
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Types

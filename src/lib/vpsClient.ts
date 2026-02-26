@@ -85,6 +85,7 @@ async function refreshVpsUrlFromDb(): Promise<void> {
 async function checkVpsHealth(): Promise<boolean> {
   if (!_vpsProxyUrl) return false;
   if (Date.now() - _lastCheck < VPS_HEALTH_CACHE_MS) return _vpsOnline;
+
   try {
     const res = await fetch(`${_vpsProxyUrl}/health`, {
       signal: AbortSignal.timeout(3000),
@@ -93,6 +94,19 @@ async function checkVpsHealth(): Promise<boolean> {
   } catch {
     _vpsOnline = false;
   }
+
+  // Fallback probe: some proxies block /health but allow /api/catalog
+  if (!_vpsOnline) {
+    try {
+      const probe = await fetch(`${_vpsProxyUrl}/api/catalog?type=movie`, {
+        signal: AbortSignal.timeout(3500),
+      });
+      _vpsOnline = probe.ok;
+    } catch {
+      _vpsOnline = false;
+    }
+  }
+
   _lastCheck = Date.now();
   return _vpsOnline;
 }
