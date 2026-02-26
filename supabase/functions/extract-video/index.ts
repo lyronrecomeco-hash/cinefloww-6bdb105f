@@ -114,31 +114,33 @@ async function tryCineveoCatalog(
   const tmdbStr = String(tmdbId);
   const isMovie = contentType === "movie";
 
-  // Prioritize expected type but scan both simultaneously
-  const MOVIES_TOTAL = 1200; // approximate, slightly over to be safe
-  const SERIES_TOTAL = 400;
-  const PAGES_PER_BATCH = 15; // pages per type per batch
-  const MAX_BATCHES = 25; // max 375 pages per type
+  // Full-catalog scan with adaptive stop.
+  // Stops early when provider starts returning consecutive empty pages.
+  const MOVIES_SOFT_MAX = 1800;
+  const SERIES_SOFT_MAX = 800;
+  const PRIMARY_BATCH_SIZE = 20;
+  const SECONDARY_BATCH_SIZE = 12;
+  const MAX_BATCHES = 120;
 
-  // Prioritize: scan the expected type with more pages
   const primaryType = isMovie ? "movies" : "series";
   const secondaryType = isMovie ? "series" : "movies";
-  const primaryTotal = isMovie ? MOVIES_TOTAL : SERIES_TOTAL;
-  const secondaryTotal = isMovie ? SERIES_TOTAL : MOVIES_TOTAL;
+  const primaryTotal = isMovie ? MOVIES_SOFT_MAX : SERIES_SOFT_MAX;
+  const secondaryTotal = isMovie ? SERIES_SOFT_MAX : MOVIES_SOFT_MAX;
 
   let primaryPage = 1;
   let secondaryPage = 1;
   let primaryDone = false;
   let secondaryDone = false;
+  let primaryEmptyStreak = 0;
+  let secondaryEmptyStreak = 0;
 
   for (let batch = 0; batch < MAX_BATCHES; batch++) {
     if (primaryDone && secondaryDone) break;
 
     const fetches: Array<{ apiType: string; page: number; promise: Promise<any[] | null> }> = [];
 
-    // Add primary type pages
     if (!primaryDone) {
-      for (let i = 0; i < PAGES_PER_BATCH && primaryPage <= primaryTotal; i++, primaryPage++) {
+      for (let i = 0; i < PRIMARY_BATCH_SIZE && primaryPage <= primaryTotal; i++, primaryPage++) {
         fetches.push({
           apiType: primaryType,
           page: primaryPage,
@@ -148,10 +150,8 @@ async function tryCineveoCatalog(
       if (primaryPage > primaryTotal) primaryDone = true;
     }
 
-    // Add secondary type pages (fewer per batch to prioritize primary)
     if (!secondaryDone) {
-      const secBatchSize = Math.min(PAGES_PER_BATCH, 10);
-      for (let i = 0; i < secBatchSize && secondaryPage <= secondaryTotal; i++, secondaryPage++) {
+      for (let i = 0; i < SECONDARY_BATCH_SIZE && secondaryPage <= secondaryTotal; i++, secondaryPage++) {
         fetches.push({
           apiType: secondaryType,
           page: secondaryPage,
@@ -163,18 +163,29 @@ async function tryCineveoCatalog(
 
     if (fetches.length === 0) break;
 
-    // Execute all page fetches concurrently
-    const results = await Promise.allSettled(fetches.map(f => f.promise));
+    const results = await Promise.allSettled(fetches.map((f) => f.promise));
 
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
-      if (r.status !== "fulfilled" || !r.value || r.value.length === 0) continue;
-      const found = findInItems(r.value, tmdbStr, fetches[i].apiType, season, episode);
+      if (r.status !== "fulfilled") continue;
+
+      const rows = Array.isArray(r.value) ? r.value : [];
+      const apiType = fetches[i].apiType;
+
+      if (apiType === primaryType) primaryEmptyStreak = rows.length === 0 ? primaryEmptyStreak + 1 : 0;
+      if (apiType === secondaryType) secondaryEmptyStreak = rows.length === 0 ? secondaryEmptyStreak + 1 : 0;
+
+      if (!rows.length) continue;
+
+      const found = findInItems(rows, tmdbStr, apiType, season, episode);
       if (found) {
-        console.log(`[cineveo-api] Found tmdb_id=${tmdbId} in ${fetches[i].apiType} page=${fetches[i].page}`);
+        console.log(`[cineveo-api] Found tmdb_id=${tmdbId} in ${apiType} page=${fetches[i].page}`);
         return found;
       }
     }
+
+    if (primaryEmptyStreak >= 4) primaryDone = true;
+    if (secondaryEmptyStreak >= 4) secondaryDone = true;
   }
 
   console.log(`[cineveo-api] tmdb_id=${tmdbId} not found (scanned ~${primaryPage - 1} ${primaryType} + ~${secondaryPage - 1} ${secondaryType} pages)`);

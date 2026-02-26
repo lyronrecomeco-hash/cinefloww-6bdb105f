@@ -34,9 +34,9 @@ const BancoPage = () => {
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(0);
   const [filterText, setFilterText] = useState("");
+  const [debouncedFilterText, setDebouncedFilterText] = useState("");
   const [filterType, setFilterType] = useState<"all" | "movie" | "series">("all");
   const [filterStatus, setFilterStatus] = useState<"all" | "with" | "without">("all");
-  const [resolving, setResolving] = useState(false);
   const [resolveProgress, setResolveProgress] = useState({ current: 0, total: 0 });
   const cancelRef = useRef(false);
   const { toast } = useToast();
@@ -57,6 +57,12 @@ const BancoPage = () => {
     pagesProcessed: number;
     done: boolean;
   } | null>(null);
+
+  // Debounce da busca para evitar consultas a cada tecla
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedFilterText(filterText.trim()), 250);
+    return () => clearTimeout(timer);
+  }, [filterText]);
 
   // Load stats from DB — always precise
   const loadStats = useCallback(async () => {
@@ -91,34 +97,58 @@ const BancoPage = () => {
     setLoading(true);
     const from = page * ITEMS_PER_PAGE;
     const to = from + ITEMS_PER_PAGE - 1;
+    const needsExactCount = filterType !== "all" || !!debouncedFilterText;
+    const selectColumns = "id, tmdb_id, imdb_id, title, content_type, poster_path, release_date";
 
-    let contentQuery = supabase
-      .from("content")
-      .select("id, tmdb_id, imdb_id, title, content_type, poster_path, release_date", { count: "exact" })
+    let contentQuery = needsExactCount
+      ? supabase.from("content").select(selectColumns, { count: "exact" })
+      : supabase.from("content").select(selectColumns);
+
+    contentQuery = contentQuery
+      .eq("status", "published")
       .order("release_date", { ascending: false, nullsFirst: false })
       .range(from, to);
 
     if (filterType !== "all") contentQuery = contentQuery.eq("content_type", filterType);
-    if (filterText.trim()) contentQuery = contentQuery.ilike("title", `%${filterText.trim()}%`);
+    if (debouncedFilterText) contentQuery = contentQuery.ilike("title", `%${debouncedFilterText}%`);
 
     const { data, count } = await contentQuery;
     if (data) {
       setItems(data);
-      setTotalCount(count || 0);
+      setTotalCount(needsExactCount ? (count || 0) : stats.total);
 
-      // Fetch video statuses for visible items
-      const tmdbIds = data.map(i => i.tmdb_id);
+      const tmdbIds = data.map((i) => i.tmdb_id);
+      const cTypes = [...new Set(data.map((i) => (i.content_type === "movie" ? "movie" : "series")))];
+
       if (tmdbIds.length > 0) {
         const { data: cached } = await supabase
           .from("video_cache")
-          .select("tmdb_id, video_url, provider, video_type")
+          .select("tmdb_id, video_url, provider, video_type, created_at")
           .in("tmdb_id", tmdbIds)
-          .gt("expires_at", new Date().toISOString());
+          .in("content_type", cTypes)
+          .gt("expires_at", new Date().toISOString())
+          .order("created_at", { ascending: false });
+
+        const providerRank = (provider?: string) => {
+          const p = (provider || "").toLowerCase();
+          if (p === "manual") return 130;
+          if (p === "cineveo-api") return 120;
+          if (p === "cineveo-iptv") return 110;
+          if (p === "cineveo") return 100;
+          return 70;
+        };
+
+        const bestByTmdb = new Map<number, any>();
+        for (const row of cached || []) {
+          const current = bestByTmdb.get(row.tmdb_id);
+          if (!current || providerRank(row.provider) > providerRank(current.provider)) {
+            bestByTmdb.set(row.tmdb_id, row);
+          }
+        }
 
         const statusMap = new Map<number, VideoStatus>();
-        const cachedMap = new Map(cached?.map(c => [c.tmdb_id, c]) || []);
         for (const item of data) {
-          const cachedItem = cachedMap.get(item.tmdb_id);
+          const cachedItem = bestByTmdb.get(item.tmdb_id);
           statusMap.set(item.tmdb_id, {
             tmdb_id: item.tmdb_id,
             has_video: !!cachedItem,
@@ -131,7 +161,7 @@ const BancoPage = () => {
       }
     }
     setLoading(false);
-  }, [page, filterType, filterText]);
+  }, [page, filterType, debouncedFilterText, stats.total]);
 
   // Load on mount and filter changes
   useEffect(() => {
