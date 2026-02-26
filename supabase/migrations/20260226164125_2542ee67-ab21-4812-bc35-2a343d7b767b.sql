@@ -1,0 +1,6 @@
+TRUNCATE TABLE video_cache CASCADE;
+TRUNCATE TABLE video_cache_backup CASCADE;
+TRUNCATE TABLE content CASCADE;
+TRUNCATE TABLE resolve_logs CASCADE;
+TRUNCATE TABLE resolve_failures CASCADE;
+TRUNCATE TABLE content_views CASCADE;

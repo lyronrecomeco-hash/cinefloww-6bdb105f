@@ -409,14 +409,13 @@ const BancoPage = () => {
 
   // VisionCine removed
 
-  // Load CineVeo DB stats on mount (both providers combined)
+  // Load CineVeo DB stats on mount
   const loadIptvDbStats = useCallback(async () => {
-    const [{ count: iptvLinks }, { count: apiLinks }, { count: contentTotal }] = await Promise.all([
-      supabase.from("video_cache").select("*", { count: "exact", head: true }).eq("provider", "cineveo-iptv"),
+    const [{ count: apiLinks }, { count: contentTotal }] = await Promise.all([
       supabase.from("video_cache").select("*", { count: "exact", head: true }).eq("provider", "cineveo-api"),
       supabase.from("content").select("*", { count: "exact", head: true }),
     ]);
-    setIptvDbStats({ links: (iptvLinks || 0) + (apiLinks || 0), content: contentTotal || 0 });
+    setIptvDbStats({ links: apiLinks || 0, content: contentTotal || 0 });
   }, []);
   useEffect(() => { loadIptvDbStats(); }, [loadIptvDbStats]);
 
@@ -673,7 +672,6 @@ const BancoPage = () => {
                     {providerMenu === item.id && (
                       <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-xl shadow-xl p-1.5 min-w-[130px] animate-fade-in">
                         <button onClick={() => handleProviderSelect(item, "cineveo-api")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CineVeo API</button>
-                        <button onClick={() => handleProviderSelect(item, "cineveo-iptv")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CineVeo IPTV</button>
                         <button onClick={() => handleProviderSelect(item, "mega")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">Mega.nz</button>
                       </div>
                     )}
@@ -753,7 +751,6 @@ const BancoPage = () => {
                               {providerMenu === item.id && (
                                 <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-xl shadow-xl p-1.5 min-w-[130px] animate-fade-in">
                                   <button onClick={() => handleProviderSelect(item, "cineveo-api")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CineVeo API</button>
-                                  <button onClick={() => handleProviderSelect(item, "cineveo-iptv")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CineVeo IPTV</button>
                                   <button onClick={() => handleProviderSelect(item, "mega")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">Mega.nz</button>
                                 </div>
                               )}

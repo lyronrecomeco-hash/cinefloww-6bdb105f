@@ -6,12 +6,13 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+// CineVeo Catalog API
 const CINEVEO_API = "https://cinetvembed.cineveo.site/api/catalog.php";
 const CINEVEO_USER = "lyneflix-vods";
 const CINEVEO_PASS = "uVljs2d";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
-const PAGES_PER_RUN = 15;
+const PAGES_PER_RUN = 20;
 const MAX_PAGE_ERRORS = 5;
 
 type ApiType = "movies" | "series";
@@ -58,7 +59,7 @@ async function fetchCatalogPage(apiType: ApiType, page: number) {
     headers: { "User-Agent": UA, Accept: "application/json" },
     signal: AbortSignal.timeout(30000),
   });
-  if (!res.ok) throw new Error(`CineVeo IPTV ${apiType} page=${page} returned ${res.status}`);
+  if (!res.ok) throw new Error(`CineVeo ${apiType} page=${page} returned ${res.status}`);
   const payload = await res.json();
   const items = Array.isArray(payload)
     ? payload
@@ -95,6 +96,7 @@ function buildRows(items: any[], apiType: ApiType) {
       });
     }
 
+    // Movies: direct URL from API
     if (apiType === "movies") {
       const streamUrl = pickStreamUrl(item);
       if (!streamUrl) continue;
@@ -104,14 +106,15 @@ function buildRows(items: any[], apiType: ApiType) {
         audio_type: normalizeAudio(item?.language || item?.audio),
         video_url: streamUrl,
         video_type: streamUrl.includes(".m3u8") ? "m3u8" : "mp4",
-        provider: "cineveo-iptv",
+        provider: "cineveo-api",
         season: 0,
         episode: 0,
-        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
       });
       continue;
     }
 
+    // Series: episodes or single URL
     const episodes = Array.isArray(item?.episodes) ? item.episodes : [];
     if (episodes.length > 0) {
       for (const ep of episodes) {
@@ -125,10 +128,10 @@ function buildRows(items: any[], apiType: ApiType) {
           audio_type: normalizeAudio(ep?.language || ep?.audio || ep?.lang),
           video_url: streamUrl,
           video_type: streamUrl.includes(".m3u8") ? "m3u8" : "mp4",
-          provider: "cineveo-iptv",
+          provider: "cineveo-api",
           season,
           episode,
-          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
         });
       }
     } else {
@@ -140,10 +143,10 @@ function buildRows(items: any[], apiType: ApiType) {
         audio_type: normalizeAudio(item?.language || item?.audio),
         video_url: streamUrl,
         video_type: streamUrl.includes(".m3u8") ? "m3u8" : "mp4",
-        provider: "cineveo-iptv",
+        provider: "cineveo-api",
         season: 0,
         episode: 0,
-        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
       });
     }
   }
@@ -224,7 +227,7 @@ Deno.serve(async (req) => {
         if (!error) importedContent += batch.length;
       }
 
-      // Upsert cache
+      // Upsert cache with direct URLs
       for (let j = 0; j < cacheRows.length; j += 200) {
         const batch = cacheRows.slice(j, j + 200);
         const { error } = await supabase.from("video_cache").upsert(batch, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
@@ -249,15 +252,11 @@ Deno.serve(async (req) => {
       if (!reachedEnd) {
         currentPage++;
       } else {
-        // Move to next type
         state.type_index++;
         emptyStreak = 0;
 
         if (state.type_index >= state.types.length) {
-          // All types done
-          await saveProgress(supabase, {
-            phase: "complete", done: true, ...state,
-          });
+          await saveProgress(supabase, { phase: "complete", done: true, ...state });
           return new Response(JSON.stringify({
             done: true,
             imported_cache_run: importedCache,
