@@ -106,7 +106,7 @@ const R2UploadPage = () => {
         xhr.send(item.file);
       });
 
-      const finalUrl = `https://cdn.lyneflix.online/${presignData.key}`;
+      const finalUrl = `https://cdf.lyneflix.online/${presignData.key}`;
       setUploads(prev => prev.map(u => u.id === item.id ? {
         ...u, status: "done", progress: 100, key: presignData.key, public_url: finalUrl
       } : u));
@@ -396,7 +396,7 @@ const R2UploadPage = () => {
                 </div>
                 <button
                   onClick={() => {
-                    const url = `https://cdn.lyneflix.online/${f.key}`;
+                    const url = `https://cdf.lyneflix.online/${f.key}`;
                     navigator.clipboard.writeText(url);
                     setManualUrl(url);
                     toast({ title: "Link copiado!", description: url });
