@@ -50,7 +50,6 @@ const WatchRoomsPage = lazy(() => import("./pages/admin/WatchRoomsPage"));
 const IntegrationsPage = lazy(() => import("./pages/admin/IntegrationsPage"));
 const ContentSourcesPage = lazy(() => import("./pages/admin/ContentSourcesPage"));
 const TVManager = lazy(() => import("./pages/admin/TVManager"));
-const VpsManagerPage = lazy(() => import("./pages/admin/VpsManagerPage"));
 const R2UploadPage = lazy(() => import("./pages/admin/R2UploadPage"));
 const PublicLogsPage = lazy(() => import("./pages/PublicLogsPage"));
 const QrxpPage = lazy(() => import("./pages/QrxpPage"));
@@ -131,7 +130,6 @@ const App = () => (
               <Route path="usuarios" element={<UsersPage />} />
               <Route path="config" element={<SettingsPage />} />
               <Route path="watch-rooms" element={<WatchRoomsPage />} />
-              <Route path="vps" element={<VpsManagerPage />} />
               <Route path="r2" element={<R2UploadPage />} />
             </Route>
 
