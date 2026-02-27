@@ -5,6 +5,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { fetchCatalog, fetchCatalogManifest, computeVideoCoverage, invalidateCatalogCache } from "@/lib/catalogFetcher";
 import { toSlug } from "@/lib/slugify";
 import { useNavigate } from "react-router-dom";
+import SyncModal from "@/components/admin/SyncModal";
 
 interface CatalogItem {
   id: string;
@@ -38,7 +39,7 @@ const BancoPage = () => {
     },
   });
   const [generating, setGenerating] = useState(false);
-
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
   // Debounce search
   useEffect(() => {
     const t = setTimeout(() => setDebouncedFilter(filterText.trim()), 300);
@@ -129,45 +130,12 @@ const BancoPage = () => {
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { loadItems(); }, [loadItems]);
 
-  const handleSync = async () => {
-    setGenerating(true);
-    const syncStartTime = Date.now();
-    try {
-      toast({ title: "🚀 Sincronizando catálogo...", description: "Crawling API CineVeo (filmes + séries) → catálogo + links de vídeo." });
-      const { error } = await supabase.functions.invoke("sync-catalog", { body: {} });
-      if (error) throw error;
-      toast({ title: "✅ Sincronização iniciada", description: "Processamento em background. Aguarde..." });
-
-      // Poll manifest for completion (new updated_at > syncStartTime)
-      const pollInterval = setInterval(async () => {
-        try {
-          invalidateCatalogCache();
-          const manifest = await fetchCatalogManifest();
-          if (manifest?.updated_at && new Date(manifest.updated_at).getTime() > syncStartTime) {
-            clearInterval(pollInterval);
-            await loadStats();
-            await loadItems();
-            setGenerating(false);
-            toast({ title: "✅ Catálogo sincronizado!", description: `${manifest.types?.movie?.total || 0} filmes + ${manifest.types?.series?.total || 0} séries indexados.` });
-          }
-        } catch {}
-      }, 10000);
-
-      // Safety timeout (10 min)
-      setTimeout(() => {
-        clearInterval(pollInterval);
-        if (generating) {
-          invalidateCatalogCache();
-          loadStats();
-          loadItems();
-          setGenerating(false);
-        }
-      }, 600000);
-    } catch (err: any) {
-      toast({ title: "❌ Erro", description: err?.message || "Falha ao sincronizar", variant: "destructive" });
-      setGenerating(false);
-    }
-  };
+  const handleSyncComplete = useCallback(async () => {
+    invalidateCatalogCache();
+    await loadStats();
+    await loadItems();
+    toast({ title: "✅ Catálogo sincronizado!", description: "Todos os títulos e links foram atualizados." });
+  }, [loadStats, loadItems, toast]);
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
   const formatDate = (d: string) => {
@@ -191,15 +159,10 @@ const BancoPage = () => {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={handleSync}
-            disabled={generating}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+            onClick={() => setSyncModalOpen(true)}
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
           >
-            {generating ? (
-              <><Loader2 className="w-4 h-4 animate-spin" />Sincronizando...</>
-            ) : (
-              <><RefreshCw className="w-4 h-4" />Sincronizar Catálogo</>
-            )}
+            <RefreshCw className="w-4 h-4" />Sincronizar Catálogo
           </button>
         </div>
       </div>
@@ -393,6 +356,11 @@ const BancoPage = () => {
           )}
         </>
       )}
+      <SyncModal
+        open={syncModalOpen}
+        onClose={() => setSyncModalOpen(false)}
+        onComplete={handleSyncComplete}
+      />
     </div>
   );
 };
