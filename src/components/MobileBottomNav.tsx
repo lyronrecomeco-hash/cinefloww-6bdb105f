@@ -1,13 +1,11 @@
 import { Link, useLocation } from "react-router-dom";
-import { Home, Film, Tv, CalendarDays, Clock, Heart } from "lucide-react";
+import { Home, Clapperboard, MonitorPlay, Bookmark } from "lucide-react";
 
 const navItems = [
   { label: "Início", path: "/", icon: Home },
-  { label: "Filmes", path: "/filmes", icon: Film },
-  { label: "Séries", path: "/series", icon: Tv },
-  { label: "Lançamentos", path: "/lancamentos", icon: CalendarDays },
-  { label: "Em Breve", path: "/em-breve", icon: Clock },
-  { label: "Minha Lista", path: "/minha-lista", icon: Heart },
+  { label: "Filmes", path: "/filmes", icon: Clapperboard },
+  { label: "Séries", path: "/series", icon: MonitorPlay },
+  { label: "Minha Lista", path: "/minha-lista", icon: Bookmark },
 ];
 
 const MobileBottomNav = () => {
