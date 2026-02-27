@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Database, Film, Tv, Loader2, RefreshCw, CheckCircle, Search, Zap, Link2, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchCatalog, fetchCatalogManifest } from "@/lib/catalogFetcher";
+import { fetchCatalog, fetchCatalogManifest, computeVideoCoverage } from "@/lib/catalogFetcher";
 import { toSlug } from "@/lib/slugify";
 import { useNavigate } from "react-router-dom";
 
@@ -53,26 +53,35 @@ const BancoPage = () => {
       if (manifest) {
         const m = manifest.types?.movie?.total || 0;
         const s = manifest.types?.series?.total || 0;
-        const vc = manifest.video_coverage || {};
-        setStats({
+        setStats(prev => ({
+          ...prev,
           movies: m, series: s, total: m + s,
           updatedAt: manifest.updated_at || "",
-          videoCoverage: {
-            movies: vc.movies_with_video || 0,
-            series: vc.series_with_video || 0,
-            total: vc.total_with_video || 0,
-            moviesWithout: vc.movies_without_video || 0,
-            seriesWithout: vc.series_without_video || 0,
-            totalWithout: vc.total_without_video || 0,
-            catalogMovies: vc.catalog_movies || 0,
-            catalogSeries: vc.catalog_series || 0,
-            catalogTotal: vc.catalog_total || 0,
-            m3uMovies: vc.m3u_movies || 0,
-            m3uSeries: vc.m3u_series || 0,
-            m3uTotal: vc.m3u_total || 0,
-            indexedAt: vc.indexed_at || "",
-          },
-        });
+        }));
+
+        // Client-side cross-reference (fast, cached)
+        const coverage = await computeVideoCoverage(manifest);
+        if (coverage) {
+          const vc = manifest.video_coverage || {};
+          setStats(prev => ({
+            ...prev,
+            videoCoverage: {
+              movies: coverage.moviesWithVideo,
+              series: coverage.seriesWithVideo,
+              total: coverage.totalWithVideo,
+              moviesWithout: coverage.moviesWithout,
+              seriesWithout: coverage.seriesWithout,
+              totalWithout: coverage.totalWithout,
+              catalogMovies: coverage.catalogMovies,
+              catalogSeries: coverage.catalogSeries,
+              catalogTotal: coverage.catalogMovies + coverage.catalogSeries,
+              m3uMovies: vc.m3u_movies || 0,
+              m3uSeries: vc.m3u_series || 0,
+              m3uTotal: vc.m3u_total || 0,
+              indexedAt: vc.indexed_at || "",
+            },
+          }));
+        }
       }
     } catch {}
   }, []);

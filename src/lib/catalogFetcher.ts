@@ -133,3 +133,72 @@ export async function fetchCatalogManifest(): Promise<any> {
     return null;
   }
 }
+
+/** Fetch M3U ID set for cross-reference */
+let _m3uIdsCache: { data: any; ts: number } | null = null;
+
+export async function fetchM3UIDs(): Promise<{ movies: number[]; series: number[] } | null> {
+  if (_m3uIdsCache && Date.now() - _m3uIdsCache.ts < CACHE_TTL_MS) {
+    return _m3uIdsCache.data;
+  }
+  try {
+    const res = await fetch(`${STORAGE_BASE}/m3u-index/ids.json`, { cache: "default" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    _m3uIdsCache = { data, ts: Date.now() };
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+/** Compute precise video coverage by cross-referencing catalog with M3U IDs */
+export async function computeVideoCoverage(manifest: any): Promise<{
+  moviesWithVideo: number; seriesWithVideo: number; totalWithVideo: number;
+  moviesWithout: number; seriesWithout: number; totalWithout: number;
+  catalogMovies: number; catalogSeries: number;
+} | null> {
+  const ids = await fetchM3UIDs();
+  if (!ids) return null;
+
+  const m3uSet = new Set([...(ids.movies || []), ...(ids.series || [])]);
+  const catalogMovies = manifest?.types?.movie?.total || 0;
+  const catalogSeries = manifest?.types?.series?.total || 0;
+  const moviePages = manifest?.types?.movie?.pages || 0;
+  const seriesPages = manifest?.types?.series?.pages || 0;
+
+  let moviesWithVideo = 0;
+  let seriesWithVideo = 0;
+
+  // Check movies (load all pages in parallel batches of 10)
+  const checkPages = async (type: string, pages: number) => {
+    let count = 0;
+    for (let start = 1; start <= pages; start += 10) {
+      const batch = [];
+      for (let p = start; p <= Math.min(start + 9, pages); p++) {
+        batch.push(fetchPage(type, p));
+      }
+      const results = await Promise.all(batch);
+      for (const page of results) {
+        for (const item of page.items) {
+          if (m3uSet.has(item.tmdb_id)) count++;
+        }
+      }
+    }
+    return count;
+  };
+
+  [moviesWithVideo, seriesWithVideo] = await Promise.all([
+    checkPages("movie", moviePages),
+    checkPages("series", seriesPages),
+  ]);
+
+  return {
+    moviesWithVideo, seriesWithVideo,
+    totalWithVideo: moviesWithVideo + seriesWithVideo,
+    moviesWithout: catalogMovies - moviesWithVideo,
+    seriesWithout: catalogSeries - seriesWithVideo,
+    totalWithout: (catalogMovies - moviesWithVideo) + (catalogSeries - seriesWithVideo),
+    catalogMovies, catalogSeries,
+  };
+}
