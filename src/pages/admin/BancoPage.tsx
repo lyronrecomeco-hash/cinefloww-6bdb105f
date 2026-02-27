@@ -120,73 +120,8 @@ const BancoPage = () => {
     }
   }, [totalCount]);
 
-  // Load paginated content list — catálogo estático primeiro, DB só para status pontual
-  const loadItems = useCallback(async () => {
-    setLoading(true);
-    try {
-      const offset = page * ITEMS_PER_PAGE;
-
-      const loadStaticByType = async (type: "movie" | "series") => {
-        // Quando há busca, puxamos uma janela maior para filtrar localmente sem consulta pesada no banco
-        const windowSize = debouncedFilterText ? Math.max(400, offset + ITEMS_PER_PAGE) : ITEMS_PER_PAGE;
-        const data = await fetchCatalog(type, { limit: windowSize, offset: debouncedFilterText ? 0 : offset });
-        return data;
-      };
-
-      let loadedItems: ContentItem[] = [];
-      let inferredTotal = 0;
-
-      if (filterType === "movie" || filterType === "series") {
-        const result = await loadStaticByType(filterType);
-        const filtered = debouncedFilterText
-          ? result.items.filter((i) => i.title.toLowerCase().includes(debouncedFilterText.toLowerCase()))
-          : result.items;
-
-        loadedItems = debouncedFilterText
-          ? filtered.slice(offset, offset + ITEMS_PER_PAGE).map((i) => ({ ...i, imdb_id: null })) as ContentItem[]
-          : filtered.map((i) => ({ ...i, imdb_id: null })) as ContentItem[];
-
-        inferredTotal = debouncedFilterText ? filtered.length : result.total;
-      } else {
-        const [movies, series] = await Promise.all([
-          loadStaticByType("movie"),
-          loadStaticByType("series"),
-        ]);
-
-        const merged = [...movies.items, ...series.items].sort((a, b) => {
-          const da = a.release_date || "0000-00-00";
-          const db = b.release_date || "0000-00-00";
-          return db.localeCompare(da);
-        });
-
-        const filtered = debouncedFilterText
-          ? merged.filter((i) => i.title.toLowerCase().includes(debouncedFilterText.toLowerCase()))
-          : merged;
-
-        loadedItems = filtered.slice(offset, offset + ITEMS_PER_PAGE).map((i) => ({ ...i, imdb_id: null })) as ContentItem[];
-        inferredTotal = debouncedFilterText ? filtered.length : (movies.total + series.total);
-      }
-
-      setItems(loadedItems);
-      setTotalCount(inferredTotal);
-
-      // Status de vídeo apenas para os itens visíveis (consulta pequena)
-      const tmdbIds = loadedItems.map((i) => i.tmdb_id);
-      if (tmdbIds.length > 0) {
-        fetchVideoStatuses(loadedItems, tmdbIds);
-      } else {
-        setVideoStatuses(new Map());
-      }
-    } catch (err) {
-      console.warn("[BancoPage] loadItems error:", err);
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, filterType, debouncedFilterText, fetchVideoStatuses]);
-
   // Separate function for video status fetching (non-blocking)
-  async function fetchVideoStatuses(data: any[], tmdbIds: number[]) {
+  const fetchVideoStatuses = useCallback(async (data: any[], tmdbIds: number[]) => {
     try {
       const cTypes = [...new Set(data.map((i: any) => (i.content_type === "movie" ? "movie" : "series")))];
       const cacheTimeout = new Promise<null>((r) => setTimeout(() => r(null), 6000));
@@ -236,7 +171,71 @@ const BancoPage = () => {
     } catch {
       console.warn("[BancoPage] fetchVideoStatuses error");
     }
-  }
+  }, []);
+
+  // Load paginated content list — catálogo estático primeiro, DB só para status pontual
+  const loadItems = useCallback(async () => {
+    setLoading(true);
+    try {
+      const offset = page * ITEMS_PER_PAGE;
+
+      const loadStaticByType = async (type: "movie" | "series") => {
+        const windowSize = debouncedFilterText ? Math.max(400, offset + ITEMS_PER_PAGE) : ITEMS_PER_PAGE;
+        const data = await fetchCatalog(type, { limit: windowSize, offset: debouncedFilterText ? 0 : offset });
+        return data;
+      };
+
+      let loadedItems: ContentItem[] = [];
+      let inferredTotal = 0;
+
+      if (filterType === "movie" || filterType === "series") {
+        const result = await loadStaticByType(filterType);
+        const filtered = debouncedFilterText
+          ? result.items.filter((i) => i.title.toLowerCase().includes(debouncedFilterText.toLowerCase()))
+          : result.items;
+
+        loadedItems = debouncedFilterText
+          ? filtered.slice(offset, offset + ITEMS_PER_PAGE).map((i) => ({ ...i, imdb_id: null })) as ContentItem[]
+          : filtered.map((i) => ({ ...i, imdb_id: null })) as ContentItem[];
+
+        inferredTotal = debouncedFilterText ? filtered.length : result.total;
+      } else {
+        const [movies, series] = await Promise.all([
+          loadStaticByType("movie"),
+          loadStaticByType("series"),
+        ]);
+
+        const merged = [...movies.items, ...series.items].sort((a, b) => {
+          const da = a.release_date || "0000-00-00";
+          const db_ = b.release_date || "0000-00-00";
+          return db_.localeCompare(da);
+        });
+
+        const filtered = debouncedFilterText
+          ? merged.filter((i) => i.title.toLowerCase().includes(debouncedFilterText.toLowerCase()))
+          : merged;
+
+        loadedItems = filtered.slice(offset, offset + ITEMS_PER_PAGE).map((i) => ({ ...i, imdb_id: null })) as ContentItem[];
+        inferredTotal = debouncedFilterText ? filtered.length : (movies.total + series.total);
+      }
+
+      setItems(loadedItems);
+      setTotalCount(inferredTotal);
+
+      // Status de vídeo apenas para os itens visíveis (consulta pequena)
+      const tmdbIds = loadedItems.map((i) => i.tmdb_id);
+      if (tmdbIds.length > 0) {
+        fetchVideoStatuses(loadedItems, tmdbIds);
+      } else {
+        setVideoStatuses(new Map());
+      }
+    } catch (err) {
+      console.warn("[BancoPage] loadItems error:", err);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [page, filterType, debouncedFilterText, fetchVideoStatuses]);
 
   // Load on mount / updates (separated to avoid query loop)
   useEffect(() => {
