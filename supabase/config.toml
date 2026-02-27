@@ -41,3 +41,9 @@ verify_jwt = false
 
 [functions.import-json-catalog]
 verify_jwt = false
+
+[functions.sync-catalog]
+verify_jwt = false
+
+[functions.generate-catalog]
+verify_jwt = false

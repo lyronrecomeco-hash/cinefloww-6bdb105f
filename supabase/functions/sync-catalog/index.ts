@@ -1,44 +1,494 @@
+/**
+ * sync-catalog: Crawls entire CineVeo API (movies + series) and generates
+ * static catalog pages + video link shards in Storage.
+ * 
+ * Architecture:
+ *   Phase "crawl" → paginated API fetch, saves temp batches to Storage
+ *   Phase "build" → reads all batches, generates catalog + shards + manifest
+ * 
+ * Self-chains automatically. Frontend just triggers and polls manifest.
+ */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 const CINEVEO_API = "https://cinetvembed.cineveo.site/api/catalog.php";
 const CINEVEO_USER = "lyneflix-vods";
 const CINEVEO_PASS = "uVljs2d";
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
+const PAGES_PER_RUN = 15;
 const ITEMS_PER_FILE = 100;
-const PAGES_PER_RUN = 8;
-const DELAY_MS = 800;
+const M3U_BUCKETS = 100;
+const UPLOAD_BATCH = 15;
+const DELAY_MS = 50;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function normalizeDate(value: unknown): string | null {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-  if (/^\d{4}$/.test(raw)) return `${raw}-01-01`;
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) return raw.slice(0, 10);
-  return null;
+// ── Types ──
+
+interface CrawledItem {
+  tmdb_id: number;
+  title: string;
+  poster: string | null;
+  backdrop: string | null;
+  year: string | null;
+  synopsis: string | null;
+  content_type: "movie" | "series";
+  stream_url: string | null;
+  episodes: Array<{ season: number; episode: number; stream_url: string }>;
 }
 
-async function fetchCineveoPage(type: string, page: number) {
+// ── Helpers ──
+
+function normalizeYear(value: unknown): string | null {
+  const raw = String(value ?? "").trim();
+  if (/^\d{4}$/.test(raw)) return raw;
+  const m = raw.match(/(\d{4})/);
+  return m ? m[1] : null;
+}
+
+async function fetchApiPage(type: string, page: number) {
   const url = `${CINEVEO_API}?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=${type}&page=${page}`;
   const res = await fetch(url, {
     headers: { "User-Agent": UA, Accept: "application/json" },
     signal: AbortSignal.timeout(25000),
   });
-  if (!res.ok) throw new Error(`CineVeo ${type} p${page} → ${res.status}`);
+  if (!res.ok) throw new Error(`API ${type} p${page} → ${res.status}`);
   const payload = await res.json();
   const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
   const totalPages = Number(payload?.pagination?.total_pages || 0) || null;
   return { items, totalPages };
 }
+
+async function uploadWithRetry(supabase: any, path: string, blob: Blob, retries = 2): Promise<boolean> {
+  for (let i = 0; i <= retries; i++) {
+    const { error } = await supabase.storage.from("catalog").upload(path, blob, {
+      upsert: true,
+      contentType: "application/json",
+    });
+    if (!error) return true;
+    if (i < retries) await sleep(300);
+  }
+  return false;
+}
+
+async function uploadBatch(supabase: any, uploads: Array<{ path: string; data: any }>): Promise<number> {
+  let uploaded = 0;
+  for (let i = 0; i < uploads.length; i += UPLOAD_BATCH) {
+    const batch = uploads.slice(i, i + UPLOAD_BATCH);
+    const results = await Promise.allSettled(
+      batch.map(({ path, data }) =>
+        uploadWithRetry(supabase, path, new Blob([JSON.stringify(data)], { type: "application/json" }))
+      ),
+    );
+    for (const r of results) if (r.status === "fulfilled" && r.value) uploaded++;
+  }
+  return uploaded;
+}
+
+async function saveProgress(supabase: any, data: Record<string, unknown>) {
+  await supabase.from("site_settings").upsert({
+    key: "catalog_sync_progress",
+    value: { updated_at: new Date().toISOString(), ...data },
+  }, { onConflict: "key" }).catch(() => {});
+}
+
+function selfChain(body: Record<string, unknown>) {
+  const selfUrl = `${Deno.env.get("SUPABASE_URL")!}/functions/v1/sync-catalog`;
+  fetch(selfUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+    },
+    body: JSON.stringify({ ...body, _exec: true }),
+  }).catch(() => {});
+}
+
+// ── Phase 1: Crawl API pages ──
+
+async function handleCrawl(supabase: any, body: any): Promise<any> {
+  const apiType: string = body.type || "movies";
+  const startPage: number = body.page || 1;
+  const batchIndex: number = body.batch || 0;
+  const moviesBatches: number = body.movies_batches || 0;
+
+  await saveProgress(supabase, {
+    phase: "crawling",
+    type: apiType,
+    page: startPage,
+    batch: batchIndex,
+  });
+
+  const items: CrawledItem[] = [];
+  let currentPage = startPage;
+  let totalApiPages: number | null = null;
+  let pagesProcessed = 0;
+
+  for (let i = 0; i < PAGES_PER_RUN; i++) {
+    try {
+      const { items: pageItems, totalPages } = await fetchApiPage(apiType, currentPage);
+      if (totalPages) totalApiPages = totalPages;
+      if (pageItems.length === 0) break;
+
+      for (const item of pageItems) {
+        const tmdbId = Number(item.tmdb_id || item.id);
+        if (!tmdbId) continue;
+
+        const episodes: CrawledItem["episodes"] = [];
+        if (apiType === "series" && Array.isArray(item.episodes)) {
+          for (const ep of item.episodes) {
+            if (ep.stream_url) {
+              episodes.push({
+                season: Number(ep.season || 1),
+                episode: Number(ep.episode || 1),
+                stream_url: ep.stream_url,
+              });
+            }
+          }
+        }
+
+        items.push({
+          tmdb_id: tmdbId,
+          title: item.title || `TMDB ${tmdbId}`,
+          poster: item.poster || null,
+          backdrop: item.backdrop || null,
+          year: normalizeYear(item.year),
+          synopsis: item.synopsis || null,
+          content_type: apiType === "movies" ? "movie" : "series",
+          stream_url: item.stream_url || null,
+          episodes,
+        });
+      }
+
+      pagesProcessed++;
+      currentPage++;
+      if (totalApiPages && currentPage > totalApiPages) break;
+      if (i < PAGES_PER_RUN - 1) await sleep(DELAY_MS);
+    } catch (err) {
+      console.warn(`[sync] Failed ${apiType} p${currentPage}:`, err);
+      currentPage++;
+    }
+  }
+
+  // Save batch to Storage
+  if (items.length > 0) {
+    const blob = new Blob([JSON.stringify(items)], { type: "application/json" });
+    await uploadWithRetry(supabase, `_sync/${apiType}_${batchIndex}.json`, blob);
+  }
+
+  const hasMore = pagesProcessed > 0 && (totalApiPages ? currentPage <= totalApiPages : true);
+  const currentBatchCount = batchIndex + (items.length > 0 ? 1 : 0);
+
+  if (hasMore) {
+    await saveProgress(supabase, {
+      phase: "crawling",
+      type: apiType,
+      page: currentPage,
+      batch: currentBatchCount,
+      total_pages: totalApiPages,
+      items_this_batch: items.length,
+    });
+    selfChain({
+      phase: "crawl",
+      type: apiType,
+      page: currentPage,
+      batch: currentBatchCount,
+      movies_batches: moviesBatches,
+    });
+    return { done: false, type: apiType, page: currentPage, batch: currentBatchCount };
+  }
+
+  // Current type complete
+  if (apiType === "movies") {
+    const mb = currentBatchCount;
+    await saveProgress(supabase, {
+      phase: "crawling",
+      type: "series",
+      page: 1,
+      movies_batches: mb,
+    });
+    selfChain({
+      phase: "crawl",
+      type: "series",
+      page: 1,
+      batch: 0,
+      movies_batches: mb,
+    });
+    return { done: false, movies_done: true, movies_batches: mb };
+  }
+
+  // Both types done → build phase
+  const seriesBatches = currentBatchCount;
+  await saveProgress(supabase, {
+    phase: "building",
+    movies_batches: moviesBatches,
+    series_batches: seriesBatches,
+  });
+  selfChain({
+    phase: "build",
+    movies_batches: moviesBatches,
+    series_batches: seriesBatches,
+  });
+  return { done: false, phase: "building" };
+}
+
+// ── Phase 2: Build catalog + shards from batches ──
+
+async function handleBuild(supabase: any, body: any): Promise<any> {
+  const moviesBatches = body.movies_batches || 0;
+  const seriesBatches = body.series_batches || 0;
+
+  await saveProgress(supabase, { phase: "building", step: "reading_batches" });
+
+  // Read all batch files in parallel
+  const readBatch = async (path: string): Promise<CrawledItem[]> => {
+    try {
+      const { data, error } = await supabase.storage.from("catalog").download(path);
+      if (error || !data) return [];
+      return JSON.parse(await data.text());
+    } catch {
+      return [];
+    }
+  };
+
+  const reads: Promise<CrawledItem[]>[] = [];
+  for (let i = 0; i < moviesBatches; i++) reads.push(readBatch(`_sync/movies_${i}.json`));
+  for (let i = 0; i < seriesBatches; i++) reads.push(readBatch(`_sync/series_${i}.json`));
+
+  const batches = await Promise.all(reads);
+  const allItems = batches.flat();
+
+  console.log(`[sync] Read ${allItems.length} items from ${moviesBatches + seriesBatches} batches`);
+
+  // Deduplicate by tmdb_id + content_type
+  const seen = new Map<string, CrawledItem>();
+  for (const item of allItems) {
+    const key = `${item.content_type}:${item.tmdb_id}`;
+    const existing = seen.get(key);
+    if (!existing) {
+      seen.set(key, item);
+    } else {
+      // Merge episodes
+      if (item.episodes?.length) {
+        const existingEps = new Set(existing.episodes.map((e) => `${e.season}:${e.episode}`));
+        for (const ep of item.episodes) {
+          if (!existingEps.has(`${ep.season}:${ep.episode}`)) {
+            existing.episodes.push(ep);
+          }
+        }
+      }
+      if (item.poster && !existing.poster) existing.poster = item.poster;
+      if (item.backdrop && !existing.backdrop) existing.backdrop = item.backdrop;
+      if (item.synopsis && !existing.synopsis) existing.synopsis = item.synopsis;
+    }
+  }
+
+  const movies: CrawledItem[] = [];
+  const series: CrawledItem[] = [];
+  for (const item of seen.values()) {
+    if (item.content_type === "movie") movies.push(item);
+    else series.push(item);
+  }
+
+  const sortByYear = (a: CrawledItem, b: CrawledItem) =>
+    (b.year || "0000").localeCompare(a.year || "0000");
+  movies.sort(sortByYear);
+  series.sort(sortByYear);
+
+  console.log(`[sync] Unique: ${movies.length} movies, ${series.length} series`);
+  await saveProgress(supabase, {
+    phase: "building",
+    step: "generating",
+    movies: movies.length,
+    series: series.length,
+  });
+
+  // ── Build uploads ──
+  const uploads: Array<{ path: string; data: any }> = [];
+  const now = new Date().toISOString();
+
+  // Catalog pages
+  const buildPages = (items: CrawledItem[], type: string) => {
+    const totalPages = Math.ceil(items.length / ITEMS_PER_FILE) || 1;
+    for (let p = 0; p < totalPages; p++) {
+      const pageItems = items
+        .slice(p * ITEMS_PER_FILE, (p + 1) * ITEMS_PER_FILE)
+        .map((item) => ({
+          id: `ct-${item.tmdb_id}`,
+          tmdb_id: item.tmdb_id,
+          title: item.title,
+          poster_path: item.poster,
+          backdrop_path: item.backdrop,
+          vote_average: 0,
+          release_date: item.year ? `${item.year}-01-01` : null,
+          content_type: item.content_type,
+        }));
+      uploads.push({
+        path: `${type}/${p + 1}.json`,
+        data: {
+          total: items.length,
+          page: p + 1,
+          per_page: ITEMS_PER_FILE,
+          items: pageItems,
+        },
+      });
+    }
+    return totalPages;
+  };
+
+  const moviePages = buildPages(movies, "movie");
+  const seriesPages = buildPages(series, "series");
+
+  // ── Link shards (extract-video compatible) ──
+  const movieBuckets: Record<string, any>[] = Array.from({ length: M3U_BUCKETS }, () => ({}));
+  const seriesBuckets: Record<string, any>[] = Array.from({ length: M3U_BUCKETS }, () => ({}));
+
+  for (const item of movies) {
+    if (!item.stream_url) continue;
+    const bucket = item.tmdb_id % M3U_BUCKETS;
+    movieBuckets[bucket][String(item.tmdb_id)] = {
+      url: item.stream_url,
+      type: item.stream_url.includes(".m3u8") ? "m3u8" : "mp4",
+      provider: "cineveo-api",
+    };
+  }
+
+  for (const item of series) {
+    const bucket = item.tmdb_id % M3U_BUCKETS;
+    const key = String(item.tmdb_id);
+    const entry: any = { default: null, episodes: {} };
+
+    if (item.episodes?.length) {
+      for (const ep of item.episodes) {
+        entry.episodes[`${ep.season}:${ep.episode}`] = {
+          url: ep.stream_url,
+          type: ep.stream_url.includes(".m3u8") ? "m3u8" : "mp4",
+          provider: "cineveo-api",
+        };
+        if (!entry.default) {
+          entry.default = {
+            url: ep.stream_url,
+            type: ep.stream_url.includes(".m3u8") ? "m3u8" : "mp4",
+            provider: "cineveo-api",
+            season: ep.season,
+            episode: ep.episode,
+          };
+        }
+      }
+    } else if (item.stream_url) {
+      entry.default = {
+        url: item.stream_url,
+        type: item.stream_url.includes(".m3u8") ? "m3u8" : "mp4",
+        provider: "cineveo-api",
+      };
+    }
+
+    if (entry.default || Object.keys(entry.episodes).length > 0) {
+      seriesBuckets[bucket][key] = entry;
+    }
+  }
+
+  for (let i = 0; i < M3U_BUCKETS; i++) {
+    uploads.push({
+      path: `m3u-index/movie/${i}.json`,
+      data: { updated_at: now, bucket: i, items: movieBuckets[i] },
+    });
+    uploads.push({
+      path: `m3u-index/series/${i}.json`,
+      data: { updated_at: now, bucket: i, items: seriesBuckets[i] },
+    });
+  }
+
+  // IDs for cross-reference
+  const movieIds = movies.map((m) => m.tmdb_id);
+  const seriesIds = series.map((s) => s.tmdb_id);
+  uploads.push({
+    path: "m3u-index/ids.json",
+    data: { updated_at: now, movies: movieIds, series: seriesIds, total: movieIds.length + seriesIds.length },
+  });
+
+  // Video coverage stats
+  const moviesWithVideo = movies.filter((m) => m.stream_url).length;
+  const seriesWithVideo = series.filter((s) => s.stream_url || s.episodes?.length > 0).length;
+
+  uploads.push({
+    path: "m3u-index/manifest.json",
+    data: {
+      updated_at: now,
+      source: "cineveo-api",
+      m3u_movies: moviesWithVideo,
+      m3u_series: seriesWithVideo,
+      m3u_total: moviesWithVideo + seriesWithVideo,
+    },
+  });
+
+  console.log(`[sync] Uploading ${uploads.length} files...`);
+  await saveProgress(supabase, { phase: "uploading", files: uploads.length });
+
+  const uploaded = await uploadBatch(supabase, uploads);
+  console.log(`[sync] Uploaded ${uploaded}/${uploads.length} files`);
+
+  // Main manifest
+  const manifest = {
+    updated_at: now,
+    types: {
+      movie: { total: movies.length, pages: moviePages },
+      series: { total: series.length, pages: seriesPages },
+    },
+    video_coverage: {
+      m3u_movies: moviesWithVideo,
+      m3u_series: seriesWithVideo,
+      m3u_total: moviesWithVideo + seriesWithVideo,
+      total_links_parsed: moviesWithVideo + seriesWithVideo,
+      indexed_at: now,
+    },
+  };
+
+  await uploadWithRetry(
+    supabase,
+    "manifest.json",
+    new Blob([JSON.stringify(manifest)], { type: "application/json" }),
+  );
+
+  // Cleanup temp batch files
+  const cleanups: Promise<any>[] = [];
+  for (let i = 0; i < moviesBatches; i++) {
+    cleanups.push(supabase.storage.from("catalog").remove([`_sync/movies_${i}.json`]));
+  }
+  for (let i = 0; i < seriesBatches; i++) {
+    cleanups.push(supabase.storage.from("catalog").remove([`_sync/series_${i}.json`]));
+  }
+  await Promise.allSettled(cleanups);
+
+  await saveProgress(supabase, {
+    phase: "done",
+    done: true,
+    movies: movies.length,
+    series: series.length,
+    movies_with_video: moviesWithVideo,
+    series_with_video: seriesWithVideo,
+    files_uploaded: uploaded,
+  });
+
+  return {
+    done: true,
+    movies: movies.length,
+    series: series.length,
+    movies_with_video: moviesWithVideo,
+    series_with_video: seriesWithVideo,
+    files_uploaded: uploaded,
+  };
+}
+
+// ── HTTP Handler ──
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -51,246 +501,50 @@ Deno.serve(async (req) => {
   );
 
   try {
+    await supabase.storage
+      .createBucket("catalog", {
+        public: true,
+        fileSizeLimit: 52428800,
+        allowedMimeTypes: ["application/json"],
+      })
+      .catch(() => {});
+
     const body = await req.json().catch(() => ({}));
-    const apiType: string = body.type || "movies"; // "movies" or "series"
-    const startPage: number = Number(body.start_page || 1);
-    const accumulated: any[] = body.accumulated || [];
-    const reset = !!body.reset;
 
-    // Ensure storage bucket
-    await supabase.storage.createBucket("catalog", {
-      public: true,
-      fileSizeLimit: 52428800,
-      allowedMimeTypes: ["application/json"],
-    }).catch(() => {});
-
-    // Save progress
-    const saveProgress = async (phase: string, extra: Record<string, unknown> = {}) => {
-      await supabase.from("site_settings").upsert({
-        key: "catalog_sync_progress",
-        value: { phase, type: apiType, updated_at: new Date().toISOString(), ...extra },
-      }, { onConflict: "key" });
-    };
-
-    await saveProgress("fetching", { page: startPage, accumulated: accumulated.length });
-
-    // Fetch pages from CineVeo API
-    let currentPage = startPage;
-    let allItems = [...accumulated];
-    let totalApiPages: number | null = null;
-    let pagesThisRun = 0;
-
-    for (let i = 0; i < PAGES_PER_RUN; i++) {
-      try {
-        const { items, totalPages } = await fetchCineveoPage(apiType, currentPage);
-        if (totalPages) totalApiPages = totalPages;
-
-        if (items.length === 0) {
-          // No more data — we're done with this type
-          break;
-        }
-
-        for (const item of items) {
-          const tmdbId = Number(item.tmdb_id || item.id);
-          if (!tmdbId) continue;
-          allItems.push({
-            id: `ct-${tmdbId}`,
-            tmdb_id: tmdbId,
-            title: item.title || `TMDB ${tmdbId}`,
-            poster_path: item.poster || null,
-            backdrop_path: item.backdrop || null,
-            vote_average: 0,
-            release_date: normalizeDate(item.year),
-            content_type: apiType === "movies" ? "movie" : "series",
-            stream_url: item.stream_url || null,
-          });
-        }
-
-        pagesThisRun++;
-        currentPage++;
-
-        if (totalApiPages && currentPage > totalApiPages) break;
-        if (i < PAGES_PER_RUN - 1) await sleep(DELAY_MS);
-      } catch (err) {
-        console.warn(`[sync-catalog] Failed page ${currentPage}:`, err);
-        currentPage++;
-        await sleep(DELAY_MS * 2);
+    // Direct execution (self-chained calls)
+    if (body._exec) {
+      const phase = body.phase || "crawl";
+      let result;
+      if (phase === "build") {
+        result = await handleBuild(supabase, body);
+      } else {
+        result = await handleCrawl(supabase, body);
       }
-    }
-
-    // Check if we need to continue fetching
-    const needsMore = totalApiPages ? currentPage <= totalApiPages : pagesThisRun === PAGES_PER_RUN;
-
-    if (needsMore) {
-      await saveProgress("fetching", {
-        page: currentPage,
-        accumulated: allItems.length,
-        total_api_pages: totalApiPages,
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
-
-      // Self-chain for next batch
-      const selfUrl = `${Deno.env.get("SUPABASE_URL")!}/functions/v1/sync-catalog`;
-      fetch(selfUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
-        },
-        body: JSON.stringify({
-          type: apiType,
-          start_page: currentPage,
-          accumulated: allItems,
-        }),
-      }).catch(() => {});
-
-      return new Response(JSON.stringify({
-        done: false,
-        type: apiType,
-        fetched_so_far: allItems.length,
-        next_page: currentPage,
-        total_api_pages: totalApiPages,
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // All pages fetched — deduplicate and generate static JSON files
-    await saveProgress("generating", { total_items: allItems.length });
+    // Initial trigger from frontend — start crawl and return immediately
+    await saveProgress(supabase, { phase: "starting" });
+    selfChain({ phase: "crawl", type: "movies", page: 1, batch: 0 });
 
-    // Deduplicate by tmdb_id
-    const seen = new Map<number, any>();
-    for (const item of allItems) {
-      seen.set(item.tmdb_id, item);
-    }
-    const unique = [...seen.values()];
-
-    // Sort by release_date descending
-    unique.sort((a, b) => {
-      const da = a.release_date || "0000";
-      const db = b.release_date || "0000";
-      return db.localeCompare(da);
-    });
-
-    const contentType = apiType === "movies" ? "movie" : "series";
-    const totalPages = Math.ceil(unique.length / ITEMS_PER_FILE);
-    let uploaded = 0;
-
-    for (let p = 0; p < totalPages; p++) {
-      const pageItems = unique.slice(p * ITEMS_PER_FILE, (p + 1) * ITEMS_PER_FILE);
-      // Remove stream_url from public JSON (security)
-      const cleanItems = pageItems.map(({ stream_url, ...rest }) => rest);
-      const pageData = {
-        total: unique.length,
-        page: p + 1,
-        per_page: ITEMS_PER_FILE,
-        items: cleanItems,
-      };
-
-      const filePath = `${contentType}/${p + 1}.json`;
-      const blob = new Blob([JSON.stringify(pageData)], { type: "application/json" });
-      const { error } = await supabase.storage
-        .from("catalog")
-        .upload(filePath, blob, { upsert: true, contentType: "application/json" });
-
-      if (!error) uploaded++;
-    }
-
-    // Also upsert video_cache with stream URLs (for the player)
-    const cacheRows = unique
-      .filter((item) => item.stream_url)
-      .map((item) => ({
-        tmdb_id: item.tmdb_id,
-        content_type: contentType,
-        audio_type: "dublado",
-        video_url: item.stream_url,
-        video_type: item.stream_url.includes(".m3u8") ? "m3u8" : "mp4",
-        provider: "cineveo-api",
-        season: 0,
-        episode: 0,
-        expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
-      }));
-
-    for (let i = 0; i < cacheRows.length; i += 200) {
-      const batch = cacheRows.slice(i, i + 200);
-      await supabase.from("video_cache").upsert(batch, {
-        onConflict: "tmdb_id,content_type,audio_type,season,episode",
-      }).catch(() => {});
-    }
-
-    // Upload/merge manifest
-    let existingManifest: any = { updated_at: null, types: {} };
-    try {
-      const { data: manifestFile } = await supabase.storage.from("catalog").download("manifest.json");
-      if (manifestFile) {
-        existingManifest = JSON.parse(await manifestFile.text());
-      }
-    } catch {
-      // ignore
-    }
-
-    const mergedManifest = {
-      updated_at: new Date().toISOString(),
-      types: {
-        ...(existingManifest?.types || {}),
-        [contentType]: {
-          total: unique.length,
-          pages: totalPages,
-          video_links: cacheRows.length,
-        },
-      },
-    };
-
-    const manifestBlob = new Blob([JSON.stringify(mergedManifest)], { type: "application/json" });
-    await supabase.storage.from("catalog").upload("manifest.json", manifestBlob, {
-      upsert: true,
-      contentType: "application/json",
-    });
-
-    const movieStats = mergedManifest.types?.movie || { total: 0, video_links: 0 };
-    const seriesStats = mergedManifest.types?.series || { total: 0, video_links: 0 };
-
-    await supabase.from("site_settings").upsert({
-      key: "catalog_stats",
-      value: {
-        updated_at: mergedManifest.updated_at,
-        total_catalog: Number(movieStats.total || 0) + Number(seriesStats.total || 0),
-        with_video_total: Number(movieStats.video_links || 0) + Number(seriesStats.video_links || 0),
-        by_provider: { "cineveo-api": Number(movieStats.video_links || 0) + Number(seriesStats.video_links || 0) },
-        types: mergedManifest.types,
-      },
-    }, { onConflict: "key" });
-
-    await saveProgress("done", {
-      type: apiType,
-      total_items: unique.length,
-      files_uploaded: uploaded,
-      cache_rows: cacheRows.length,
-      done: true,
-      video_links_total: Number(movieStats.video_links || 0) + Number(seriesStats.video_links || 0),
-    });
-
-    // Auto-chain to next type if we started with movies
-    if (apiType === "movies" && !body.skip_series) {
-      const selfUrl = `${Deno.env.get("SUPABASE_URL")!}/functions/v1/sync-catalog`;
-      fetch(selfUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
-        },
-        body: JSON.stringify({ type: "series", start_page: 1, accumulated: [], skip_series: true }),
-      }).catch(() => {});
-    }
-
-    return new Response(JSON.stringify({
-      done: true,
-      type: apiType,
-      total_items: unique.length,
-      files_uploaded: uploaded,
-      cache_rows: cacheRows.length,
-    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(
+      JSON.stringify({
+        started: true,
+        message: "Sincronização iniciada. Crawling API CineVeo → catálogo estático + links de vídeo.",
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   } catch (error) {
-    console.error("[sync-catalog] Error:", error);
-    return new Response(JSON.stringify({
-      error: error instanceof Error ? error.message : "Sync failed",
-    }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    console.error("[sync] Error:", error);
+    await saveProgress(supabase, {
+      phase: "error",
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return new Response(
+      JSON.stringify({ error: error instanceof Error ? error.message : "Sync failed" }),
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });
