@@ -148,10 +148,7 @@ const PlayerPage = () => {
     const aType = audioParam || "legendado";
 
     try {
-      // Fetch title from TMDB (non-blocking, for display)
-      const cTypes = params.type === "movie" ? ["movie"] : ["series", "tv"];
-      supabase.from("content").select("title").eq("tmdb_id", tmdbId).in("content_type", cTypes).maybeSingle()
-        .then(({ data }) => { if (data?.title) setBankTitle(data.title); });
+      // Title comes from URL params or slug — no DB query needed
 
       // On-demand: call extract-video with 15s timeout
       const extractCType = params.type === "movie" ? "movie" : "tv";
