@@ -96,17 +96,8 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         tmdb_id: id,
         content_type: type === "movie" ? "movie" : "tv",
       }).then(() => {});
-      // Check if video exists in cache — for series also check episode-level entries
-      const cType = type === "movie" ? "movie" : "series";
-      supabase
-        .from("video_cache_safe")
-        .select("id")
-        .eq("tmdb_id", id)
-        .in("content_type", type === "tv" ? ["series", "tv"] : [cType])
-        .limit(1)
-        .then(({ data: cacheData }) => {
-          if (!cancelled) setHasVideo(!!(cacheData && cacheData.length > 0));
-        });
+      // Always show "Assistir Agora" — link resolved on-demand
+      setHasVideo(true);
     }).catch(() => { if (!cancelled) setLoading(false); });
 
     // Check for resolved reports for this visitor
@@ -182,37 +173,12 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     setShowAdGate(true);
   };
 
-  // Prefetch: check if video is cached (existence only, no URL exposed)
-  const prefetchSource = async (audio: string) => {
-    const cTypes = type === "movie" ? ["movie"] : ["series", "tv"];
-    try {
-      // Only select metadata, NOT video_url — URL stays server-side
-      const { data: rows } = await supabase
-        .from("video_cache")
-        .select("video_type, provider")
-        .eq("tmdb_id", id)
-        .in("content_type", cTypes)
-        .eq("audio_type", audio)
-        .eq("season", 0)
-        .eq("episode", 0)
-        .gt("expires_at", new Date().toISOString())
-        .order("created_at", { ascending: false })
-        .limit(1);
-      const data = rows?.[0] || null;
-      if (data) {
-        return { cached: true, type: data.video_type, provider: data.provider };
-      }
-    } catch {}
-    return null;
-  };
+  // No prefetch needed — links resolved on-demand
 
   const handleAudioSelect = async (audio: string) => {
     setShowAudioModal(false);
     const params = new URLSearchParams({ title: getDisplayTitle(detail), audio });
     if (imdbId) params.set("imdb", imdbId);
-    
-    // Try to prefetch cached source for instant playback
-    const cached = await prefetchSource(audio);
     const playerSlug = toSlug(getDisplayTitle(detail), detail.id);
     navigate(`/player/${type === "tv" ? "series" : "movie"}/${playerSlug}?${params.toString()}`);
   };

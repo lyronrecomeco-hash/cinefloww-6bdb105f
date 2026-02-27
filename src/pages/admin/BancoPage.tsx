@@ -1,516 +1,126 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
-import { supabase } from "@/integrations/supabase/client";
-import { Database, Film, Tv, Loader2, Play, RefreshCw, CheckCircle, XCircle, Search, ExternalLink, Link2, X, Upload, Zap } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Database, Film, Tv, Loader2, RefreshCw, CheckCircle, Search, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { initVpsClient, isVpsOnline, getVpsUrl, refreshVpsHealth } from "@/lib/vpsClient";
-import { fetchCatalog } from "@/lib/catalogFetcher";
+import { supabase } from "@/integrations/supabase/client";
+import { fetchCatalog, fetchCatalogManifest } from "@/lib/catalogFetcher";
 import { toSlug } from "@/lib/slugify";
+import { useNavigate } from "react-router-dom";
 
-interface ContentItem {
+interface CatalogItem {
   id: string;
   tmdb_id: number;
-  imdb_id?: string | null;
   title: string;
   content_type: string;
   poster_path: string | null;
   release_date: string | null;
 }
 
-interface VideoStatus {
-  tmdb_id: number;
-  has_video: boolean;
-  video_url?: string;
-  provider?: string;
-  video_type?: string;
-}
-
 const ITEMS_PER_PAGE = 50;
-const DB_TIMEOUT_MS = 5000;
 
 const BancoPage = () => {
   const navigate = useNavigate();
-  const [items, setItems] = useState<ContentItem[]>([]);
-  const [videoStatuses, setVideoStatuses] = useState<Map<number, VideoStatus>>(new Map());
+  const { toast } = useToast();
+  const [items, setItems] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(0);
   const [filterText, setFilterText] = useState("");
-  const [debouncedFilterText, setDebouncedFilterText] = useState("");
+  const [debouncedFilter, setDebouncedFilter] = useState("");
   const [filterType, setFilterType] = useState<"all" | "movie" | "series">("all");
-  const [filterStatus, setFilterStatus] = useState<"all" | "with" | "without">("all");
-  const [resolving, setResolving] = useState(false);
-  const [resolveProgress, setResolveProgress] = useState({ current: 0, total: 0 });
-  const cancelRef = useRef(false);
-  const { toast } = useToast();
-  const [stats, setStats] = useState({ total: 0, withVideo: 0, withoutVideo: 0, byProvider: {} as Record<string, number> });
-  // playerItem removed — now navigates to native player
-  const [providerMenu, setProviderMenu] = useState<string | null>(null);
-  const [resolvingItems, setResolvingItems] = useState<Set<string>>(new Set());
+  const [stats, setStats] = useState({ movies: 0, series: 0, total: 0, updatedAt: "" });
+  const [generating, setGenerating] = useState(false);
 
-  // CineVeo import state
-  const [importing, setImporting] = useState(false);
-  const [importProgress, setImportProgress] = useState<{
-    phase: string;
-    currentType?: string;
-    currentPage?: number;
-    totalPages?: number;
-    contentTotal: number;
-    cacheTotal: number;
-    pagesProcessed: number;
-    done: boolean;
-  } | null>(null);
-
-  // Debounce da busca para evitar consultas a cada tecla
+  // Debounce search
   useEffect(() => {
-    const timer = setTimeout(() => setDebouncedFilterText(filterText.trim()), 250);
-    return () => clearTimeout(timer);
+    const t = setTimeout(() => setDebouncedFilter(filterText.trim()), 300);
+    return () => clearTimeout(t);
   }, [filterText]);
 
-  // Load stats sem RPC pesado (usa resumo pré-processado)
+  // Load manifest stats (from static JSON, no DB)
   const loadStats = useCallback(async () => {
     try {
-      const timeout = new Promise<null>((r) => setTimeout(() => r(null), DB_TIMEOUT_MS));
-      const result = await Promise.race([
-        Promise.all([
-          supabase.from("site_settings").select("value").eq("key", "catalog_stats").maybeSingle(),
-          supabase.from("site_settings").select("value").eq("key", "catalog_sync_progress").maybeSingle(),
-          supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
-        ]),
-        timeout,
-      ]);
-
-      if (!result) {
-        console.warn("[BancoPage] loadStats timeout — usando último estado em memória");
-        return;
-      }
-
-      const [statsResult, syncResult, legacyResult] = result as any[];
-      const staticStats = (statsResult?.data?.value || {}) as any;
-      const syncProgress = (syncResult?.data?.value || legacyResult?.data?.value || {}) as any;
-
-      const byProvider: Record<string, number> = staticStats.by_provider || {};
-      const withVideo = Number(
-        staticStats.with_video_total
-        ?? staticStats.video_links_total
-        ?? syncProgress.imported_cache_total
-        ?? 0
-      );
-
-      const total = Number(
-        staticStats.total_catalog
-        ?? staticStats.total_items
-        ?? syncProgress.imported_content_total
-        ?? totalCount
-        ?? 0
-      );
-
-      const inferredTotal = Math.max(total, withVideo, totalCount);
-
-      setStats({
-        total: inferredTotal,
-        withVideo,
-        withoutVideo: Math.max(0, inferredTotal - withVideo),
-        byProvider,
-      });
-
-      if (inferredTotal > 0) setTotalCount(inferredTotal);
-    } catch (err) {
-      console.warn("[BancoPage] loadStats error:", err);
-    }
-  }, [totalCount]);
-
-  // Separate function for video status fetching (non-blocking)
-  const fetchVideoStatuses = useCallback(async (data: any[], tmdbIds: number[]) => {
-    try {
-      const cTypes = [...new Set(data.map((i: any) => (i.content_type === "movie" ? "movie" : "series")))];
-      const cacheTimeout = new Promise<null>((r) => setTimeout(() => r(null), 6000));
-      const cacheResult = await Promise.race([
-        supabase
-          .from("video_cache")
-          .select("tmdb_id, video_url, provider, video_type, created_at")
-          .in("tmdb_id", tmdbIds)
-          .in("content_type", cTypes as string[])
-          .gt("expires_at", new Date().toISOString())
-          .order("created_at", { ascending: false }),
-        cacheTimeout,
-      ]);
-
-      if (!cacheResult) return;
-
-      const { data: cached } = cacheResult as any;
-      const providerRank = (provider?: string) => {
-        const p = (provider || "").toLowerCase();
-        if (p === "manual") return 130;
-        if (p === "cineveo-api") return 120;
-        if (p === "cineveo-iptv") return 110;
-        if (p === "cineveo") return 100;
-        return 70;
-      };
-
-      const bestByTmdb = new Map<number, any>();
-      for (const row of cached || []) {
-        const current = bestByTmdb.get(row.tmdb_id);
-        if (!current || providerRank(row.provider) > providerRank(current.provider)) {
-          bestByTmdb.set(row.tmdb_id, row);
-        }
-      }
-
-      const statusMap = new Map<number, VideoStatus>();
-      for (const item of data) {
-        const cachedItem = bestByTmdb.get(item.tmdb_id);
-        statusMap.set(item.tmdb_id, {
-          tmdb_id: item.tmdb_id,
-          has_video: !!cachedItem,
-          video_url: cachedItem?.video_url,
-          provider: cachedItem?.provider,
-          video_type: cachedItem?.video_type,
+      const manifest = await fetchCatalogManifest();
+      if (manifest) {
+        const m = manifest.types?.movie?.total || 0;
+        const s = manifest.types?.series?.total || 0;
+        setStats({
+          movies: m,
+          series: s,
+          total: m + s,
+          updatedAt: manifest.updated_at || "",
         });
       }
-      setVideoStatuses(statusMap);
-    } catch {
-      console.warn("[BancoPage] fetchVideoStatuses error");
-    }
+    } catch {}
   }, []);
 
-  // Load paginated content list — catálogo estático primeiro, DB só para status pontual
+  // Load items from static JSON catalog
   const loadItems = useCallback(async () => {
     setLoading(true);
     try {
       const offset = page * ITEMS_PER_PAGE;
 
-      const loadStaticByType = async (type: "movie" | "series") => {
-        const windowSize = debouncedFilterText ? Math.max(400, offset + ITEMS_PER_PAGE) : ITEMS_PER_PAGE;
-        const data = await fetchCatalog(type, { limit: windowSize, offset: debouncedFilterText ? 0 : offset });
-        return data;
+      const loadByType = async (type: "movie" | "series") => {
+        const windowSize = debouncedFilter ? Math.max(400, offset + ITEMS_PER_PAGE) : ITEMS_PER_PAGE;
+        return fetchCatalog(type, { limit: windowSize, offset: debouncedFilter ? 0 : offset });
       };
 
-      let loadedItems: ContentItem[] = [];
-      let inferredTotal = 0;
+      let loaded: CatalogItem[] = [];
+      let total = 0;
 
       if (filterType === "movie" || filterType === "series") {
-        const result = await loadStaticByType(filterType);
-        const filtered = debouncedFilterText
-          ? result.items.filter((i) => i.title.toLowerCase().includes(debouncedFilterText.toLowerCase()))
+        const result = await loadByType(filterType);
+        const filtered = debouncedFilter
+          ? result.items.filter(i => i.title.toLowerCase().includes(debouncedFilter.toLowerCase()))
           : result.items;
-
-        loadedItems = debouncedFilterText
-          ? filtered.slice(offset, offset + ITEMS_PER_PAGE).map((i) => ({ ...i, imdb_id: null })) as ContentItem[]
-          : filtered.map((i) => ({ ...i, imdb_id: null })) as ContentItem[];
-
-        inferredTotal = debouncedFilterText ? filtered.length : result.total;
+        loaded = (debouncedFilter ? filtered.slice(offset, offset + ITEMS_PER_PAGE) : filtered) as CatalogItem[];
+        total = debouncedFilter ? filtered.length : result.total;
       } else {
-        const [movies, series] = await Promise.all([
-          loadStaticByType("movie"),
-          loadStaticByType("series"),
-        ]);
-
+        const [movies, series] = await Promise.all([loadByType("movie"), loadByType("series")]);
         const merged = [...movies.items, ...series.items].sort((a, b) => {
-          const da = a.release_date || "0000-00-00";
-          const db_ = b.release_date || "0000-00-00";
-          return db_.localeCompare(da);
+          return (b.release_date || "0000").localeCompare(a.release_date || "0000");
         });
-
-        const filtered = debouncedFilterText
-          ? merged.filter((i) => i.title.toLowerCase().includes(debouncedFilterText.toLowerCase()))
+        const filtered = debouncedFilter
+          ? merged.filter(i => i.title.toLowerCase().includes(debouncedFilter.toLowerCase()))
           : merged;
-
-        loadedItems = filtered.slice(offset, offset + ITEMS_PER_PAGE).map((i) => ({ ...i, imdb_id: null })) as ContentItem[];
-        inferredTotal = debouncedFilterText ? filtered.length : (movies.total + series.total);
+        loaded = filtered.slice(offset, offset + ITEMS_PER_PAGE) as CatalogItem[];
+        total = debouncedFilter ? filtered.length : (movies.total + series.total);
       }
 
-      setItems(loadedItems);
-      setTotalCount(inferredTotal);
-
-      // Status de vídeo apenas para os itens visíveis (consulta pequena)
-      const tmdbIds = loadedItems.map((i) => i.tmdb_id);
-      if (tmdbIds.length > 0) {
-        fetchVideoStatuses(loadedItems, tmdbIds);
-      } else {
-        setVideoStatuses(new Map());
-      }
-    } catch (err) {
-      console.warn("[BancoPage] loadItems error:", err);
+      setItems(loaded);
+      setTotalCount(total);
+    } catch {
       setItems([]);
     } finally {
       setLoading(false);
     }
-  }, [page, filterType, debouncedFilterText, fetchVideoStatuses]);
+  }, [page, filterType, debouncedFilter]);
 
-  // Load on mount / updates (separated to avoid query loop)
-  useEffect(() => {
-    loadStats();
-  }, [loadStats]);
+  useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { loadItems(); }, [loadItems]);
 
-  useEffect(() => {
-    loadItems();
-  }, [loadItems]);
-
-  // Check for ongoing import on mount (catálogo estático)
-  useEffect(() => {
-    const fetchProgress = async () => {
-      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), DB_TIMEOUT_MS));
-      const result = await Promise.race([
-        supabase.from("site_settings").select("value").eq("key", "catalog_sync_progress").maybeSingle(),
-        timeout,
-      ]);
-      if (!result) return null;
-      return (result as any)?.data?.value || null;
-    };
-
-    const checkOngoingImport = async () => {
-      const p = await fetchProgress();
-      if (p && (p.phase === "fetching" || p.phase === "generating" || p.phase === "syncing") && !p.done) {
-        setImporting(true);
-        setImportProgress({
-          phase: p.phase,
-          currentType: p.type,
-          currentPage: p.page,
-          totalPages: p.total_api_pages,
-          contentTotal: Number(p.fetched_so_far || p.total_items || 0),
-          cacheTotal: Number(p.video_links_total || 0),
-          pagesProcessed: Number(p.page || 0),
-          done: false,
-        });
-      }
-    };
-
-    checkOngoingImport();
-  }, []);
-
-  // Refresh leve de stats (sem realtime pesado no banco)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadStats();
-    }, 60000);
-
-    return () => clearInterval(interval);
-  }, [loadStats]);
-
-  // Poll import progress (catálogo estático)
-  useEffect(() => {
-    if (!importing) return;
-
-    const fetchProgress = async () => {
-      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), DB_TIMEOUT_MS));
-      const result = await Promise.race([
-        supabase.from("site_settings").select("value").eq("key", "catalog_sync_progress").maybeSingle(),
-        timeout,
-      ]);
-      if (!result) return null;
-      return (result as any)?.data?.value || null;
-    };
-
-    const interval = setInterval(async () => {
-      const p = await fetchProgress();
-      if (!p) return;
-
-      setImportProgress({
-        phase: p.phase || "fetching",
-        currentType: p.type,
-        currentPage: p.page,
-        totalPages: p.total_api_pages,
-        contentTotal: Number(p.fetched_so_far || p.total_items || 0),
-        cacheTotal: Number(p.video_links_total || 0),
-        pagesProcessed: Number(p.page || 0),
-        done: !!p.done,
-      });
-
-      loadStats();
-
-      if (p.phase === "done" || p.done) {
-        clearInterval(interval);
-        setImporting(false);
-        toast({ title: "✅ Sincronização concluída", description: "Catálogo estático atualizado com sucesso." });
-        loadItems();
-      }
-
-      if (p.phase === "error") {
-        clearInterval(interval);
-        setImporting(false);
-        toast({ title: "❌ Erro na sincronização", description: p.error || "Falha", variant: "destructive" });
-      }
-    }, 6000);
-
-    return () => clearInterval(interval);
-  }, [importing, loadStats, loadItems, toast]);
-
-  // === START IMPORT (manual) ===
-  const startImport = async () => {
-    setImporting(true);
-    setImportProgress({ phase: "fetching", contentTotal: 0, cacheTotal: 0, pagesProcessed: 0, done: false });
-
+  // Generate catalog (manual trigger)
+  const handleGenerate = async () => {
+    setGenerating(true);
     try {
-      toast({ title: "🚀 Sincronização iniciada", description: "Importação manual do catálogo CineVeo em background." });
-
-      const { error } = await supabase.functions.invoke("sync-catalog", {
-        body: { type: "movies", start_page: 1, accumulated: [], reset: true },
+      toast({ title: "🚀 Gerando catálogo...", description: "Isso pode levar alguns minutos." });
+      const { error } = await supabase.functions.invoke("generate-catalog", {
+        body: { type: "movies" },
       });
-
-      if (error) {
-        throw error;
-      }
-
-      // O restante do processo continua automático via auto-chaining
-      await loadStats();
+      if (error) throw error;
+      toast({ title: "✅ Geração iniciada", description: "O catálogo será atualizado em background." });
     } catch (err: any) {
-      setImporting(false);
-      setImportProgress(null);
-      toast({
-        title: "❌ Falha ao iniciar importação",
-        description: err?.message || "Não foi possível iniciar a sincronização.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const resolveLink = async (item: ContentItem, forceProvider?: string) => {
-    try {
-      await initVpsClient();
-      const vpsUrl = getVpsUrl();
-      const vpsAvailable = !!vpsUrl && (await refreshVpsHealth()) && isVpsOnline();
-
-      if (!vpsAvailable) {
-        toast({ title: "❌ VPS Offline", description: `Resolver link exige VPS ativa: ${item.title}`, variant: "destructive" });
-        return { tmdb_id: item.tmdb_id, has_video: false };
-      }
-
-      const res = await fetch(`${vpsUrl}/api/extract-video`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tmdb_id: item.tmdb_id,
-          imdb_id: item.imdb_id,
-          content_type: item.content_type,
-          audio_type: "legendado",
-          force_provider: forceProvider || undefined,
-          title: item.title,
-        }),
-        signal: AbortSignal.timeout(20_000),
-      });
-
-      const data = await res.json().catch(() => ({} as any));
-      const newStatus: VideoStatus = {
-        tmdb_id: item.tmdb_id,
-        has_video: !!data?.url,
-        video_url: data?.url,
-        provider: data?.provider,
-        video_type: data?.type,
-      };
-      setVideoStatuses(prev => new Map(prev).set(item.tmdb_id, newStatus));
-      if (data?.url) {
-        toast({ title: "✅ Link extraído!", description: `${item.title} — via ${data.provider || "vps"}` });
-      } else {
-        toast({ title: "❌ Não encontrado", description: data?.message || item.title, variant: "destructive" });
-      }
-      return newStatus;
-    } catch {
-      toast({ title: "Erro", description: `Falha ao extrair ${item.title}`, variant: "destructive" });
-      return { tmdb_id: item.tmdb_id, has_video: false };
-    }
-  };
-
-  const handleProviderSelect = async (item: ContentItem, provider: string) => {
-    setProviderMenu(null);
-    setResolvingItems(prev => new Set(prev).add(item.id));
-    try {
-      await resolveLink(item, provider);
+      toast({ title: "❌ Erro", description: err?.message || "Falha ao gerar catálogo", variant: "destructive" });
     } finally {
-      setResolvingItems(prev => { const n = new Set(prev); n.delete(item.id); return n; });
+      setGenerating(false);
     }
   };
-
-  const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
-
-  // Resolve ALL links
-  const resolveAllLinks = async () => {
-    setResolving(true);
-    cancelRef.current = false;
-
-    await initVpsClient();
-    const vpsUrl = getVpsUrl();
-    const vpsAvailable = !!vpsUrl && (await refreshVpsHealth()) && isVpsOnline();
-
-    const { count: totalContent } = await supabase.from("content").select("*", { count: "exact", head: true });
-    const { count: cachedCount } = await supabase.from("video_cache").select("*", { count: "exact", head: true }).gt("expires_at", new Date().toISOString());
-    const { count: failedCount } = await supabase.from("resolve_failures").select("*", { count: "exact", head: true });
-
-    const initialWithout = Math.max(0, (totalContent || 0) - (cachedCount || 0) - (failedCount || 0));
-    setResolveProgress({ current: 0, total: initialWithout });
-
-    try {
-      if (!vpsAvailable) {
-        toast({ title: "❌ VPS Offline", description: "Resolver em lote só roda na VPS.", variant: "destructive" });
-        setResolving(false);
-        return;
-      }
-
-      const launchFn = () => fetch(`${vpsUrl}/api/batch-resolve`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ _wave: 0 }), signal: AbortSignal.timeout(10_000) }).catch(() => {});
-
-      toast({ title: "⚡ VPS Online", description: "Resolução iniciada..." });
-      await launchFn();
-
-      let lastRemaining = initialWithout;
-      let stagnant = 0;
-      let elapsed = 0;
-      while (!cancelRef.current && elapsed < 15 * 60 * 1000) {
-        await sleep(4000);
-        elapsed += 4000;
-        const [{ count: t }, { count: c }, { count: f }] = await Promise.all([
-          supabase.from("content").select("*", { count: "exact", head: true }),
-          supabase.from("video_cache").select("*", { count: "exact", head: true }).gt("expires_at", new Date().toISOString()),
-          supabase.from("resolve_failures").select("*", { count: "exact", head: true }),
-        ]);
-        const remaining = Math.max(0, (t || 0) - (c || 0) - (f || 0));
-        setResolveProgress({ current: Math.max(0, initialWithout - remaining), total: initialWithout });
-        if (remaining <= 0) break;
-        if (remaining >= lastRemaining) stagnant++; else stagnant = 0;
-        if (stagnant >= 6) { await launchFn(); stagnant = 0; }
-        lastRemaining = remaining;
-      }
-      toast({ title: cancelRef.current ? "Cancelado" : "Concluído" });
-    } catch {
-      toast({ title: "Erro", description: "Falha na resolução", variant: "destructive" });
-    }
-
-    setResolving(false);
-    loadStats();
-    loadItems();
-  };
-
-  const openNativePlayer = (item: ContentItem) => {
-    const status = videoStatuses.get(item.tmdb_id);
-    if (!status?.has_video || !status.video_url) return;
-    const slug = toSlug(item.title, item.tmdb_id);
-    const playerType = item.content_type === "movie" ? "movie" : "tv";
-    const params = new URLSearchParams({
-      title: item.title,
-      url: status.video_url,
-      type: status.video_type === "mp4" ? "mp4" : "m3u8",
-      audio: "legendado",
-      tmdb: String(item.tmdb_id),
-      ct: playerType,
-    });
-    navigate(`/player/${playerType}/${slug}?${params.toString()}`);
-  };
-
-  const getApiLink = (item: ContentItem) => `/player/${item.content_type}/${item.tmdb_id}`;
-
-  const filteredItems = filterStatus === "all"
-    ? items
-    : items.filter(i => {
-        const s = videoStatuses.get(i.tmdb_id);
-        return filterStatus === "with" ? s?.has_video : !s?.has_video;
-      });
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
 
-  // Calculate import progress percentage
-  const importPercent = importProgress
-    ? importProgress.totalPages
-      ? Math.min(99, Math.round((importProgress.pagesProcessed / (importProgress.totalPages * 2)) * 100))
-      : importProgress.pagesProcessed > 0 ? Math.min(95, importProgress.pagesProcessed) : 5
-    : 0;
+  const formatDate = (d: string) => {
+    if (!d) return "—";
+    try { return new Date(d).toLocaleString("pt-BR"); } catch { return d; }
+  };
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -519,116 +129,44 @@ const BancoPage = () => {
         <div>
           <h1 className="font-display text-xl sm:text-2xl font-bold flex items-center gap-2 sm:gap-3">
             <Database className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
-            Banco de Vídeos
+            Banco de Conteúdo
           </h1>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-1">Gerenciamento e indexação de links de vídeo</p>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">Catálogo estático — sem dependência de banco</p>
         </div>
         <button
-          onClick={resolving ? () => { cancelRef.current = true; } : resolveAllLinks}
-          className={`flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-colors ${
-            resolving
-              ? "bg-destructive/20 text-destructive hover:bg-destructive/30"
-              : "bg-primary text-primary-foreground hover:bg-primary/90"
-          }`}
+          onClick={handleGenerate}
+          disabled={generating}
+          className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
         >
-          {resolving ? (
-            <><Loader2 className="w-4 h-4 animate-spin" />Cancelar ({resolveProgress.current}/{resolveProgress.total})</>
+          {generating ? (
+            <><Loader2 className="w-4 h-4 animate-spin" />Gerando...</>
           ) : (
-            <><RefreshCw className="w-4 h-4" />Resolver Todos</>
+            <><Zap className="w-4 h-4" />Regerar Catálogo</>
           )}
         </button>
       </div>
 
-      {/* Stats — always precise from DB */}
+      {/* Stats from manifest */}
       <div className="grid grid-cols-3 gap-2 sm:gap-3">
         <div className="glass p-3 sm:p-4 rounded-xl text-center">
           <p className="text-lg sm:text-2xl font-bold text-primary">{stats.total.toLocaleString()}</p>
           <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Total Catálogo</p>
         </div>
         <div className="glass p-3 sm:p-4 rounded-xl text-center">
-          <p className="text-lg sm:text-2xl font-bold text-emerald-400">{stats.withVideo.toLocaleString()}</p>
-          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Com Vídeo</p>
+          <p className="text-lg sm:text-2xl font-bold text-blue-400">{stats.movies.toLocaleString()}</p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Filmes</p>
         </div>
         <div className="glass p-3 sm:p-4 rounded-xl text-center">
-          <p className="text-lg sm:text-2xl font-bold text-amber-400">{stats.withoutVideo.toLocaleString()}</p>
-          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Sem Vídeo</p>
+          <p className="text-lg sm:text-2xl font-bold text-purple-400">{stats.series.toLocaleString()}</p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Séries</p>
         </div>
       </div>
 
-      {/* Provider Breakdown */}
-      {Object.keys(stats.byProvider).length > 0 && (
-        <div className="glass p-3 sm:p-4 rounded-xl">
-          <p className="text-xs font-semibold text-muted-foreground mb-2">📊 Links por Provedor</p>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(stats.byProvider)
-              .sort((a, b) => b[1] - a[1])
-              .map(([provider, count]) => (
-                <div key={provider} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 border border-white/10">
-                  <span className="text-[10px] font-medium text-foreground">{provider}</span>
-                  <span className="text-[10px] font-bold text-primary">{count.toLocaleString()}</span>
-                </div>
-              ))}
-          </div>
-        </div>
-      )}
-
-      {/* CineVeo API Import */}
-      <div className="glass p-3 sm:p-4 rounded-xl border border-primary/20">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-primary" />
-            <span className="text-xs sm:text-sm font-semibold">CineVeo API</span>
-            <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-semibold">EXCLUSIVO</span>
-          </div>
-          {!importing ? (
-            <button onClick={startImport}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary/15 border border-primary/20 text-primary text-xs font-medium hover:bg-primary/25 transition-colors">
-              <RefreshCw className="w-3.5 h-3.5" /> Importar Tudo
-            </button>
-          ) : (
-            <span className="flex items-center gap-1.5 text-xs text-primary"><Loader2 className="w-3.5 h-3.5 animate-spin" />Importando...</span>
-          )}
-        </div>
-
-        {importing && importProgress && (
-          <div className="mt-3 space-y-2">
-            <div className="relative h-2 rounded-full bg-muted overflow-hidden">
-              <div className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all duration-500"
-                style={{ width: `${importPercent}%` }} />
-            </div>
-            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-              <span>
-                {importProgress.currentType === "movies" ? "🎬 Filmes" : "📺 Séries"} — Página {importProgress.currentPage || 0}
-                {importProgress.totalPages ? ` / ${importProgress.totalPages}` : ""}
-              </span>
-              <span className="font-medium text-primary">
-                {importProgress.contentTotal.toLocaleString()} conteúdos • {importProgress.cacheTotal.toLocaleString()} links
-              </span>
-            </div>
-          </div>
-        )}
-
-        {!importing && (
-          <p className="mt-2 text-[10px] text-emerald-400 flex items-center gap-1">
-            <CheckCircle className="w-3 h-3" />
-            {stats.withVideo.toLocaleString()} links • {stats.total.toLocaleString()} no catálogo
-          </p>
-        )}
-      </div>
-
-      {/* Resolve progress */}
-      {resolving && resolveProgress.total > 0 && (
-        <div className="glass p-3 sm:p-4 rounded-xl space-y-2">
-          <div className="flex items-center justify-between text-xs sm:text-sm">
-            <span className="text-muted-foreground">Resolvendo links...</span>
-            <span className="font-medium text-primary">
-              {resolveProgress.current}/{resolveProgress.total} ({Math.round((resolveProgress.current / resolveProgress.total) * 100)}%)
-            </span>
-          </div>
-          <div className="relative h-2 rounded-full bg-white/10 overflow-hidden">
-            <div className="absolute inset-y-0 left-0 bg-primary rounded-full transition-all duration-300"
-              style={{ width: `${(resolveProgress.current / resolveProgress.total) * 100}%` }} />
-          </div>
+      {/* Last update */}
+      {stats.updatedAt && (
+        <div className="glass p-3 rounded-xl flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-emerald-400" />
+          <span className="text-xs text-muted-foreground">Última atualização: <span className="text-foreground font-medium">{formatDate(stats.updatedAt)}</span></span>
         </div>
       )}
 
@@ -652,14 +190,6 @@ const BancoPage = () => {
               {t === "all" ? "Todos" : t === "movie" ? "Filmes" : "Séries"}
             </button>
           ))}
-          {(["all", "with", "without"] as const).map(s => (
-            <button key={s} onClick={() => setFilterStatus(s)}
-              className={`px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl text-[10px] sm:text-xs font-medium border transition-colors ${
-                filterStatus === s ? "bg-primary/20 border-primary/30 text-primary" : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
-              }`}>
-              {s === "all" ? "Todos" : s === "with" ? "✓ Com vídeo" : "✗ Sem vídeo"}
-            </button>
-          ))}
         </div>
       </div>
 
@@ -668,62 +198,43 @@ const BancoPage = () => {
         <div className="flex items-center justify-center h-40">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
-      ) : filteredItems.length === 0 ? (
+      ) : items.length === 0 ? (
         <div className="glass p-8 sm:p-12 text-center">
           <Database className="w-10 h-10 sm:w-12 sm:h-12 text-muted-foreground/30 mx-auto mb-3" />
           <p className="text-muted-foreground text-xs sm:text-sm">
-            {stats.total === 0 ? "Catálogo vazio — clique em Importar Tudo para começar" : "Nenhum conteúdo encontrado"}
+            {stats.total === 0 ? "Catálogo vazio — clique em Regerar Catálogo" : "Nenhum conteúdo encontrado"}
           </p>
         </div>
       ) : (
         <>
-          {/* Mobile: card view */}
+          {/* Mobile cards */}
           <div className="sm:hidden space-y-2">
-            {filteredItems.map((item) => {
-              const status = videoStatuses.get(item.tmdb_id);
-              return (
-                <div key={item.id} className="glass p-3 rounded-xl flex items-center gap-3">
-                  {item.poster_path ? (
-                    <img src={item.poster_path.startsWith("http") ? item.poster_path : `https://image.tmdb.org/t/p/w92${item.poster_path}`} alt={item.title} className="w-10 h-14 rounded-lg object-cover flex-shrink-0" />
-                  ) : (
-                    <div className="w-10 h-14 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
-                      <Film className="w-3 h-3" />
-                    </div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-medium truncate">{item.title}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full border ${
-                        item.content_type === "movie" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-purple-500/10 text-purple-400 border-purple-500/20"
-                      }`}>{item.content_type === "movie" ? "Filme" : "Série"}</span>
-                      {status?.has_video ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> : <XCircle className="w-3.5 h-3.5 text-muted-foreground/40" />}
-                    </div>
+            {items.map((item) => (
+              <div key={item.id} className="glass p-3 rounded-xl flex items-center gap-3"
+                onClick={() => navigate(`/${item.content_type === "movie" ? "filme" : "serie"}/${toSlug(item.title, item.tmdb_id)}`)}
+              >
+                {item.poster_path ? (
+                  <img src={item.poster_path.startsWith("http") ? item.poster_path : `https://image.tmdb.org/t/p/w92${item.poster_path}`}
+                    alt={item.title} className="w-10 h-14 rounded-lg object-cover flex-shrink-0" />
+                ) : (
+                  <div className="w-10 h-14 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
+                    <Film className="w-3 h-3" />
                   </div>
-                  <div className="flex items-center gap-1 relative">
-                    <button
-                      onClick={() => resolvingItems.has(item.id) ? null : setProviderMenu(providerMenu === item.id ? null : item.id)}
-                      disabled={resolvingItems.has(item.id)}
-                      className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10 disabled:opacity-50"
-                    >
-                      {resolvingItems.has(item.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                    </button>
-                    {providerMenu === item.id && (
-                      <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-xl shadow-xl p-1.5 min-w-[130px] animate-fade-in">
-                        <button onClick={() => handleProviderSelect(item, "cineveo-api")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CineVeo API</button>
-                      </div>
-                    )}
-                    {status?.has_video && (
-                      <button onClick={() => openNativePlayer(item)} className="w-7 h-7 rounded-lg bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30">
-                        <Play className="w-3 h-3" />
-                      </button>
-                    )}
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate">{item.title}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className={`text-[9px] px-1.5 py-0.5 rounded-full border ${
+                      item.content_type === "movie" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-purple-500/10 text-purple-400 border-purple-500/20"
+                    }`}>{item.content_type === "movie" ? "Filme" : "Série"}</span>
+                    {item.release_date && <span className="text-[9px] text-muted-foreground">{item.release_date.substring(0, 4)}</span>}
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
 
-          {/* Desktop: table view */}
+          {/* Desktop table */}
           <div className="hidden sm:block glass overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -731,98 +242,57 @@ const BancoPage = () => {
                   <tr className="border-b border-white/10">
                     <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">Título</th>
                     <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">Tipo</th>
-                    <th className="text-center text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">Vídeo</th>
-                    <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3 hidden md:table-cell">Link</th>
-                    <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3 hidden lg:table-cell">Provider</th>
-                    <th className="text-right text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">Ações</th>
+                    <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">TMDB ID</th>
+                    <th className="text-left text-xs font-medium text-muted-foreground uppercase tracking-wider px-4 py-3">Ano</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredItems.map((item) => {
-                    const status = videoStatuses.get(item.tmdb_id);
-                    return (
-                      <tr key={item.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            {item.poster_path ? (
-                              <img src={item.poster_path.startsWith("http") ? item.poster_path : `https://image.tmdb.org/t/p/w92${item.poster_path}`} alt={item.title} className="w-8 h-12 rounded-lg object-cover flex-shrink-0" />
-                            ) : (
-                              <div className="w-8 h-12 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0"><Film className="w-3 h-3" /></div>
-                            )}
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium truncate max-w-[200px] lg:max-w-none">{item.title}</p>
-                              <p className="text-[10px] text-muted-foreground">TMDB: {item.tmdb_id}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={`text-[10px] px-2 py-1 rounded-full border font-medium ${
-                            item.content_type === "movie" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-purple-500/10 text-purple-400 border-purple-500/20"
-                          }`}>{item.content_type === "movie" ? "Filme" : "Série"}</span>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {status?.has_video ? <CheckCircle className="w-4 h-4 text-emerald-400 mx-auto" /> : <XCircle className="w-4 h-4 text-muted-foreground/40 mx-auto" />}
-                        </td>
-                        <td className="px-4 py-3 hidden md:table-cell">
-                          {status?.has_video ? (
-                            <span className="text-[10px] text-primary/70 font-mono bg-primary/5 px-2 py-1 rounded-lg border border-primary/10 truncate block max-w-[200px]">
-                              {status.video_url?.substring(0, 60)}...
-                            </span>
+                  {items.map((item) => (
+                    <tr key={item.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors cursor-pointer"
+                      onClick={() => navigate(`/${item.content_type === "movie" ? "filme" : "serie"}/${toSlug(item.title, item.tmdb_id)}`)}>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-3">
+                          {item.poster_path ? (
+                            <img src={item.poster_path.startsWith("http") ? item.poster_path : `https://image.tmdb.org/t/p/w92${item.poster_path}`}
+                              alt={item.title} className="w-8 h-12 rounded-lg object-cover flex-shrink-0" />
                           ) : (
-                            <span className="text-[10px] text-muted-foreground/40">—</span>
+                            <div className="w-8 h-12 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0"><Film className="w-3 h-3" /></div>
                           )}
-                        </td>
-                        <td className="px-4 py-3 hidden lg:table-cell">
-                          <span className="text-xs text-muted-foreground">{status?.provider || "—"}</span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-1.5 justify-end">
-                            <div className="relative">
-                              <button
-                                onClick={() => resolvingItems.has(item.id) ? null : setProviderMenu(providerMenu === item.id ? null : item.id)}
-                                disabled={resolvingItems.has(item.id)}
-                                className="w-7 h-7 rounded-lg bg-white/5 text-muted-foreground flex items-center justify-center hover:bg-white/10 disabled:opacity-50" title="Resolver link"
-                              >
-                                {resolvingItems.has(item.id) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                              </button>
-                              {providerMenu === item.id && (
-                                <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-xl shadow-xl p-1.5 min-w-[130px] animate-fade-in">
-                                  <button onClick={() => handleProviderSelect(item, "cineveo-api")} className="w-full text-left px-3 py-1.5 text-[11px] font-medium rounded-lg hover:bg-primary/10 text-foreground">CineVeo API</button>
-                                </div>
-                              )}
-                            </div>
-                            {status?.has_video && (
-                              <button onClick={() => openNativePlayer(item)} className="w-7 h-7 rounded-lg bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30" title="Abrir player">
-                                <Play className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
+                          <p className="text-sm font-medium truncate max-w-[200px] lg:max-w-none">{item.title}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-[10px] px-2 py-1 rounded-full border font-medium ${
+                          item.content_type === "movie" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" : "bg-purple-500/10 text-purple-400 border-purple-500/20"
+                        }`}>{item.content_type === "movie" ? "Filme" : "Série"}</span>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{item.tmdb_id}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{item.release_date?.substring(0, 4) || "—"}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
           </div>
 
+          {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] sm:text-xs text-muted-foreground">
-                {page * ITEMS_PER_PAGE + 1}–{Math.min((page + 1) * ITEMS_PER_PAGE, totalCount)} de {totalCount}
-              </p>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
-                  className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 disabled:opacity-30 transition-colors">←</button>
-                <span className="text-xs text-muted-foreground font-medium">Pág {page + 1}/{totalPages}</span>
-                <button onClick={() => setPage(p => p + 1)} disabled={(page + 1) * ITEMS_PER_PAGE >= totalCount}
-                  className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center hover:bg-white/10 disabled:opacity-30 transition-colors">→</button>
-              </div>
+            <div className="flex items-center justify-center gap-2 mt-4">
+              <button onClick={() => setPage(Math.max(0, page - 1))} disabled={page <= 0}
+                className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs disabled:opacity-30 hover:bg-white/10">
+                ← Anterior
+              </button>
+              <span className="text-xs text-muted-foreground">
+                Página {page + 1} de {totalPages}
+              </span>
+              <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1}
+                className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs disabled:opacity-30 hover:bg-white/10">
+                Próxima →
+              </button>
             </div>
           )}
         </>
       )}
-
     </div>
   );
 };
