@@ -7,7 +7,6 @@ import { initSecurity } from "./lib/security";
 import { trackVisit } from "./lib/apiClient";
 import { checkCacheVersion } from "./lib/cacheBuster";
 import { initPushNotifications } from "./lib/pushNotifications";
-import { initVpsClient } from "./lib/vpsClient";
 
 // Initialize anti-DevTools security
 initSecurity();
@@ -20,5 +19,4 @@ setTimeout(() => {
   trackVisit().catch(() => {});
   checkCacheVersion().catch(() => {});
   try { initPushNotifications(); } catch {}
-  initVpsClient().catch(() => {});
 }, 100);
