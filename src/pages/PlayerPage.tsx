@@ -170,11 +170,15 @@ const PlayerPage = () => {
           setBankLoading(false);
           return;
         }
+        // Skip token signing for CineVeo direct links — they don't need it and it adds 200-500ms
+        const isCineveoDirect = data.url.includes("cineveo.site") || data.url.includes("cdf.lyneflix");
         let finalUrl = data.url;
-        try {
-          const signed = await secureVideoUrl(data.url);
-          if (signed && signed !== data.url) finalUrl = signed;
-        } catch { /* use raw */ }
+        if (!isCineveoDirect) {
+          try {
+            const signed = await secureVideoUrl(data.url);
+            if (signed && signed !== data.url) finalUrl = signed;
+          } catch { /* use raw */ }
+        }
         setBankSources([{
           url: finalUrl,
           quality: "auto",
