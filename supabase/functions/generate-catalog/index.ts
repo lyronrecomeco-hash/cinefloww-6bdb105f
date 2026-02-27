@@ -16,9 +16,67 @@ const ITEMS_PER_FILE = 100;
 const PAGES_PER_RUN = 8;
 const DELAY_MS = 1000;
 const M3U_BUCKETS = 100;
+const M3U_LOCK_PATH = "m3u-index/_lock.json";
+const M3U_LOCK_TTL_MS = 15 * 60 * 1000;
+
+interface M3ULockState {
+  running: boolean;
+  run_id: string | null;
+  started_at_ms: number;
+  updated_at: string;
+  finished_at?: string;
+}
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+async function readM3ULock(supabase: any): Promise<M3ULockState | null> {
+  try {
+    const { data } = await supabase.storage.from("catalog").download(M3U_LOCK_PATH);
+    if (!data) return null;
+    const raw = await data.text();
+    const parsed = JSON.parse(raw || "{}");
+    if (typeof parsed?.running !== "boolean") return null;
+    return parsed as M3ULockState;
+  } catch {
+    return null;
+  }
+}
+
+function isFreshM3ULock(lock: M3ULockState | null): boolean {
+  if (!lock?.running) return false;
+  return Date.now() - Number(lock.started_at_ms || 0) < M3U_LOCK_TTL_MS;
+}
+
+async function acquireM3ULock(supabase: any, runId: string): Promise<boolean> {
+  const createPayload = () => new Blob([JSON.stringify({
+    running: true,
+    run_id: runId,
+    started_at_ms: Date.now(),
+    updated_at: new Date().toISOString(),
+  } satisfies M3ULockState)], { type: "application/json" });
+
+  const tryCreate = async () => {
+    return await supabase.storage.from("catalog").upload(M3U_LOCK_PATH, createPayload(), {
+      upsert: false,
+      contentType: "application/json",
+    });
+  };
+
+  const firstTry = await tryCreate();
+  if (!firstTry.error) return true;
+
+  const currentLock = await readM3ULock(supabase);
+  if (isFreshM3ULock(currentLock)) return false;
+
+  await supabase.storage.from("catalog").remove([M3U_LOCK_PATH]).catch(() => {});
+  const secondTry = await tryCreate();
+  return !secondTry.error;
+}
+
+async function releaseM3ULock(supabase: any): Promise<void> {
+  await supabase.storage.from("catalog").remove([M3U_LOCK_PATH]).catch(() => {});
 }
 
 function normalizeDate(value: unknown): string | null {
@@ -198,8 +256,23 @@ Deno.serve(async (req) => {
     }).catch(() => {});
 
     if (body.mode === "m3u-only") {
-      // Fast-start mode: return immediately and process in background
+      // Fast-start mode com lock atômico para impedir loops por múltiplos cliques
       if (!body._run) {
+        const runId = crypto.randomUUID();
+        const acquired = await acquireM3ULock(supabase, runId);
+        if (!acquired) {
+          const lock = await readM3ULock(supabase);
+          return new Response(JSON.stringify({
+            done: false,
+            started: false,
+            mode: "m3u-only",
+            message: "Indexação M3U já está em andamento",
+            run_id: lock?.run_id || null,
+          }), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
         const selfUrl = `${Deno.env.get("SUPABASE_URL")!}/functions/v1/generate-catalog`;
         fetch(selfUrl, {
           method: "POST",
@@ -207,23 +280,41 @@ Deno.serve(async (req) => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
           },
-          body: JSON.stringify({ mode: "m3u-only", _run: true }),
+          body: JSON.stringify({ mode: "m3u-only", _run: true, run_id: runId }),
         }).catch(() => {});
 
         return new Response(JSON.stringify({
           done: false,
           started: true,
           mode: "m3u-only",
+          run_id: runId,
           message: "Indexação M3U iniciada em background",
         }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
 
-      const manifest = await generateM3UIndex(supabase);
-      return new Response(JSON.stringify({ done: true, mode: "m3u-only", ...manifest }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      const currentLock = await readM3ULock(supabase);
+      if (!currentLock?.running || currentLock.run_id !== body.run_id) {
+        return new Response(JSON.stringify({
+          done: false,
+          started: false,
+          ignored: true,
+          mode: "m3u-only",
+          message: "Execução ignorada (run inválido ou lock expirado)",
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      try {
+        const manifest = await generateM3UIndex(supabase);
+        return new Response(JSON.stringify({ done: true, mode: "m3u-only", ...manifest }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } finally {
+        await releaseM3ULock(supabase);
+      }
     }
 
     const apiType: string = body.type || "movies";
