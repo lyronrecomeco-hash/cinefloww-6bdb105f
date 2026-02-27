@@ -1,5 +1,5 @@
 import { QRCodeSVG } from "qrcode.react";
-import { Film, Tv, Sparkles, Popcorn } from "lucide-react";
+import { Film, Tv, Sparkles, Popcorn, Zap } from "lucide-react";
 import LyneflixLogo from "@/components/LyneflixLogo";
 import heroBanner from "@/assets/hero-banner.jpg";
 
@@ -25,20 +25,20 @@ const QrxpPage = () => {
         {/* Logo */}
         <LyneflixLogo size="lg" animate={false} />
 
-        {/* Headline estilo Toguro */}
+        {/* Headline */}
         <div className="space-y-3">
           <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-black text-foreground leading-tight">
-            Sem plano. Sem assinatura.{" "}
-            <br />
-            <span className="text-primary">Sabor Preço.</span>
+            Lyneflix{" "}
+            <span className="text-primary">ON</span>
+            <Zap className="inline-block w-6 h-6 sm:w-7 sm:h-7 text-primary ml-1 -mt-1" />
           </h1>
           <p className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-xs mx-auto font-medium">
-            Não tem mensalidade, não tem cartão, não tem pegadinha.
+            Zero plano. Zero cartão. Zero enrolação.
             <br />
-            <span className="text-foreground/90 font-bold">Só aperta o play e assiste.</span>
+            <span className="text-foreground/90 font-bold">Só aperta o play.</span>
           </p>
           <p className="text-xs text-muted-foreground/70 italic">
-            "Netflix cobra, Lyneflix entrega." 🔥
+            "Enquanto uns cobram, a gente entrega." ⚡
           </p>
         </div>
 
@@ -90,7 +90,7 @@ const QrxpPage = () => {
 
         {/* Bottom tagline */}
         <p className="text-[9px] text-muted-foreground/40 tracking-[0.2em] uppercase font-semibold">
-          Assista o que quiser • Quando quiser • De graça
+          Filmes • Séries • Animes • Doramas • De graça
         </p>
       </div>
     </div>
