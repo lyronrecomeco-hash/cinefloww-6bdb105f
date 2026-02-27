@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import { Database, Film, Tv, Loader2, RefreshCw, CheckCircle, Search, Zap, Link2, AlertTriangle } from "lucide-react";
+import { Database, Film, Tv, Loader2, RefreshCw, CheckCircle, Search, Link2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchCatalog, fetchCatalogManifest, computeVideoCoverage } from "@/lib/catalogFetcher";
+import { fetchCatalog, fetchCatalogManifest, computeVideoCoverage, invalidateCatalogCache } from "@/lib/catalogFetcher";
 import { toSlug } from "@/lib/slugify";
 import { useNavigate } from "react-router-dom";
 
@@ -38,7 +38,6 @@ const BancoPage = () => {
     },
   });
   const [generating, setGenerating] = useState(false);
-  const [indexingM3U, setIndexingM3U] = useState(false);
 
   // Debounce search
   useEffect(() => {
@@ -130,43 +129,31 @@ const BancoPage = () => {
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { loadItems(); }, [loadItems]);
 
-  const handleGenerate = async () => {
+  const handleSync = async () => {
     setGenerating(true);
     try {
-      toast({ title: "🚀 Gerando catálogo...", description: "Processando API CineVeo + índice M3U em background." });
+      toast({ title: "🚀 Sincronizando catálogo...", description: "Baixando lista IPTV completa (~400k itens) e gerando catálogo + links em background." });
       const { error } = await supabase.functions.invoke("generate-catalog", {
-        body: { type: "movies", start_page: 1, accumulated: [] },
+        body: {},
       });
       if (error) throw error;
-      toast({ title: "✅ Catálogo iniciado", description: "Processamento em background. Atualize em 1-2 min." });
-    } catch (err: any) {
-      toast({ title: "❌ Erro", description: err?.message || "Falha ao gerar catálogo", variant: "destructive" });
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const handleIndexM3U = async () => {
-    setIndexingM3U(true);
-    try {
-      toast({ title: "🔍 Sincronizando...", description: "Verificando cada título do catálogo contra a lista IPTV." });
-      const { error } = await supabase.functions.invoke("generate-catalog", {
-        body: { mode: "m3u-only" },
-      });
-      if (error) throw error;
+      toast({ title: "✅ Sincronização iniciada", description: "Processamento em background. Atualize em 2-3 min." });
       // Poll for completion
       const pollInterval = setInterval(async () => {
+        invalidateCatalogCache();
         await loadStats();
-      }, 10000);
+      }, 15000);
       setTimeout(async () => {
         clearInterval(pollInterval);
+        invalidateCatalogCache();
         await loadStats();
-        setIndexingM3U(false);
-        toast({ title: "✅ Sincronização concluída!", description: "Verificação cruzada do catálogo finalizada." });
-      }, 60000);
+        await loadItems();
+        setGenerating(false);
+        toast({ title: "✅ Catálogo atualizado!", description: "Todos os títulos e links foram sincronizados." });
+      }, 120000);
     } catch (err: any) {
       toast({ title: "❌ Erro", description: err?.message || "Falha ao sincronizar", variant: "destructive" });
-      setIndexingM3U(false);
+      setGenerating(false);
     }
   };
 
@@ -192,25 +179,14 @@ const BancoPage = () => {
         </div>
         <div className="flex gap-2">
           <button
-            onClick={handleIndexM3U}
-            disabled={indexingM3U}
-            className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
-          >
-            {indexingM3U ? (
-              <><Loader2 className="w-4 h-4 animate-spin" />Sincronizando...</>
-            ) : (
-              <><RefreshCw className="w-4 h-4" />Sincronizar</>
-            )}
-          </button>
-          <button
-            onClick={handleGenerate}
+            onClick={handleSync}
             disabled={generating}
             className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
             {generating ? (
-              <><Loader2 className="w-4 h-4 animate-spin" />Gerando...</>
+              <><Loader2 className="w-4 h-4 animate-spin" />Sincronizando...</>
             ) : (
-              <><Zap className="w-4 h-4" />Regerar Catálogo</>
+              <><RefreshCw className="w-4 h-4" />Sincronizar Catálogo</>
             )}
           </button>
         </div>

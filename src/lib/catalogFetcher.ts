@@ -119,12 +119,18 @@ export async function fetchCatalogRow(contentType: string, limit = 20): Promise<
 /** Fetch manifest stats (lightweight, cached) */
 let _manifestCache: { data: any; ts: number } | null = null;
 
+export function invalidateCatalogCache() {
+  _manifestCache = null;
+  _m3uIdsCache = null;
+  _cache.clear();
+}
+
 export async function fetchCatalogManifest(): Promise<any> {
   if (_manifestCache && Date.now() - _manifestCache.ts < CACHE_TTL_MS) {
     return _manifestCache.data;
   }
   try {
-    const res = await fetch(`${STORAGE_BASE}/manifest.json`, { cache: "default" });
+    const res = await fetch(`${STORAGE_BASE}/manifest.json`, { cache: "no-store" });
     if (!res.ok) return null;
     const data = await res.json();
     _manifestCache = { data, ts: Date.now() };
