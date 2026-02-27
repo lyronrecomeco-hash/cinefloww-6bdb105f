@@ -109,6 +109,14 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSe
               </div>
             )}
 
+            {!loading && availableAudios.size > 0 && (
+              <div className="mt-4 p-3 rounded-xl bg-primary/10 border border-primary/20 text-center">
+                <p className="text-xs text-muted-foreground">
+                  ⏳ Alguns filmes/séries podem demorar um pouco mais pra reproduzir, agradecemos a paciência.
+                </p>
+              </div>
+            )}
+
             {/* Only show skip button if there are available audios and user might want to skip selection */}
             {!loading && availableAudios.size > 1 && (
               <div className="mt-5 pt-5 border-t border-white/10">
