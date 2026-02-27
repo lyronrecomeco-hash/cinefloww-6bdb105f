@@ -7,7 +7,7 @@ const headers = {
   "Content-Type": "application/json",
 };
 
-const TMDB_TIMEOUT_MS = 6000;
+const TMDB_TIMEOUT_MS = 4000;
 
 async function fetchTMDB<T>(endpoint: string, params: Record<string, string> = {}): Promise<T> {
   const url = new URL(`${BASE_URL}${endpoint}`);

@@ -4,7 +4,7 @@
  */
 
 const LOCAL_KEY = "lyneflix_cache_version";
-const CHECK_TIMEOUT_MS = 3000; // 3s max — if Cloud is slow, skip silently
+const CHECK_TIMEOUT_MS = 2000; // 2s max — if Cloud is slow, skip silently
 
 export async function checkCacheVersion(): Promise<void> {
   try {

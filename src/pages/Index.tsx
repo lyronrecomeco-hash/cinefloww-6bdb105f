@@ -46,29 +46,38 @@ const Index = () => {
         media_type: "tv" as const,
       }));
 
-    // Load TMDB rows first (fast), then catalog rows (may be slow)
+    let done = false;
+    const finish = () => { if (!done) { done = true; setLoading(false); setSectionsReady(true); } };
+
+    // Hard timeout: never stay loading >4s
+    const safetyTimer = setTimeout(finish, 4000);
+
+    // Load TMDB rows with individual race timeouts
+    const race = <T,>(p: Promise<T>, fallback: T) =>
+      Promise.race([p, new Promise<T>(r => setTimeout(() => r(fallback), 4000))]).catch(() => fallback);
+
+    const empty = { results: [] as TMDBMovie[], total_pages: 0, total_results: 0 };
+
     Promise.all([
-      getTrending().catch(() => ({ results: [] })),
-      getNowPlayingMovies().catch(() => ({ results: [] })),
-      getAiringTodaySeries().catch(() => ({ results: [] })),
-      getPopularMovies().catch(() => ({ results: [] })),
-      getPopularSeries().catch(() => ({ results: [] })),
+      race(getTrending(), empty),
+      race(getNowPlayingMovies(), empty),
+      race(getAiringTodaySeries(), empty),
+      race(getPopularMovies(), empty),
+      race(getPopularSeries(), empty),
     ]).then(([t, np, at, pm, ps]) => {
       setTrending(t.results);
       const launches = [...np.results.slice(0, 10), ...at.results.slice(0, 10)];
       setNowPlaying(sortByYear(launches));
       setPopularMovies(sortByYear(pm.results));
       setPopularSeries(sortByYear(ps.results));
-      setLoading(false);
-      setSectionsReady(true);
-    }).catch(() => {
-      setLoading(false);
-      setSectionsReady(true);
-    });
+      finish();
+    }).catch(finish);
 
     // Load catalog rows separately (non-blocking)
     fetchCatalogRow("dorama", 20).then(items => setDoramas(mapToTMDB(items))).catch(() => {});
     fetchCatalogRow("anime", 20).then(items => setAnimes(mapToTMDB(items))).catch(() => {});
+
+    return () => clearTimeout(safetyTimer);
   }, []);
 
   if (loading) {
