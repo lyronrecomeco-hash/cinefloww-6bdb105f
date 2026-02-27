@@ -598,6 +598,37 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Clean mode — wipe all catalog storage
+    if (action === "clean") {
+      const folders = ["movie", "series", "m3u-index", "_sync"];
+      let deleted = 0;
+      for (const folder of folders) {
+        const { data: files } = await supabase.storage.from("catalog").list(folder, { limit: 1000 });
+        if (files?.length) {
+          const paths = files.map((f: any) => `${folder}/${f.name}`);
+          await supabase.storage.from("catalog").remove(paths);
+          deleted += paths.length;
+        }
+        // Check subfolders for m3u-index
+        if (folder === "m3u-index") {
+          for (const sub of ["movie", "series"]) {
+            const { data: subFiles } = await supabase.storage.from("catalog").list(`${folder}/${sub}`, { limit: 1000 });
+            if (subFiles?.length) {
+              const subPaths = subFiles.map((f: any) => `${folder}/${sub}/${f.name}`);
+              await supabase.storage.from("catalog").remove(subPaths);
+              deleted += subPaths.length;
+            }
+          }
+        }
+      }
+      // Also remove root manifest
+      await supabase.storage.from("catalog").remove(["manifest.json"]);
+      deleted++;
+      return new Response(JSON.stringify({ cleaned: true, deleted }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Ensure bucket
     try {
       await supabase.storage.createBucket("catalog", {
