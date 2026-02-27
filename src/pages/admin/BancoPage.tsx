@@ -3,13 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Database, Film, Tv, Loader2, Play, RefreshCw, CheckCircle, XCircle, Search, ExternalLink, Link2, X, Upload, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { initVpsClient, isVpsOnline, getVpsUrl, refreshVpsHealth, vpsCatalog } from "@/lib/vpsClient";
+import { initVpsClient, isVpsOnline, getVpsUrl, refreshVpsHealth } from "@/lib/vpsClient";
+import { fetchCatalog } from "@/lib/catalogFetcher";
 import { toSlug } from "@/lib/slugify";
 
 interface ContentItem {
   id: string;
   tmdb_id: number;
-  imdb_id: string | null;
+  imdb_id?: string | null;
   title: string;
   content_type: string;
   poster_path: string | null;
@@ -66,38 +67,45 @@ const BancoPage = () => {
     return () => clearTimeout(timer);
   }, [filterText]);
 
-  // Load stats leve (evita scans pesados e count exact em tabela grande)
+  // Load stats sem RPC pesado (usa resumo pré-processado)
   const loadStats = useCallback(async () => {
     try {
       const timeout = new Promise<null>((r) => setTimeout(() => r(null), DB_TIMEOUT_MS));
       const result = await Promise.race([
         Promise.all([
-          supabase.rpc("get_video_stats_by_provider" as any),
+          supabase.from("site_settings").select("value").eq("key", "catalog_stats").maybeSingle(),
+          supabase.from("site_settings").select("value").eq("key", "catalog_sync_progress").maybeSingle(),
           supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
         ]),
         timeout,
       ]);
 
       if (!result) {
-        console.warn("[BancoPage] loadStats timeout — Cloud DB slow");
+        console.warn("[BancoPage] loadStats timeout — usando último estado em memória");
         return;
       }
 
-      const [providerResult, importResult] = result as any[];
-      const providerData = providerResult?.data;
-      const byProvider: Record<string, number> = {};
-      let withVideo = 0;
+      const [statsResult, syncResult, legacyResult] = result as any[];
+      const staticStats = (statsResult?.data?.value || {}) as any;
+      const syncProgress = (syncResult?.data?.value || legacyResult?.data?.value || {}) as any;
 
-      if (providerData && Array.isArray(providerData)) {
-        for (const row of providerData as any[]) {
-          byProvider[row.provider] = Number(row.cnt);
-          withVideo += Number(row.cnt);
-        }
-      }
+      const byProvider: Record<string, number> = staticStats.by_provider || {};
+      const withVideo = Number(
+        staticStats.with_video_total
+        ?? staticStats.video_links_total
+        ?? syncProgress.imported_cache_total
+        ?? 0
+      );
 
-      const progress = importResult?.data?.value as any;
-      const importedTotal = Number(progress?.imported_content_total || progress?.content_total || 0);
-      const inferredTotal = Math.max(importedTotal, withVideo, totalCount);
+      const total = Number(
+        staticStats.total_catalog
+        ?? staticStats.total_items
+        ?? syncProgress.imported_content_total
+        ?? totalCount
+        ?? 0
+      );
+
+      const inferredTotal = Math.max(total, withVideo, totalCount);
 
       setStats({
         total: inferredTotal,
@@ -105,90 +113,80 @@ const BancoPage = () => {
         withoutVideo: Math.max(0, inferredTotal - withVideo),
         byProvider,
       });
-      setTotalCount(inferredTotal);
+
+      if (inferredTotal > 0) setTotalCount(inferredTotal);
     } catch (err) {
       console.warn("[BancoPage] loadStats error:", err);
     }
   }, [totalCount]);
 
-  // Load paginated content list — Cloud-first, VPS fallback
+  // Load paginated content list — catálogo estático primeiro, DB só para status pontual
   const loadItems = useCallback(async () => {
     setLoading(true);
     try {
-      const from = page * ITEMS_PER_PAGE;
-      const to = from + ITEMS_PER_PAGE - 1;
-      const hasFilter = filterType !== "all" || !!debouncedFilterText;
-      const selectColumns = "id, tmdb_id, imdb_id, title, content_type, poster_path, release_date";
+      const offset = page * ITEMS_PER_PAGE;
 
-      // Only use exact count when filtering (small result sets)
-      let contentQuery = hasFilter
-        ? supabase.from("content").select(selectColumns, { count: "exact" })
-        : supabase.from("content").select(selectColumns);
+      const loadStaticByType = async (type: "movie" | "series") => {
+        // Quando há busca, puxamos uma janela maior para filtrar localmente sem consulta pesada no banco
+        const windowSize = debouncedFilterText ? Math.max(400, offset + ITEMS_PER_PAGE) : ITEMS_PER_PAGE;
+        const data = await fetchCatalog(type, { limit: windowSize, offset: debouncedFilterText ? 0 : offset });
+        return data;
+      };
 
-      contentQuery = contentQuery
-        .eq("status", "published")
-        .order("release_date", { ascending: false, nullsFirst: false })
-        .range(from, to);
+      let loadedItems: ContentItem[] = [];
+      let inferredTotal = 0;
 
-      if (filterType !== "all") contentQuery = contentQuery.eq("content_type", filterType);
-      if (debouncedFilterText) contentQuery = contentQuery.ilike("title", `%${debouncedFilterText}%`);
+      if (filterType === "movie" || filterType === "series") {
+        const result = await loadStaticByType(filterType);
+        const filtered = debouncedFilterText
+          ? result.items.filter((i) => i.title.toLowerCase().includes(debouncedFilterText.toLowerCase()))
+          : result.items;
 
-      const timeout = new Promise<null>((r) => setTimeout(() => r(null), 10000));
-      const result = await Promise.race([contentQuery, timeout]);
+        loadedItems = debouncedFilterText
+          ? filtered.slice(offset, offset + ITEMS_PER_PAGE).map((i) => ({ ...i, imdb_id: null })) as ContentItem[]
+          : filtered.map((i) => ({ ...i, imdb_id: null })) as ContentItem[];
 
-      let data: any[] | null = null;
-      let count: number | null = null;
+        inferredTotal = debouncedFilterText ? filtered.length : result.total;
+      } else {
+        const [movies, series] = await Promise.all([
+          loadStaticByType("movie"),
+          loadStaticByType("series"),
+        ]);
 
-      if (result) {
-        const r = result as any;
-        data = r.data;
-        count = r.count;
+        const merged = [...movies.items, ...series.items].sort((a, b) => {
+          const da = a.release_date || "0000-00-00";
+          const db = b.release_date || "0000-00-00";
+          return db.localeCompare(da);
+        });
+
+        const filtered = debouncedFilterText
+          ? merged.filter((i) => i.title.toLowerCase().includes(debouncedFilterText.toLowerCase()))
+          : merged;
+
+        loadedItems = filtered.slice(offset, offset + ITEMS_PER_PAGE).map((i) => ({ ...i, imdb_id: null })) as ContentItem[];
+        inferredTotal = debouncedFilterText ? filtered.length : (movies.total + series.total);
       }
 
-      // If Cloud returned data, use it
-      if (data && data.length > 0) {
-        setItems(data);
-        if (hasFilter) setTotalCount(count || 0);
+      setItems(loadedItems);
+      setTotalCount(inferredTotal);
 
-        // Fetch video statuses in parallel
-        const tmdbIds = data.map((i: any) => i.tmdb_id);
-        if (tmdbIds.length > 0) {
-          fetchVideoStatuses(data, tmdbIds);
-        }
-        return;
-      }
-
-      // Fallback: VPS catalog
-      console.warn("[BancoPage] Cloud empty/timeout, trying VPS fallback");
-      await initVpsClient();
-      const typeParam = filterType === "all" ? undefined : filterType;
-      const vpsItems = await vpsCatalog(typeParam);
-
-      if (Array.isArray(vpsItems) && vpsItems.length > 0) {
-        const normalized = vpsItems.map((row: any) => ({
-          id: String(row.id || `${row.tmdb_id}-${row.content_type || row.type || "series"}`),
-          tmdb_id: Number(row.tmdb_id || 0),
-          imdb_id: row.imdb_id ?? null,
-          title: row.title || row.name || "Sem título",
-          content_type: (String(row.content_type || row.type || "series").toLowerCase() === "movie" ? "movie" : "series"),
-          poster_path: row.poster_path ?? row.poster ?? null,
-          release_date: row.release_date ?? null,
-        })).filter((it: ContentItem) => Number.isFinite(it.tmdb_id) && it.tmdb_id > 0);
-
-        const start = page * ITEMS_PER_PAGE;
-        const paged = normalized.slice(start, start + ITEMS_PER_PAGE);
-        setItems(paged);
-        setTotalCount(normalized.length);
+      // Status de vídeo apenas para os itens visíveis (consulta pequena)
+      const tmdbIds = loadedItems.map((i) => i.tmdb_id);
+      if (tmdbIds.length > 0) {
+        fetchVideoStatuses(loadedItems, tmdbIds);
+      } else {
+        setVideoStatuses(new Map());
       }
     } catch (err) {
       console.warn("[BancoPage] loadItems error:", err);
+      setItems([]);
     } finally {
       setLoading(false);
     }
-  }, [page, filterType, debouncedFilterText]);
+  }, [page, filterType, debouncedFilterText, fetchVideoStatuses]);
 
   // Separate function for video status fetching (non-blocking)
-  const fetchVideoStatuses = useCallback(async (data: any[], tmdbIds: number[]) => {
+  async function fetchVideoStatuses(data: any[], tmdbIds: number[]) {
     try {
       const cTypes = [...new Set(data.map((i: any) => (i.content_type === "movie" ? "movie" : "series")))];
       const cacheTimeout = new Promise<null>((r) => setTimeout(() => r(null), 6000));
@@ -238,7 +236,7 @@ const BancoPage = () => {
     } catch {
       console.warn("[BancoPage] fetchVideoStatuses error");
     }
-  }, []);
+  }
 
   // Load on mount / updates (separated to avoid query loop)
   useEffect(() => {
@@ -249,34 +247,30 @@ const BancoPage = () => {
     loadItems();
   }, [loadItems]);
 
-  // Check for ongoing import on mount (com timeout e fallback)
+  // Check for ongoing import on mount (catálogo estático)
   useEffect(() => {
     const fetchProgress = async () => {
       const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), DB_TIMEOUT_MS));
       const result = await Promise.race([
-        Promise.all([
-          supabase.from("site_settings").select("value").eq("key", "cineveo_vps_progress").maybeSingle(),
-          supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
-        ]),
+        supabase.from("site_settings").select("value").eq("key", "catalog_sync_progress").maybeSingle(),
         timeout,
       ]);
       if (!result) return null;
-      const [vps, cloud] = result as any[];
-      return (vps?.data?.value || cloud?.data?.value || null) as any;
+      return (result as any)?.data?.value || null;
     };
 
     const checkOngoingImport = async () => {
       const p = await fetchProgress();
-      if (p && p.phase === "syncing" && !p.done) {
+      if (p && (p.phase === "fetching" || p.phase === "generating" || p.phase === "syncing") && !p.done) {
         setImporting(true);
         setImportProgress({
           phase: p.phase,
-          currentType: p.current_type,
-          currentPage: p.current_page,
-          totalPages: p.total_pages_for_type,
-          contentTotal: p.imported_content_total || p.content_total || 0,
-          cacheTotal: p.imported_cache_total || p.cache_total || 0,
-          pagesProcessed: p.processed_pages || p.pages_processed || 0,
+          currentType: p.type,
+          currentPage: p.page,
+          totalPages: p.total_api_pages,
+          contentTotal: Number(p.fetched_so_far || p.total_items || 0),
+          cacheTotal: Number(p.video_links_total || 0),
+          pagesProcessed: Number(p.page || 0),
           done: false,
         });
       }
@@ -294,22 +288,18 @@ const BancoPage = () => {
     return () => clearInterval(interval);
   }, [loadStats]);
 
-  // Poll import progress (intervalo maior para reduzir carga)
+  // Poll import progress (catálogo estático)
   useEffect(() => {
     if (!importing) return;
 
     const fetchProgress = async () => {
       const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), DB_TIMEOUT_MS));
       const result = await Promise.race([
-        Promise.all([
-          supabase.from("site_settings").select("value").eq("key", "cineveo_vps_progress").maybeSingle(),
-          supabase.from("site_settings").select("value").eq("key", "cineveo_import_progress").maybeSingle(),
-        ]),
+        supabase.from("site_settings").select("value").eq("key", "catalog_sync_progress").maybeSingle(),
         timeout,
       ]);
       if (!result) return null;
-      const [vps, cloud] = result as any[];
-      return (vps?.data?.value || cloud?.data?.value || null) as any;
+      return (result as any)?.data?.value || null;
     };
 
     const interval = setInterval(async () => {
@@ -317,72 +307,62 @@ const BancoPage = () => {
       if (!p) return;
 
       setImportProgress({
-        phase: p.phase || "syncing",
-        currentType: p.current_type,
-        currentPage: p.current_page,
-        totalPages: p.total_pages_for_type,
-        contentTotal: p.imported_content_total || p.content_total || 0,
-        cacheTotal: p.imported_cache_total || p.cache_total || 0,
-        pagesProcessed: p.processed_pages || p.pages_processed || 0,
+        phase: p.phase || "fetching",
+        currentType: p.type,
+        currentPage: p.page,
+        totalPages: p.total_api_pages,
+        contentTotal: Number(p.fetched_so_far || p.total_items || 0),
+        cacheTotal: Number(p.video_links_total || 0),
+        pagesProcessed: Number(p.page || 0),
         done: !!p.done,
       });
 
       loadStats();
 
-      if (p.done) {
+      if (p.phase === "done" || p.done) {
         clearInterval(interval);
         setImporting(false);
-        if (p.phase === "error") {
-          toast({ title: "❌ Erro na importação", description: p.error || "Falha", variant: "destructive" });
-        } else {
-          toast({ title: "✅ Importação concluída!", description: `${p.imported_cache_total || p.cache_total || 0} links, ${p.imported_content_total || p.content_total || 0} conteúdos` });
-        }
+        toast({ title: "✅ Sincronização concluída", description: "Catálogo estático atualizado com sucesso." });
+        loadItems();
       }
-    }, 10000);
+
+      if (p.phase === "error") {
+        clearInterval(interval);
+        setImporting(false);
+        toast({ title: "❌ Erro na sincronização", description: p.error || "Falha", variant: "destructive" });
+      }
+    }, 6000);
 
     return () => clearInterval(interval);
-  }, [importing, loadStats, toast]);
+  }, [importing, loadStats, loadItems, toast]);
 
-  // === START IMPORT ===
+  // === START IMPORT (manual) ===
   const startImport = async () => {
     setImporting(true);
-    setImportProgress({ phase: "resetting", contentTotal: 0, cacheTotal: 0, pagesProcessed: 0, done: false });
+    setImportProgress({ phase: "fetching", contentTotal: 0, cacheTotal: 0, pagesProcessed: 0, done: false });
 
-    // Reset: clear video_cache (except manual), resolve_failures, progress
-    toast({ title: "🔄 Resetando...", description: "Limpando dados antigos..." });
-    await Promise.all([
-      supabase.from("video_cache").delete().neq("provider", "manual"),
-      supabase.from("resolve_failures").delete().gte("attempted_at", "2000-01-01"),
-      supabase.from("site_settings").delete().in("key", ["cineveo_import_progress", "cineveo_vps_progress"]),
-    ]);
+    try {
+      toast({ title: "🚀 Sincronização iniciada", description: "Importação manual do catálogo CineVeo em background." });
 
-    // Refresh stats after reset
-    await loadStats();
-    await loadItems();
+      const { error } = await supabase.functions.invoke("sync-catalog", {
+        body: { type: "movies", start_page: 1, accumulated: [], reset: true },
+      });
 
-    // Check VPS
-    await initVpsClient();
-    const vpsUrl = getVpsUrl();
-    const vpsAvailable = !!vpsUrl && (await refreshVpsHealth()) && isVpsOnline();
+      if (error) {
+        throw error;
+      }
 
-    if (vpsAvailable) {
-      toast({ title: "⚡ VPS Online", description: "Importação via VPS..." });
-      try {
-        await fetch(`${vpsUrl}/api/trigger-cineveo`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reset: true }),
-          signal: AbortSignal.timeout(10_000),
-        }).catch(() => {});
-      } catch { /* VPS will process */ }
-    } else {
-      toast({ title: "❌ VPS Offline", description: "Importação pesada só roda na VPS." , variant: "destructive"});
+      // O restante do processo continua automático via auto-chaining
+      await loadStats();
+    } catch (err: any) {
       setImporting(false);
       setImportProgress(null);
-      return;
+      toast({
+        title: "❌ Falha ao iniciar importação",
+        description: err?.message || "Não foi possível iniciar a sincronização.",
+        variant: "destructive",
+      });
     }
-
-    setImportProgress({ phase: "syncing", contentTotal: 0, cacheTotal: 0, pagesProcessed: 0, done: false });
   };
 
   const resolveLink = async (item: ContentItem, forceProvider?: string) => {
