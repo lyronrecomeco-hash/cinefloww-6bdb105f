@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { X, Mic, Subtitles, Globe, ChevronRight } from "lucide-react";
 
 interface AudioSelectModalProps {
@@ -18,41 +18,10 @@ const AUDIO_OPTIONS = [
 ];
 
 const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSelect, onClose }: AudioSelectModalProps) => {
-  const [availableAudios, setAvailableAudios] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // Check M3U shards in storage to see if this content has video
-    const checkM3UShards = async () => {
-      const bucket = Math.abs(tmdbId) % 100;
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const kinds = type === "tv" ? ["series", "movie"] : ["movie", "series"];
-
-      try {
-        const results = await Promise.all(
-          kinds.map(async (kind) => {
-            try {
-              const res = await fetch(
-                `${supabaseUrl}/storage/v1/object/public/catalog/m3u-index/${kind}/${bucket}.json`,
-                { headers: { Accept: "application/json" } }
-              );
-              if (!res.ok) return false;
-              const data = await res.json();
-              return !!data?.items?.[String(tmdbId)];
-            } catch { return false; }
-          })
-        );
-
-        if (results.some(Boolean)) {
-          // Content exists in M3U index — show both audio options as available
-          setAvailableAudios(new Set(["dublado", "legendado"]));
-        }
-      } catch { /* no sources */ }
-      setLoading(false);
-    };
-
-    checkM3UShards();
-  }, [tmdbId, type]);
+  // Always show both audio options — real availability is checked at playback by extract-video
+  // This prevents false "sem fontes" for content that exists in CineVeo API but not in M3U shards
+  const availableAudios = new Set(["dublado", "legendado"]);
+  const loading = false;
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
