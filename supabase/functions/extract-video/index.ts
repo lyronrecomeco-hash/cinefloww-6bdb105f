@@ -172,6 +172,14 @@ function findInItems(items: any[], tmdbStr: string, apiType: string, season?: nu
   }
 
   if (!streamUrl) return null;
+
+  // Detect embed pages vs actual video streams
+  // cinetvembed.cineveo.site URLs are embed player pages, not direct video files
+  const isEmbedPage = streamUrl.includes("cinetvembed.cineveo.site/") && !streamUrl.includes("/hls/") && !streamUrl.includes(".m3u8");
+  if (isEmbedPage) {
+    return { url: streamUrl, type: "mp4", provider: "cineveo-embed" };
+  }
+
   const type: "mp4" | "m3u8" = streamUrl.includes(".m3u8") ? "m3u8" : "mp4";
   return { url: streamUrl, type, provider: "cineveo-api" };
 }
@@ -260,10 +268,14 @@ Deno.serve(async (req) => {
     const m3uResult = await resolveFromM3UIndex(tmdb_id, cType, season, episode);
     if (m3uResult) {
       console.log(`[extract] M3U hit tmdb_id=${tmdb_id} type=${cType}`);
+      // Check if M3U result is actually an embed page
+      const isEmbed = m3uResult.url.includes("cinetvembed.cineveo.site/") && !m3uResult.url.includes("/hls/") && !m3uResult.url.includes(".m3u8");
       return new Response(
         JSON.stringify({
-          url: m3uResult.url,
-          type: m3uResult.type,
+          url: isEmbed
+            ? `${Deno.env.get("SUPABASE_URL")}/functions/v1/proxy-player?url=${encodeURIComponent(m3uResult.url)}`
+            : m3uResult.url,
+          type: isEmbed ? "iframe-proxy" : m3uResult.type,
           provider: m3uResult.provider || "cineveo-m3u",
           cached: false,
         }),
@@ -276,11 +288,15 @@ Deno.serve(async (req) => {
     const result = await tryCineveoCatalog(tmdb_id, cType, season, episode);
 
     if (result) {
+      // Embed pages should go through iframe-proxy for video interception
+      const isEmbed = result.provider === "cineveo-embed";
       return new Response(
         JSON.stringify({
-          url: result.url,
-          type: result.type,
-          provider: result.provider || "cineveo-api",
+          url: isEmbed
+            ? `${Deno.env.get("SUPABASE_URL")}/functions/v1/proxy-player?url=${encodeURIComponent(result.url)}`
+            : result.url,
+          type: isEmbed ? "iframe-proxy" : result.type,
+          provider: result.provider,
           cached: false,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
