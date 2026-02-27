@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Mic, Subtitles, Video, Globe, ChevronRight } from "lucide-react";
+import { X, Mic, Subtitles, Globe, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 interface AudioSelectModalProps {
@@ -16,7 +16,6 @@ interface AudioSelectModalProps {
 const AUDIO_OPTIONS = [
   { key: "dublado", icon: Mic, label: "Dublado PT-BR", description: "Áudio em português brasileiro" },
   { key: "legendado", icon: Subtitles, label: "Legendado", description: "Áudio original com legendas" },
-  { key: "cam", icon: Video, label: "CAM", description: "Gravação de câmera (qualidade inferior)" },
 ];
 
 const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSelect, onClose }: AudioSelectModalProps) => {

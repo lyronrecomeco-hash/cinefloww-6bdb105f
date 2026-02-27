@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams, useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { ArrowLeft, Mic, Subtitles, Video, Globe, ChevronRight, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Mic, Subtitles, Globe, ChevronRight, AlertTriangle } from "lucide-react";
 import CustomPlayer from "@/components/CustomPlayer";
 import LyneflixIntro from "@/components/LyneflixIntro";
 import IframeInterceptor from "@/components/IframeInterceptor";
@@ -19,7 +19,6 @@ type Phase = "audio-select" | "loading" | "playing" | "iframe-intercept" | "unav
 const AUDIO_OPTIONS = [
   { key: "dublado", icon: Mic, label: "Dublado PT-BR", description: "Áudio em português brasileiro" },
   { key: "legendado", icon: Subtitles, label: "Legendado", description: "Áudio original com legendas" },
-  { key: "cam", icon: Video, label: "CAM", description: "Gravação de câmera" },
 ];
 
 const WatchPage = () => {
