@@ -1,4 +1,8 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+/**
+ * extract-video: On-demand video link resolution.
+ * Queries CineVeo API directly at the moment of the request.
+ * Does NOT save results to database — pure on-demand resolution.
+ */
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -7,12 +11,10 @@ const corsHeaders = {
 };
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-
 const CINEVEO_API_BASE = "https://cinetvembed.cineveo.site/api";
 const CINEVEO_USER = "lyneflix-vods";
 const CINEVEO_PASS = "uVljs2d";
 
-// ── Helpers ─────────────────────────────────────────────────────────
 function fetchWithTimeout(url: string, opts: RequestInit & { timeout?: number } = {}): Promise<Response> {
   const { timeout = 8000, ...fetchOpts } = opts;
   const controller = new AbortController();
@@ -20,34 +22,20 @@ function fetchWithTimeout(url: string, opts: RequestInit & { timeout?: number } 
   return fetch(url, { ...fetchOpts, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
-function normalizeAudioLabel(input?: string): "dublado" | "legendado" | "cam" {
-  const v = (input || "").toLowerCase();
-  if (v.includes("dub") || v.includes("pt") || v.includes("port")) return "dublado";
-  if (v.includes("cam")) return "cam";
-  return "legendado";
-}
-
 function pickStreamUrl(record: any): string | null {
   return record?.stream_url || record?.streamUrl || record?.url || record?.video_url || record?.link || record?.embed_url || null;
-}
-
-function isLikelyBrokenCineveoUrl(url?: string, provider?: string): boolean {
-  if (!url) return true;
-  if ((provider || "").toLowerCase() !== "cineveo-api") return false;
-  return /cdn\.cineveo\.site\/.*%2520/i.test(url);
 }
 
 function pickEpisodeStream(
   episodes: any[],
   season?: number,
   episode?: number,
-): { url: string; audio: "dublado" | "legendado" | "cam" } | null {
+): { url: string } | null {
   if (!Array.isArray(episodes) || episodes.length === 0) return null;
   const normalized = episodes
     .map((ep) => ({
       season: Number(ep?.season ?? ep?.temporada ?? ep?.s ?? 1) || 1,
       episode: Number(ep?.episode ?? ep?.ep ?? ep?.e ?? 1) || 1,
-      audio: normalizeAudioLabel(ep?.language || ep?.audio || ep?.lang),
       url: pickStreamUrl(ep),
     }))
     .filter((ep) => !!ep.url);
@@ -57,18 +45,12 @@ function pickEpisodeStream(
     const exact = normalized.filter((ep) => ep.season === season && ep.episode === episode);
     if (exact.length) candidates = exact;
   }
-  const audioRank = (a: string) => a === "dublado" ? 3 : a === "legendado" ? 2 : 1;
-  const best = candidates.sort((a, b) => audioRank(b.audio) - audioRank(a.audio))[0];
-  return best?.url ? { url: best.url, audio: best.audio } : null;
+  return candidates[0]?.url ? { url: candidates[0].url } : null;
 }
 
-// ── CineVeo Catalog: INTERLEAVED parallel scan ──────────────────────
-// Scans BOTH movies and series simultaneously to handle content_type mismatches.
-// Each batch fetches pages from both types concurrently.
 interface CineVeoResult {
   url: string;
   type: "mp4" | "m3u8";
-  apiType: string;
 }
 
 async function fetchCatalogPage(apiType: string, page: number): Promise<any[] | null> {
@@ -102,7 +84,7 @@ function findInItems(items: any[], tmdbStr: string, apiType: string, season?: nu
 
   if (!streamUrl) return null;
   const type: "mp4" | "m3u8" = streamUrl.includes(".m3u8") ? "m3u8" : "mp4";
-  return { url: streamUrl, type, apiType };
+  return { url: streamUrl, type };
 }
 
 async function tryCineveoCatalog(
@@ -114,8 +96,6 @@ async function tryCineveoCatalog(
   const tmdbStr = String(tmdbId);
   const isMovie = contentType === "movie";
 
-  // Full-catalog scan with adaptive stop.
-  // Stops early when provider starts returning consecutive empty pages.
   const MOVIES_SOFT_MAX = 1800;
   const SERIES_SOFT_MAX = 800;
   const PRIMARY_BATCH_SIZE = 20;
@@ -141,22 +121,14 @@ async function tryCineveoCatalog(
 
     if (!primaryDone) {
       for (let i = 0; i < PRIMARY_BATCH_SIZE && primaryPage <= primaryTotal; i++, primaryPage++) {
-        fetches.push({
-          apiType: primaryType,
-          page: primaryPage,
-          promise: fetchCatalogPage(primaryType, primaryPage),
-        });
+        fetches.push({ apiType: primaryType, page: primaryPage, promise: fetchCatalogPage(primaryType, primaryPage) });
       }
       if (primaryPage > primaryTotal) primaryDone = true;
     }
 
     if (!secondaryDone) {
       for (let i = 0; i < SECONDARY_BATCH_SIZE && secondaryPage <= secondaryTotal; i++, secondaryPage++) {
-        fetches.push({
-          apiType: secondaryType,
-          page: secondaryPage,
-          promise: fetchCatalogPage(secondaryType, secondaryPage),
-        });
+        fetches.push({ apiType: secondaryType, page: secondaryPage, promise: fetchCatalogPage(secondaryType, secondaryPage) });
       }
       if (secondaryPage > secondaryTotal) secondaryDone = true;
     }
@@ -168,7 +140,6 @@ async function tryCineveoCatalog(
     for (let i = 0; i < results.length; i++) {
       const r = results[i];
       if (r.status !== "fulfilled") continue;
-
       const rows = Array.isArray(r.value) ? r.value : [];
       const apiType = fetches[i].apiType;
 
@@ -179,7 +150,7 @@ async function tryCineveoCatalog(
 
       const found = findInItems(rows, tmdbStr, apiType, season, episode);
       if (found) {
-        console.log(`[cineveo-api] Found tmdb_id=${tmdbId} in ${apiType} page=${fetches[i].page}`);
+        console.log(`[extract] Found tmdb_id=${tmdbId} in ${apiType} page=${fetches[i].page}`);
         return found;
       }
     }
@@ -188,7 +159,7 @@ async function tryCineveoCatalog(
     if (secondaryEmptyStreak >= 4) secondaryDone = true;
   }
 
-  console.log(`[cineveo-api] tmdb_id=${tmdbId} not found (scanned ~${primaryPage - 1} ${primaryType} + ~${secondaryPage - 1} ${secondaryType} pages)`);
+  console.log(`[extract] tmdb_id=${tmdbId} not found`);
   return null;
 }
 
@@ -199,7 +170,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { tmdb_id, content_type, audio_type, season, episode, force_provider, title: reqTitle } = await req.json();
+    const { tmdb_id, content_type, season, episode } = await req.json();
 
     if (!tmdb_id) {
       return new Response(JSON.stringify({ error: "tmdb_id required" }), {
@@ -208,128 +179,25 @@ Deno.serve(async (req) => {
       });
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
-
     const cType = content_type || "movie";
-    const aType = audio_type || "dublado";
-    const isMovie = cType === "movie";
-    // Broader cache search: check all possible content_type variants
-    const cacheTypes = [cType];
-    if (cType === "tv" || cType === "series") {
-      cacheTypes.push("tv", "series");
-    } else {
-      cacheTypes.push("series"); // some movies are actually series in CineVeo
-    }
-    const uniqueCacheTypes = [...new Set(cacheTypes)];
 
-    // ─── 1. Cache lookup (video_cache) ───────────────────────────────
-    if (!force_provider) {
-      const providerRank = (provider?: string) => {
-        const p = (provider || "").toLowerCase();
-        if (p === "manual") return 130;
-        if (p === "cineveo-api") return 120;
-        if (p === "cineveo-iptv") return 110;
-        if (p === "cineveo") return 100;
-        return 70;
-      };
-
-      const pickBest = (rows: any[]) => (rows || [])
-        .filter((row: any) => row?.video_url && row?.video_type !== "mega-embed" && !isLikelyBrokenCineveoUrl(row?.video_url, row?.provider))
-        .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
-
-      let baseQuery = supabase
-        .from("video_cache")
-        .select("video_url, video_type, provider, created_at, season, episode")
-        .eq("tmdb_id", tmdb_id)
-        .in("content_type", uniqueCacheTypes)
-        .gt("expires_at", new Date().toISOString());
-
-      if (season) baseQuery = baseQuery.eq("season", season);
-      else if (isMovie) baseQuery = baseQuery.eq("season", 0);
-      if (episode) baseQuery = baseQuery.eq("episode", episode);
-      else if (isMovie) baseQuery = baseQuery.eq("episode", 0);
-
-      const { data: cachedRows } = await baseQuery.eq("audio_type", aType).order("created_at", { ascending: false }).limit(20);
-      let bestCached = pickBest(cachedRows || []);
-
-      if (!bestCached) {
-        const { data: anyAudioRows } = await baseQuery.order("created_at", { ascending: false }).limit(20);
-        bestCached = pickBest(anyAudioRows || []);
-      }
-
-      if (bestCached?.video_url) {
-        console.log(`[extract] Cache hit for tmdb_id=${tmdb_id} provider=${bestCached.provider}`);
-        return new Response(JSON.stringify({
-          url: bestCached.video_url, type: bestCached.video_type,
-          provider: bestCached.provider, cached: true,
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      // ─── 1b. Backup cache fallback ─────────────────────────────────
-      const { data: backupRows } = await supabase
-        .from("video_cache_backup")
-        .select("video_url, video_type, provider, season, episode")
-        .eq("tmdb_id", tmdb_id)
-        .in("content_type", uniqueCacheTypes)
-        .limit(10);
-
-      const bestBackup = pickBest(backupRows || []);
-      if (bestBackup?.video_url) {
-        console.log(`[extract] Backup cache hit for tmdb_id=${tmdb_id}`);
-        await supabase.from("video_cache").upsert({
-          tmdb_id, content_type: cType, audio_type: aType,
-          season: season || 0, episode: episode || 0,
-          video_url: bestBackup.video_url, video_type: bestBackup.video_type,
-          provider: bestBackup.provider,
-          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        }, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
-
-        return new Response(JSON.stringify({
-          url: bestBackup.video_url, type: bestBackup.video_type,
-          provider: bestBackup.provider, cached: true,
-        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-    }
-
-    // ─── 2. CineVeo Catalog API (interleaved parallel scan) ─────────
-    console.log(`[extract] Scanning CineVeo for tmdb_id=${tmdb_id} type=${cType}`);
+    // Direct on-demand resolution — no cache, no DB
+    console.log(`[extract] On-demand resolve tmdb_id=${tmdb_id} type=${cType}`);
     const result = await tryCineveoCatalog(tmdb_id, cType, season, episode);
 
     if (result) {
-      const cacheContentType = result.apiType === "series" ? "series" : "movie";
-      console.log(`[extract] Success: ${result.apiType} → ${result.url}`);
-
-      await supabase.from("video_cache").upsert({
-        tmdb_id, content_type: cacheContentType, audio_type: aType,
-        season: season || 0, episode: episode || 0,
-        video_url: result.url, video_type: result.type, provider: "cineveo-api",
-        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-      }, { onConflict: "tmdb_id,content_type,audio_type,season,episode" });
-
-      await supabase.from("resolve_logs").insert({
-        tmdb_id, title: reqTitle || `TMDB ${tmdb_id}`, content_type: cacheContentType,
-        season: season || 0, episode: episode || 0,
-        provider: "cineveo-api", video_url: result.url, video_type: result.type, success: true,
-      });
-
       return new Response(JSON.stringify({
-        url: result.url, type: result.type, provider: "cineveo-api", cached: false,
+        url: result.url,
+        type: result.type,
+        provider: "cineveo-api",
+        cached: false,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    // ─── 3. Not found ───────────────────────────────────────────────
-    await supabase.from("resolve_logs").insert({
-      tmdb_id, title: reqTitle || `TMDB ${tmdb_id}`, content_type: cType,
-      season: season || 0, episode: episode || 0,
-      provider: "cineveo-api", success: false,
-      error_message: "Não encontrado no catálogo CineVeo",
-    });
-
     return new Response(JSON.stringify({
-      url: null, provider: "none", message: "Nenhum vídeo encontrado via catálogo CineVeo",
+      url: null,
+      provider: "none",
+      message: "Nenhum vídeo encontrado",
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (error) {
     console.error("[extract] Error:", error);

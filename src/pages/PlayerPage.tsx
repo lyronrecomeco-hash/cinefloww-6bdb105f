@@ -145,114 +145,18 @@ const PlayerPage = () => {
     setBankLoading(true);
     setBankSources([]);
 
-    const cTypes = params.type === "movie" ? ["movie"] : ["series", "tv"];
     const aType = audioParam || "legendado";
 
-    // If retrying, delete stale cache first
-    if (skipCache) {
-      console.log("[PlayerPage] Deleting stale cache, re-extracting...");
-      let delQuery = supabase.from("video_cache").delete()
-        .eq("tmdb_id", tmdbId).in("content_type", cTypes).eq("audio_type", aType);
-      if (season) delQuery = delQuery.eq("season", season);
-      else delQuery = delQuery.eq("season", 0);
-      if (episode) delQuery = delQuery.eq("episode", episode);
-      else delQuery = delQuery.eq("episode", 0);
-      await delQuery;
-    }
-
     try {
-      if (!skipCache) {
-        // 1. Title + cache check in parallel (FAST)
-        const isSeriesType = params.type !== "movie";
-        let cacheQuery = supabase
-          .from("video_cache")
-          .select("video_url, video_type, provider, created_at, season, episode")
-          .eq("tmdb_id", tmdbId)
-          .in("content_type", cTypes)
-          .eq("audio_type", aType)
-          .gt("expires_at", new Date().toISOString());
-        if (season) cacheQuery = cacheQuery.eq("season", season);
-        else if (!isSeriesType) cacheQuery = cacheQuery.eq("season", 0);
-        if (episode) cacheQuery = cacheQuery.eq("episode", episode);
-        else if (!isSeriesType) cacheQuery = cacheQuery.eq("episode", 0);
+      // Fetch title from TMDB (non-blocking, for display)
+      const cTypes = params.type === "movie" ? ["movie"] : ["series", "tv"];
+      supabase.from("content").select("title").eq("tmdb_id", tmdbId).in("content_type", cTypes).maybeSingle()
+        .then(({ data }) => { if (data?.title) setBankTitle(data.title); });
 
-        const [titleResult, cacheResult] = await Promise.all([
-          supabase.from("content").select("title").eq("tmdb_id", tmdbId).in("content_type", cTypes).maybeSingle(),
-          cacheQuery.order("created_at", { ascending: false }).limit(20),
-        ]);
-
-        if (titleResult.data?.title) setBankTitle(titleResult.data.title);
-
-        const providerRank = (provider?: string) => {
-          const p = (provider || "").toLowerCase();
-          if (p === "manual") return 130;
-          if (p === "cineveo-api") return 120;
-          if (p === "cineveo-iptv") return 110;
-          if (p === "cineveo") return 100;
-          return 70;
-        };
-
-        const isLikelyBrokenCacheUrl = (url?: string, provider?: string) => {
-          if (!url) return true;
-          if ((provider || "").toLowerCase() !== "cineveo-api") return false;
-          return /cdn\.cineveo\.site\/.*%2520/i.test(url);
-        };
-
-        const pickBest = (rows: any[]) => {
-          return (rows || [])
-            .filter((row: any) => row?.video_url && row?.video_type !== "mega-embed" && !isLikelyBrokenCacheUrl(row?.video_url, row?.provider))
-            .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
-        };
-
-        let bestCached = pickBest(cacheResult.data || []);
-
-        // Fallback de áudio: se não houver no áudio solicitado, usa o melhor disponível
-        if (!bestCached) {
-          let anyAudioQuery = supabase
-            .from("video_cache")
-            .select("video_url, video_type, provider, created_at, season, episode")
-            .eq("tmdb_id", tmdbId)
-            .in("content_type", cTypes)
-            .gt("expires_at", new Date().toISOString());
-
-          if (season) anyAudioQuery = anyAudioQuery.eq("season", season);
-          else if (!isSeriesType) anyAudioQuery = anyAudioQuery.eq("season", 0);
-          if (episode) anyAudioQuery = anyAudioQuery.eq("episode", episode);
-          else if (!isSeriesType) anyAudioQuery = anyAudioQuery.eq("episode", 0);
-
-          const { data: anyAudioRows } = await anyAudioQuery.order("created_at", { ascending: false }).limit(20);
-          bestCached = pickBest(anyAudioRows || []);
-        }
-
-        // 2. If cache hit, use instantly
-        if (bestCached?.video_url) {
-          if (bestCached.video_type === "iframe-proxy") {
-            console.log("[PlayerPage] Cache hit: iframe-proxy");
-            setIframeProxyUrl(bestCached.video_url);
-            setBankLoading(false);
-            return;
-          }
-          // Try to sign the URL; if signing fails, use the raw URL as fallback
-          let finalUrl = bestCached.video_url;
-          try {
-            const signed = await secureVideoUrl(bestCached.video_url);
-            if (signed && signed !== bestCached.video_url) finalUrl = signed;
-          } catch { /* use raw */ }
-          setBankSources([{
-            url: finalUrl,
-            quality: "auto",
-            provider: bestCached.provider || "cache",
-            type: bestCached.video_type === "mp4" ? "mp4" : "m3u8",
-          }]);
-          setBankLoading(false);
-          return;
-        }
-      }
-
-      // 3. Call extract-video
+      // On-demand: call extract-video directly (no cache)
       const extractCType = params.type === "movie" ? "movie" : "tv";
       const { data } = await supabase.functions.invoke("extract-video", {
-        body: { tmdb_id: tmdbId, imdb_id: imdbId, content_type: extractCType, audio_type: aType, season, episode },
+        body: { tmdb_id: tmdbId, content_type: extractCType, season, episode },
       });
 
       if (data?.url) {
@@ -270,7 +174,7 @@ const PlayerPage = () => {
         setBankSources([{
           url: finalUrl,
           quality: "auto",
-          provider: data.provider || "cache",
+          provider: data.provider || "cineveo-api",
           type: data.type === "mp4" ? "mp4" : "m3u8",
         }]);
         setBankLoading(false);
@@ -282,7 +186,7 @@ const PlayerPage = () => {
       setError(true);
     }
     setBankLoading(false);
-  }, [params.id, params.type, audioParam, imdbId, season, episode, tmdbId]);
+  }, [params.id, params.type, audioParam, season, episode, tmdbId]);
 
   // Initial load
   useEffect(() => {

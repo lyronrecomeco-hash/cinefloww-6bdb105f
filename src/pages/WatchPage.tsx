@@ -97,20 +97,9 @@ const WatchPage = () => {
     });
   }, [tmdbId, ct, season, episode, id]);
 
-  // Load audio types
+  // Audio types always available (no DB dependency)
   useEffect(() => {
-    const cTypes = type === "movie" ? ["movie"] : ["series", "tv"];
-    supabase
-      .from("content")
-      .select("audio_type")
-      .eq("tmdb_id", Number(id))
-      .in("content_type", cTypes)
-      .maybeSingle()
-      .then(({ data }) => {
-        const dbTypes = data?.audio_type?.length ? data.audio_type : [];
-        const merged = new Set([...dbTypes, "dublado", "legendado"]);
-        setAudioTypes([...merged]);
-      });
+    setAudioTypes(["dublado", "legendado"]);
   }, [id, type]);
 
   // START extraction IMMEDIATELY when we have audio (parallel with intro)
@@ -149,92 +138,7 @@ const WatchPage = () => {
       }
     };
 
-    // 1. FAST: Check client-side cache first (direct DB query)
-    if (!skipCache) {
-      try {
-        let query = supabase
-          .from("video_cache")
-          .select("video_url, video_type, provider")
-          .eq("tmdb_id", Number(id))
-          .in("content_type", cTypes)
-          .eq("audio_type", aType)
-          .gt("expires_at", new Date().toISOString());
-
-        if (season) query = query.eq("season", season);
-        else query = query.eq("season", 0);
-        if (episode) query = query.eq("episode", episode);
-        else query = query.eq("episode", 0);
-
-        const { data: cachedRows } = await query.order("created_at", { ascending: false }).limit(20);
-        
-        // Sort by provider priority
-        const providerRank = (provider?: string) => {
-          const p = (provider || "").toLowerCase();
-          if (p === "manual") return 130;
-          if (p === "cineveo-api") return 120;
-          if (p === "cineveo-iptv") return 110;
-          if (p === "cineveo") return 100;
-          return 70;
-        };
-
-        const isLikelyBrokenCacheUrl = (url?: string, provider?: string) => {
-          if (!url) return true;
-          if ((provider || "").toLowerCase() !== "cineveo-api") return false;
-          return /cdn\.cineveo\.site\/.*%2520/i.test(url);
-        };
-
-        const pickBest = (rows: any[]) => (rows || [])
-          .filter((row: any) => row?.video_url && row?.video_type !== "mega-embed" && !isLikelyBrokenCacheUrl(row?.video_url, row?.provider))
-          .sort((a: any, b: any) => providerRank(b.provider) - providerRank(a.provider))[0] || null;
-
-        let cached = pickBest(cachedRows || []);
-
-        // Fallback de áudio
-        if (!cached) {
-          let anyAudioQuery = supabase
-            .from("video_cache")
-            .select("video_url, video_type, provider")
-            .eq("tmdb_id", Number(id))
-            .in("content_type", cTypes)
-            .gt("expires_at", new Date().toISOString());
-
-          if (season) anyAudioQuery = anyAudioQuery.eq("season", season);
-          else anyAudioQuery = anyAudioQuery.eq("season", 0);
-          if (episode) anyAudioQuery = anyAudioQuery.eq("episode", episode);
-          else anyAudioQuery = anyAudioQuery.eq("episode", 0);
-
-          const { data: anyAudioRows } = await anyAudioQuery.order("created_at", { ascending: false }).limit(20);
-          cached = pickBest(anyAudioRows || []);
-        }
-
-        if (cached?.video_url) {
-          console.log(`[WatchPage] Cache hit - provider=${cached.provider}, type=${cached.video_type}`);
-          if (cached.video_type === "iframe-proxy") {
-            setIframeProxyUrl(cached.video_url);
-            setPhase("iframe-intercept");
-            return;
-          }
-          await finalizeResult(cached.video_url, cached.video_type, cached.provider);
-          return;
-        }
-      } catch { /* cache miss, continue */ }
-    } else {
-      // Delete stale cache entry before re-extraction
-      console.log("[WatchPage] Deleting stale cache, re-extracting...");
-      let delQuery = supabase
-        .from("video_cache")
-        .delete()
-        .eq("tmdb_id", Number(id))
-        .in("content_type", cTypes)
-        .eq("audio_type", aType);
-      if (season) delQuery = delQuery.eq("season", season);
-      else delQuery = delQuery.eq("season", 0);
-      if (episode) delQuery = delQuery.eq("episode", episode);
-      else delQuery = delQuery.eq("episode", 0);
-      await delQuery;
-    }
-
-    // 2. Call extract-video edge function
+    // On-demand: call extract-video directly (no cache lookup)
     const extractCType = isMovie ? "movie" : "tv";
     try {
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 25000));
