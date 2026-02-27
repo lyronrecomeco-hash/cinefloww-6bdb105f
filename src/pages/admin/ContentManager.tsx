@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import ContentEditModal from "./ContentEditModal";
 import ImportModal from "@/components/admin/ImportModal";
 import { searchMulti, TMDBMovie, getDisplayTitle, getYear, getMediaType, posterUrl, getMovieDetails, getSeriesDetails } from "@/services/tmdb";
+import { fetchCatalog, fetchCatalogManifest, type CatalogItem as StaticCatalogItem } from "@/lib/catalogFetcher";
 
 interface ContentManagerProps {
   contentType: "movie" | "series" | "dorama" | "anime";
@@ -47,56 +48,56 @@ const ContentManager = ({ contentType, title }: ContentManagerProps) => {
 
   const fetchContent = useCallback(async () => {
     setLoading(true);
-    const from = page * ITEMS_PER_PAGE;
-    const to = from + ITEMS_PER_PAGE - 1;
-
     try {
-      let query = supabase
+      // Map admin content types to catalog types
+      const catalogType = contentType === "movie" ? "movie" : contentType === "series" ? "series" : contentType;
+      
+      // Use static catalog for instant loading
+      const { items: catalogItems, total } = await fetchCatalog(catalogType, {
+        limit: ITEMS_PER_PAGE,
+        offset: page * ITEMS_PER_PAGE,
+      });
+
+      // Filter client-side if search text
+      let filtered = catalogItems;
+      if (filterText.trim()) {
+        const q = filterText.trim().toLowerCase();
+        filtered = catalogItems.filter(i => i.title.toLowerCase().includes(q));
+      }
+
+      // Map to content-like objects for UI compatibility
+      const mapped = filtered.map((item: StaticCatalogItem) => ({
+        id: item.id,
+        tmdb_id: item.tmdb_id,
+        title: item.title,
+        content_type: item.content_type || contentType,
+        poster_path: item.poster_path,
+        backdrop_path: item.backdrop_path,
+        vote_average: item.vote_average,
+        release_date: item.release_date,
+        status: "published",
+        audio_type: [],
+        created_at: item.release_date || "",
+      }));
+
+      setItems(mapped);
+      setTotalCount(filterText.trim() ? filtered.length : total);
+    } catch {
+      // Fallback to DB
+      const from = page * ITEMS_PER_PAGE;
+      const to = from + ITEMS_PER_PAGE - 1;
+      const { data } = await supabase
         .from("content")
         .select("*")
         .eq("content_type", contentType)
         .order("created_at", { ascending: false })
         .range(from, to);
-
-      if (filterText.trim()) {
-        query = query.ilike("title", `%${filterText.trim()}%`);
-      }
-
-      const result = await Promise.race([
-        query,
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
-      ]);
-
-      if (!result) {
-        setItems([]);
-        return totalCount;
-      }
-
-      const { data, error } = result as any;
-      if (!error) {
-        setItems(data || []);
-
-        // Só calcula contagem exata quando necessário (filtro ativo)
-        if (filterText.trim()) {
-          const countResult = await Promise.race([
-            supabase
-              .from("content")
-              .select("id", { count: "exact", head: true })
-              .eq("content_type", contentType)
-              .ilike("title", `%${filterText.trim()}%`),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
-          ]);
-          if (countResult) setTotalCount((countResult as any).count || 0);
-        } else if (page === 0) {
-          setTotalCount((data || []).length);
-        }
-      }
+      setItems(data || []);
+      setTotalCount((data || []).length);
     } finally {
       setLoading(false);
     }
-
-    return totalCount;
-  }, [contentType, page, filterText, totalCount]);
+  }, [contentType, page, filterText]);
 
   useEffect(() => { fetchContent(); }, [fetchContent]);
 

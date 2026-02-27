@@ -4,7 +4,7 @@ import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
 import { fromSlug } from "@/lib/slugify";
 import { toSlug } from "@/lib/slugify";
-import { secureVideoUrl } from "@/lib/videoUrl";
+// secureVideoUrl not needed for CineVeo direct links
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Settings, AlertTriangle,
@@ -138,71 +138,37 @@ const PlayerPage = () => {
     return () => { cancelled = true; };
   }, [tmdbId, season, episode, contentType, bankTitle, audioParam, imdbId, params.id]);
 
-  // Resolve video via extract-video edge function
-  const extractionRef = useRef<string | null>(null);
-  const playerRetryCount = useRef(0);
+  // ⚡ INSTANT: Build CineVeo URL directly on client — zero Edge Function overhead
+  const CINEVEO_BASE = "https://cinetvembed.cineveo.site";
+  const CINEVEO_USER = "lyneflix-vods";
+  const CINEVEO_PASS = "uVljs2d";
 
-  const loadVideo = useCallback(async (skipCache = false) => {
+  const extractionRef = useRef<string | null>(null);
+
+  const loadVideo = useCallback(async () => {
     if (!params.id || !params.type || !tmdbId) return;
     setBankLoading(true);
     setBankSources([]);
     setNoSources(false);
 
-    const aType = audioParam || "legendado";
-
-    try {
-      // Title comes from URL params or slug — no DB query needed
-
-      // On-demand: call extract-video with 15s timeout
-      const extractCType = params.type === "movie" ? "movie" : "tv";
-      const extractPromise = supabase.functions.invoke("extract-video", {
-        body: { tmdb_id: tmdbId, content_type: extractCType, season, episode },
-      });
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("extract-timeout")), 15000)
-      );
-      const { data } = await Promise.race([extractPromise, timeoutPromise]);
-
-      if (data?.url) {
-        if (data.type === "iframe-proxy") {
-          console.log("[PlayerPage] Extract returned iframe-proxy");
-          setIframeProxyUrl(data.url);
-          setBankLoading(false);
-          return;
-        }
-        // Skip token signing for CineVeo direct links — they don't need it and it adds 200-500ms
-        const isCineveoDirect = data.url.includes("cineveo.site") || data.url.includes("cdf.lyneflix");
-        let finalUrl = data.url;
-        if (!isCineveoDirect) {
-          try {
-            const signed = await secureVideoUrl(data.url);
-            if (signed && signed !== data.url) finalUrl = signed;
-          } catch { /* use raw */ }
-        }
-        setBankSources([{
-          url: finalUrl,
-          quality: "auto",
-          provider: data.provider || "cineveo-api",
-          type: data.type === "mp4" ? "mp4" : "m3u8",
-        }]);
-        setBankLoading(false);
-        return;
-      }
-
-      // No video found — not an error, just no sources
-      setNoSources(true);
-    } catch (err) {
-      // Auto-retry on timeout/error
-      if (playerRetryCount.current < 2) {
-        playerRetryCount.current++;
-        console.warn(`[PlayerPage] Extraction failed, retry ${playerRetryCount.current}/2`);
-        setTimeout(() => loadVideo(true), 1500);
-        return;
-      }
-      setNoSources(true);
+    // Build URL directly — no network call needed
+    let url: string;
+    if (params.type === "movie") {
+      url = `${CINEVEO_BASE}/movie/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}.mp4`;
+    } else {
+      const s = season || 1;
+      const e = episode || 1;
+      url = `${CINEVEO_BASE}/series/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}/${s}/${e}.mp4`;
     }
+
+    setBankSources([{
+      url,
+      quality: "auto",
+      provider: "cineveo-direct",
+      type: "mp4",
+    }]);
     setBankLoading(false);
-  }, [params.id, params.type, audioParam, season, episode, tmdbId]);
+  }, [params.id, params.type, season, episode, tmdbId]);
 
   // Initial load
   useEffect(() => {
@@ -210,8 +176,7 @@ const PlayerPage = () => {
     const key = `${params.type}-${params.id}-${audioParam}-${season}-${episode}`;
     if (extractionRef.current === key) return;
     extractionRef.current = key;
-    playerRetryCount.current = 0;
-    loadVideo(false);
+    loadVideo();
   }, [params.id, params.type, audioParam, imdbId, season, episode, tmdbId, loadVideo]);
 
   const sources: VideoSource[] = useMemo(() => {
@@ -826,9 +791,8 @@ const PlayerPage = () => {
             <div className="flex gap-2">
               <button onClick={() => {
                 extractionRef.current = null;
-                playerRetryCount.current = 0;
                 setNoSources(false);
-                loadVideo(true);
+                loadVideo();
               }} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
                 <RefreshCw className="w-4 h-4" /> Tentar de novo
               </button>
@@ -857,11 +821,10 @@ const PlayerPage = () => {
             <div className="flex flex-col gap-3">
               <div className="flex gap-2">
                 <button onClick={() => {
-                  playerRetryCount.current = 0;
                   extractionRef.current = null;
                   setError(false);
                   setNoSources(false);
-                  loadVideo(true);
+                  loadVideo();
                 }} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors">
                   <RefreshCw className="w-4 h-4" /> Tentar de novo
                 </button>
