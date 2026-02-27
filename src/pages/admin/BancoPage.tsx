@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Database, Film, Tv, Loader2, RefreshCw, CheckCircle, Search, Zap } from "lucide-react";
+import { Database, Film, Tv, Loader2, RefreshCw, CheckCircle, Search, Zap, Link2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchCatalog, fetchCatalogManifest } from "@/lib/catalogFetcher";
@@ -27,8 +27,9 @@ const BancoPage = () => {
   const [filterText, setFilterText] = useState("");
   const [debouncedFilter, setDebouncedFilter] = useState("");
   const [filterType, setFilterType] = useState<"all" | "movie" | "series">("all");
-  const [stats, setStats] = useState({ movies: 0, series: 0, total: 0, updatedAt: "" });
+  const [stats, setStats] = useState({ movies: 0, series: 0, total: 0, updatedAt: "", videoCoverage: { movies: 0, series: 0, total: 0, indexedAt: "" } });
   const [generating, setGenerating] = useState(false);
+  const [indexingM3U, setIndexingM3U] = useState(false);
 
   // Debounce search
   useEffect(() => {
@@ -43,11 +44,18 @@ const BancoPage = () => {
       if (manifest) {
         const m = manifest.types?.movie?.total || 0;
         const s = manifest.types?.series?.total || 0;
+        const vc = manifest.video_coverage || {};
         setStats({
           movies: m,
           series: s,
           total: m + s,
           updatedAt: manifest.updated_at || "",
+          videoCoverage: {
+            movies: vc.movies_with_video || 0,
+            series: vc.series_with_video || 0,
+            total: vc.total_with_video || 0,
+            indexedAt: vc.indexed_at || "",
+          },
         });
       }
     } catch {}
@@ -98,24 +106,41 @@ const BancoPage = () => {
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { loadItems(); }, [loadItems]);
 
-  // Generate catalog (manual trigger)
+  // Generate full catalog
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      toast({ title: "🚀 Indexando links...", description: "Gerando índice M3U rápido em background (sem sync pesado)." });
-
-      // Ultra-fast links index from M3U (no DB / sem varredura pesada)
-      const { error: m3uError } = await supabase.functions.invoke("generate-catalog", {
-        body: { mode: "m3u-only" },
+      toast({ title: "🚀 Gerando catálogo...", description: "Processando API CineVeo + índice M3U em background." });
+      const { error } = await supabase.functions.invoke("generate-catalog", {
+        body: { type: "movies", start_page: 1, accumulated: [] },
       });
-      if (m3uError) throw m3uError;
-
-      await loadStats();
-      toast({ title: "✅ Índice atualizado", description: "Links da lista M3U indexados com sucesso." });
+      if (error) throw error;
+      toast({ title: "✅ Catálogo iniciado", description: "Processamento em background. Atualize em 1-2 min." });
     } catch (err: any) {
-      toast({ title: "❌ Erro", description: err?.message || "Falha ao indexar links", variant: "destructive" });
+      toast({ title: "❌ Erro", description: err?.message || "Falha ao gerar catálogo", variant: "destructive" });
     } finally {
       setGenerating(false);
+    }
+  };
+
+  // Index M3U links only (fast)
+  const handleIndexM3U = async () => {
+    setIndexingM3U(true);
+    try {
+      toast({ title: "🚀 Indexando links...", description: "Indexando lista IPTV completa em background." });
+      const { error } = await supabase.functions.invoke("generate-catalog", {
+        body: { mode: "m3u-only" },
+      });
+      if (error) throw error;
+      // Poll for completion
+      setTimeout(async () => {
+        await loadStats();
+        setIndexingM3U(false);
+        toast({ title: "✅ Links indexados!", description: "Índice M3U atualizado com sucesso." });
+      }, 30000);
+    } catch (err: any) {
+      toast({ title: "❌ Erro", description: err?.message || "Falha ao indexar M3U", variant: "destructive" });
+      setIndexingM3U(false);
     }
   };
 
@@ -137,21 +162,34 @@ const BancoPage = () => {
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">Catálogo estático — sem dependência de banco</p>
         </div>
-        <button
-          onClick={handleGenerate}
-          disabled={generating}
-          className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-        >
-          {generating ? (
-            <><Loader2 className="w-4 h-4 animate-spin" />Gerando...</>
-          ) : (
-            <><Zap className="w-4 h-4" />Regerar Catálogo</>
-          )}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleIndexM3U}
+            disabled={indexingM3U}
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
+          >
+            {indexingM3U ? (
+              <><Loader2 className="w-4 h-4 animate-spin" />Indexando...</>
+            ) : (
+              <><Link2 className="w-4 h-4" />Indexar Links</>
+            )}
+          </button>
+          <button
+            onClick={handleGenerate}
+            disabled={generating}
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {generating ? (
+              <><Loader2 className="w-4 h-4 animate-spin" />Gerando...</>
+            ) : (
+              <><Zap className="w-4 h-4" />Regerar Catálogo</>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Stats from manifest */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         <div className="glass p-3 sm:p-4 rounded-xl text-center">
           <p className="text-lg sm:text-2xl font-bold text-primary">{stats.total.toLocaleString()}</p>
           <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Total Catálogo</p>
@@ -164,7 +202,28 @@ const BancoPage = () => {
           <p className="text-lg sm:text-2xl font-bold text-purple-400">{stats.series.toLocaleString()}</p>
           <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Séries</p>
         </div>
+        <div className="glass p-3 sm:p-4 rounded-xl text-center">
+          <p className="text-lg sm:text-2xl font-bold text-emerald-400">{stats.videoCoverage.total.toLocaleString()}</p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Com Vídeo</p>
+        </div>
       </div>
+
+      {/* Video coverage detail */}
+      {stats.videoCoverage.total > 0 && (
+        <div className="glass p-3 rounded-xl flex flex-wrap items-center gap-3 text-xs">
+          <Link2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          <span className="text-muted-foreground">Links indexados:</span>
+          <span className="text-blue-400 font-medium">{stats.videoCoverage.movies} filmes</span>
+          <span className="text-muted-foreground">•</span>
+          <span className="text-purple-400 font-medium">{stats.videoCoverage.series} séries</span>
+          {stats.videoCoverage.indexedAt && (
+            <>
+              <span className="text-muted-foreground">•</span>
+              <span className="text-muted-foreground">Indexado: {formatDate(stats.videoCoverage.indexedAt)}</span>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Last update */}
       {stats.updatedAt && (

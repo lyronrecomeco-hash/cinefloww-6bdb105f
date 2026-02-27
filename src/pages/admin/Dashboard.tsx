@@ -1,12 +1,14 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Film, Tv, Sparkles, Drama, Eye, TrendingUp, BarChart3, PieChart as PieChartIcon, Users, Activity, Globe, Clock } from "lucide-react";
+import { fetchCatalogManifest } from "@/lib/catalogFetcher";
+import { Film, Tv, Sparkles, Drama, Eye, TrendingUp, BarChart3, PieChart as PieChartIcon, Users, Activity, Globe, Clock, Link2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid } from "recharts";
 
 const COLORS = ["hsl(217, 91%, 60%)", "hsl(250, 80%, 60%)", "hsl(160, 60%, 50%)", "hsl(340, 70%, 55%)", "hsl(30, 80%, 55%)"];
 
 const Dashboard = () => {
-  const [counts, setCounts] = useState({ movies: 0, series: 0, doramas: 0, animes: 0 });
+  const [counts, setCounts] = useState({ movies: 0, series: 0, total: 0 });
+  const [videoCoverage, setVideoCoverage] = useState({ movies: 0, series: 0, total: 0 });
   const [uniqueVisitors, setUniqueVisitors] = useState(0);
   const [recentContent, setRecentContent] = useState<any[]>([]);
   const [viewsByDay, setViewsByDay] = useState<{ date: string; views: number }[]>([]);
@@ -104,46 +106,42 @@ const Dashboard = () => {
     const fetchData = async () => {
       try {
         const timeout = new Promise<null>((r) => setTimeout(() => r(null), 10000));
-        
-        // Use a single lightweight query to get counts by type (avoids 4 separate count queries)
-        const countsQuery = supabase
-          .from("content")
-          .select("content_type")
-          .eq("status", "published")
-          .limit(50000);
+
+        // Load catalog stats from static manifest (no DB)
+        const manifestPromise = fetchCatalogManifest();
 
         const result = await Promise.race([
           Promise.all([
-            countsQuery,
-            supabase.from("content").select("id, title, poster_path, content_type, created_at").order("created_at", { ascending: false }).limit(5),
+            manifestPromise,
             supabase.from("site_visitors").select("visitor_id, visited_at, pathname, hostname").eq("hostname", "lyneflix.online").gte("visited_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()).order("visited_at", { ascending: false }).limit(1000),
           ]),
           timeout,
         ]);
 
         if (!result) {
-          console.warn("[Dashboard] fetchData timeout — Cloud DB slow");
+          console.warn("[Dashboard] fetchData timeout");
           setLoading(false);
           return;
         }
 
-        const [countsResult, recent, visitors] = result as any[];
-        
-        // Count by type client-side from lightweight query
-        const typeMap: Record<string, number> = { movie: 0, series: 0, dorama: 0, anime: 0 };
-        if (countsResult.data) {
-          for (const row of countsResult.data) {
-            const t = row.content_type;
-            if (t in typeMap) typeMap[t]++;
-          }
+        const [manifest, visitors] = result as any[];
+
+        // Catalog counts from manifest
+        const m = manifest?.types?.movie?.total || 0;
+        const s = manifest?.types?.series?.total || 0;
+        setCounts({ movies: m, series: s, total: m + s });
+
+        // Video coverage from manifest
+        const vc = manifest?.video_coverage;
+        if (vc) {
+          setVideoCoverage({
+            movies: vc.movies_with_video || 0,
+            series: vc.series_with_video || 0,
+            total: vc.total_with_video || 0,
+          });
         }
-        setCounts({
-          movies: typeMap.movie,
-          series: typeMap.series,
-          doramas: typeMap.dorama,
-          animes: typeMap.anime,
-        });
-        setRecentContent(recent.data || []);
+
+        setRecentContent([]);
         processVisitorData(visitors.data || []);
       } catch (err) {
         console.error("Dashboard error:", err);
@@ -202,9 +200,9 @@ const Dashboard = () => {
   const statCards = useMemo(() => [
     { label: "Filmes", value: counts.movies, icon: Film, color: "text-blue-400", bg: "bg-blue-400/10" },
     { label: "Séries", value: counts.series, icon: Tv, color: "text-purple-400", bg: "bg-purple-400/10" },
-    { label: "Doramas", value: counts.doramas, icon: Drama, color: "text-emerald-400", bg: "bg-emerald-400/10" },
-    { label: "Animes", value: counts.animes, icon: Sparkles, color: "text-pink-400", bg: "bg-pink-400/10" },
-  ], [counts]);
+    { label: "Total Catálogo", value: counts.total, icon: Sparkles, color: "text-emerald-400", bg: "bg-emerald-400/10" },
+    { label: "Com Vídeo", value: videoCoverage.total, icon: Link2, color: "text-pink-400", bg: "bg-pink-400/10" },
+  ], [counts, videoCoverage]);
 
   const formatTime = (d: string) => {
     const date = new Date(d);
