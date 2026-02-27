@@ -1,44 +1,52 @@
 import { QRCodeSVG } from "qrcode.react";
 import { Film, Tv, Sparkles, Popcorn, Zap } from "lucide-react";
 import LyneflixLogo from "@/components/LyneflixLogo";
-import heroBanner from "@/assets/hero-banner.jpg";
+import qrxpBg from "@/assets/qrxp-bg.jpg";
 
 const SITE_URL = "https://lyneflix.online/";
 
 const QrxpPage = () => {
   return (
     <div className="fixed inset-0 overflow-hidden flex items-center justify-center">
-      {/* Background image with overlay */}
+      {/* Ultra clean cinema background */}
       <img
-        src={heroBanner}
+        src={qrxpBg}
         alt=""
-        className="absolute inset-0 w-full h-full object-cover"
+        className="absolute inset-0 w-full h-full object-cover scale-105"
+        loading="eager"
       />
-      <div className="absolute inset-0 bg-background/85 backdrop-blur-sm" />
-      <div className="absolute inset-0 bg-gradient-to-b from-background/40 via-background/70 to-background/95" />
+      <div className="absolute inset-0 bg-background/90 backdrop-blur-md" />
+      <div className="absolute inset-0 bg-gradient-to-b from-background/30 via-background/80 to-background" />
 
       {/* Ambient glow */}
-      <div className="absolute top-[-20%] left-[10%] w-[400px] h-[400px] rounded-full bg-primary/15 blur-[120px] pointer-events-none" />
+      <div className="absolute top-[-20%] left-[10%] w-[400px] h-[400px] rounded-full bg-primary/20 blur-[140px] pointer-events-none" />
       <div className="absolute bottom-[-10%] right-[5%] w-[350px] h-[350px] rounded-full bg-primary/10 blur-[100px] pointer-events-none" />
 
-      <div className="relative z-10 flex flex-col items-center gap-5 sm:gap-7 px-6 max-w-md w-full text-center">
+      <div className="relative z-10 flex flex-col items-center gap-5 sm:gap-6 px-6 max-w-md w-full text-center">
         {/* Logo */}
         <LyneflixLogo size="lg" animate={false} />
 
-        {/* Headline */}
+        {/* Headline — Toguro style */}
         <div className="space-y-3">
           <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-black text-foreground leading-tight">
-            Lyneflix{" "}
-            <span className="text-primary">ON</span>
-            <Zap className="inline-block w-6 h-6 sm:w-7 sm:h-7 text-primary ml-1 -mt-1" />
-          </h1>
-          <p className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-xs mx-auto font-medium">
-            Zero plano. Zero cartão. Zero enrolação.
+            Assista filmes e séries
             <br />
-            <span className="text-foreground/90 font-bold">Só aperta o play.</span>
+            <span className="text-primary">de graça.</span>{" "}
+            <span className="text-foreground/60 text-lg sm:text-xl">Sim, de graça.</span>
+          </h1>
+
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-primary/10 border border-primary/20 mx-auto">
+            <Zap className="w-4 h-4 text-primary" />
+            <span className="text-sm font-black text-primary tracking-wide">SaboOr Preço</span>
+          </div>
+
+          <p className="text-sm sm:text-base text-muted-foreground leading-relaxed max-w-xs mx-auto font-medium">
+            Sem plano, sem assinatura, sem cartão.
+            <br />
+            <span className="text-foreground/90 font-bold">Só aperta o play e assiste.</span>
           </p>
-          <p className="text-xs text-muted-foreground/70 italic">
-            "Enquanto uns cobram, a gente entrega." ⚡
+          <p className="text-xs text-muted-foreground/60 italic">
+            "Netflix cobra R$55… Lyneflix cobra nada." 🔥
           </p>
         </div>
 
@@ -90,7 +98,7 @@ const QrxpPage = () => {
 
         {/* Bottom tagline */}
         <p className="text-[9px] text-muted-foreground/40 tracking-[0.2em] uppercase font-semibold">
-          Filmes • Séries • Animes • Doramas • De graça
+          O streaming do povo • 100% gratuito
         </p>
       </div>
     </div>
