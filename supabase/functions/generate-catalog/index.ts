@@ -275,96 +275,39 @@ async function generateM3UIndex(supabase: any) {
     });
   }
 
+  // Save compact ID sets for client-side cross-reference (fast!)
+  const movieIdArray = [...movieIds];
+  const seriesIdArray = [...seriesIds];
+
+  // Also collect ALL IDs from buckets (catches edge cases)
+  for (const bucket of movieBuckets) {
+    for (const key of Object.keys(bucket)) {
+      const id = Number(key);
+      if (!movieIds.has(id)) movieIdArray.push(id);
+    }
+  }
+
+  uploads.push({
+    path: "m3u-index/ids.json",
+    data: {
+      updated_at: now,
+      movies: movieIdArray,
+      series: seriesIdArray,
+      total: movieIdArray.length + seriesIdArray.length,
+    },
+  });
+
   const uploaded = await uploadBatch(supabase, uploads);
-  console.log(`[m3u] Uploaded ${uploaded}/${uploads.length} shards`);
-
-  // ── Cross-reference: verify catalog items against M3U shards ──
-  console.log("[m3u] Cross-referencing catalog items against M3U index...");
-
-  let catalogMovies = 0;
-  let catalogSeries = 0;
-  let catalogMoviesWithVideo = 0;
-  let catalogSeriesWithVideo = 0;
-  const catalogMoviesWithoutVideo: number[] = [];
-  const catalogSeriesWithoutVideo: number[] = [];
-
-  // Load catalog manifest to know how many pages exist
-  let catalogManifest: any = {};
-  try {
-    const { data: mf } = await supabase.storage.from("catalog").download("manifest.json");
-    if (mf) catalogManifest = JSON.parse(await mf.text());
-  } catch {}
-
-  const moviePages = catalogManifest?.types?.movie?.pages || 0;
-  const seriesPages = catalogManifest?.types?.series?.pages || 0;
-
-  // Check movies against shards
-  for (let p = 1; p <= moviePages; p++) {
-    try {
-      const { data } = await supabase.storage.from("catalog").download(`movie/${p}.json`);
-      if (!data) continue;
-      const page = JSON.parse(await data.text());
-      for (const item of (page.items || [])) {
-        catalogMovies++;
-        if (movieIds.has(item.tmdb_id)) {
-          catalogMoviesWithVideo++;
-        } else {
-          // Also check in movie buckets (M3U may have categorized differently)
-          const bucket = item.tmdb_id % M3U_BUCKETS;
-          if (movieBuckets[bucket][String(item.tmdb_id)] || seriesBuckets[bucket][String(item.tmdb_id)]) {
-            catalogMoviesWithVideo++;
-          } else {
-            catalogMoviesWithoutVideo.push(item.tmdb_id);
-          }
-        }
-      }
-    } catch {}
-  }
-
-  // Check series against shards
-  for (let p = 1; p <= seriesPages; p++) {
-    try {
-      const { data } = await supabase.storage.from("catalog").download(`series/${p}.json`);
-      if (!data) continue;
-      const page = JSON.parse(await data.text());
-      for (const item of (page.items || [])) {
-        catalogSeries++;
-        if (seriesIds.has(item.tmdb_id)) {
-          catalogSeriesWithVideo++;
-        } else {
-          const bucket = item.tmdb_id % M3U_BUCKETS;
-          if (seriesBuckets[bucket][String(item.tmdb_id)] || movieBuckets[bucket][String(item.tmdb_id)]) {
-            catalogSeriesWithVideo++;
-          } else {
-            catalogSeriesWithoutVideo.push(item.tmdb_id);
-          }
-        }
-      }
-    } catch {}
-  }
-
-  console.log(`[m3u] Catalog verification: Movies ${catalogMoviesWithVideo}/${catalogMovies}, Series ${catalogSeriesWithVideo}/${catalogSeries}`);
-  console.log(`[m3u] Without video: ${catalogMoviesWithoutVideo.length} movies, ${catalogSeriesWithoutVideo.length} series`);
+  console.log(`[m3u] Uploaded ${uploaded}/${uploads.length} shards + ID set`);
 
   const m3uManifest = {
     updated_at: now,
     parsed,
     buckets: M3U_BUCKETS,
     source: IPTV_URL,
-    // Raw M3U counts (all unique IDs found in IPTV list)
-    m3u_movies: movieIds.size,
-    m3u_series: seriesIds.size,
-    m3u_total: movieIds.size + seriesIds.size,
-    // Precise catalog cross-reference
-    movies_with_video: catalogMoviesWithVideo,
-    series_with_video: catalogSeriesWithVideo,
-    total_with_video: catalogMoviesWithVideo + catalogSeriesWithVideo,
-    movies_without_video: catalogMoviesWithoutVideo.length,
-    series_without_video: catalogSeriesWithoutVideo.length,
-    total_without_video: catalogMoviesWithoutVideo.length + catalogSeriesWithoutVideo.length,
-    catalog_movies: catalogMovies,
-    catalog_series: catalogSeries,
-    catalog_total: catalogMovies + catalogSeries,
+    m3u_movies: movieIdArray.length,
+    m3u_series: seriesIdArray.length,
+    m3u_total: movieIdArray.length + seriesIdArray.length,
   };
 
   await uploadWithRetry(
@@ -409,21 +352,29 @@ Deno.serve(async (req) => {
 
     // ── M3U-only mode: index IPTV list into shards ──
     if (body.mode === "m3u-only") {
+      // Force clear stale locks
+      if (body.force) {
+        await releaseM3ULock(supabase);
+      }
+
       if (!body._run) {
         const runId = crypto.randomUUID();
-        const acquired = await acquireM3ULock(supabase, runId);
+        let acquired = await acquireM3ULock(supabase, runId);
         if (!acquired) {
-          const lock = await readM3ULock(supabase);
-          return new Response(
-            JSON.stringify({
-              done: false,
-              started: false,
-              mode: "m3u-only",
-              message: "Indexação M3U já está em andamento",
-              run_id: lock?.run_id || null,
-            }),
-            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-          );
+          // Force clear and retry
+          await releaseM3ULock(supabase);
+          acquired = await acquireM3ULock(supabase, runId);
+          if (!acquired) {
+            return new Response(
+              JSON.stringify({
+                done: false,
+                started: false,
+                mode: "m3u-only",
+                message: "Indexação M3U já está em andamento",
+              }),
+              { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+            );
+          }
         }
 
         const selfUrl = `${Deno.env.get("SUPABASE_URL")!}/functions/v1/generate-catalog`;
@@ -476,15 +427,6 @@ Deno.serve(async (req) => {
           ...existingManifest,
           updated_at: new Date().toISOString(),
           video_coverage: {
-            movies_with_video: manifest.movies_with_video,
-            series_with_video: manifest.series_with_video,
-            total_with_video: manifest.total_with_video,
-            movies_without_video: manifest.movies_without_video,
-            series_without_video: manifest.series_without_video,
-            total_without_video: manifest.total_without_video,
-            catalog_movies: manifest.catalog_movies,
-            catalog_series: manifest.catalog_series,
-            catalog_total: manifest.catalog_total,
             m3u_movies: manifest.m3u_movies,
             m3u_series: manifest.m3u_series,
             m3u_total: manifest.m3u_total,

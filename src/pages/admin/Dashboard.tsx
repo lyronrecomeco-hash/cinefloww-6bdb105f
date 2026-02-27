@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { fetchCatalogManifest } from "@/lib/catalogFetcher";
+import { fetchCatalogManifest, computeVideoCoverage } from "@/lib/catalogFetcher";
 import { Film, Tv, Sparkles, Drama, Eye, TrendingUp, BarChart3, PieChart as PieChartIcon, Users, Activity, Globe, Clock, Link2 } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid } from "recharts";
 
@@ -133,16 +133,24 @@ const Dashboard = () => {
 
         // Video coverage from manifest
         const vc = manifest?.video_coverage;
-        if (vc) {
-          const total = vc.total_with_video || 0;
-          const without = vc.total_without_video || 0;
-          const catalogTotal = vc.catalog_total || (m + s);
+        // Client-side cross-reference for precise counts
+        const coverage = await computeVideoCoverage(manifest);
+        if (coverage) {
+          const catalogTotal = coverage.catalogMovies + coverage.catalogSeries;
           setVideoCoverage({
-            movies: vc.movies_with_video || 0,
-            series: vc.series_with_video || 0,
-            total,
-            without,
-            coveragePercent: catalogTotal > 0 ? Math.round((total / catalogTotal) * 100) : 0,
+            movies: coverage.moviesWithVideo,
+            series: coverage.seriesWithVideo,
+            total: coverage.totalWithVideo,
+            without: coverage.totalWithout,
+            coveragePercent: catalogTotal > 0 ? Math.round((coverage.totalWithVideo / catalogTotal) * 100) : 0,
+          });
+        } else if (vc) {
+          setVideoCoverage({
+            movies: vc.m3u_movies || 0,
+            series: vc.m3u_series || 0,
+            total: vc.m3u_total || 0,
+            without: 0,
+            coveragePercent: 0,
           });
         }
 
