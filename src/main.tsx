@@ -12,16 +12,13 @@ import { initVpsClient } from "./lib/vpsClient";
 // Initialize anti-DevTools security
 initSecurity();
 
-// Track visitor (non-blocking)
-trackVisit();
-
-// Check for remote cache invalidation (non-blocking)
-checkCacheVersion();
-
-// Initialize push notifications (auto-subscribe if already granted)
-initPushNotifications();
-
-// Initialize VPS client (auto-detect if VPS API is available)
-initVpsClient();
-
+// Render FIRST — everything else is background
 createRoot(document.getElementById("root")!).render(<App />);
+
+// All boot tasks are fire-and-forget — NEVER block render
+setTimeout(() => {
+  trackVisit().catch(() => {});
+  checkCacheVersion().catch(() => {});
+  try { initPushNotifications(); } catch {}
+  initVpsClient().catch(() => {});
+}, 100);
