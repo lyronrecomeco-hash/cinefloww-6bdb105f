@@ -426,10 +426,15 @@ const PlayerPage = () => {
       }, { once: true });
       video.load(); // Force iOS to start loading
     } else {
+      // MP4: play as soon as metadata is ready — don't wait for full buffer
       video.preload = "auto";
       video.src = src.url;
-      video.addEventListener("loadeddata", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
-      video.addEventListener("canplay", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
+      video.load();
+      // loadedmetadata fires MUCH faster than canplay/loadeddata for large MP4s
+      video.addEventListener("loadedmetadata", () => {
+        setLoading(false);
+        video.play().catch(() => {});
+      }, { once: true });
     }
     if (!useNativeHLS) {
       video.addEventListener("error", () => { setError(true); setLoading(false); }, { once: true });

@@ -117,11 +117,11 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
       video.src = src.url;
       video.addEventListener("loadedmetadata", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
     } else {
-      // MP4: use preload metadata first for faster start, then play on canplay
+      // MP4: play on loadedmetadata for instant start — don't wait for full buffer
       video.preload = "auto";
       video.src = src.url;
-      video.load(); // Force immediate load
-      video.addEventListener("canplay", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
+      video.load();
+      video.addEventListener("loadedmetadata", () => { setLoading(false); video.play().catch(() => {}); }, { once: true });
     }
 
     video.addEventListener("error", () => { setError(true); setLoading(false); }, { once: true });
