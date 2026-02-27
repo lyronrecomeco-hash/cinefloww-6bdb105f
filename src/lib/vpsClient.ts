@@ -5,6 +5,7 @@
  */
 
 const VPS_HEALTH_CACHE_MS = 30_000;
+const VPS_HEALTH_BACKOFF_MS = 120_000;
 const VPS_URL_STORAGE_KEY = "_vps_url";
 
 // Hardcoded fallback VPS URL — used when localStorage is empty
@@ -19,6 +20,7 @@ let _vpsBaseUrl: string | null = null;
 let _vpsProxyUrl: string | null = null;
 let _vpsOnline = false;
 let _lastCheck = 0;
+let _nextRetryAt = 0;
 let _initPromise: Promise<void> | null = null;
 let _proxyBroken = false; // detected when proxy returns HTML instead of JSON
 
@@ -92,6 +94,7 @@ export function initVpsClient(): Promise<void> {
 
 async function checkVpsHealth(): Promise<boolean> {
   if (!_vpsProxyUrl) return false;
+  if (Date.now() < _nextRetryAt) return false;
   if (Date.now() - _lastCheck < VPS_HEALTH_CACHE_MS) return _vpsOnline;
 
   const healthPath = "/health";
@@ -102,6 +105,7 @@ async function checkVpsHealth(): Promise<boolean> {
     });
     if (!res.ok) {
       _vpsOnline = false;
+      _nextRetryAt = Date.now() + VPS_HEALTH_BACKOFF_MS;
     } else {
       // CRITICAL: Check if response is actual JSON from VPS or HTML from SPA fallback
       const contentType = res.headers.get("content-type") || "";
@@ -110,49 +114,15 @@ async function checkVpsHealth(): Promise<boolean> {
         console.warn("[VPS] Proxy returned HTML — marking proxy as broken");
         _proxyBroken = true;
         _vpsOnline = false;
-        // Recalculate proxy URL (will now use direct URL)
-        if (_vpsBaseUrl) {
-          _vpsProxyUrl = resolveProxyUrl(_vpsBaseUrl);
-          // Try direct VPS (will fail on HTTPS due to mixed content, but worth trying)
-          if (!shouldUseProxy(_vpsBaseUrl)) {
-            try {
-              const directRes = await fetch(`${_vpsBaseUrl}/health`, {
-                signal: AbortSignal.timeout(3000),
-              });
-              const directCt = directRes.headers.get("content-type") || "";
-              _vpsOnline = directRes.ok && !directCt.includes("text/html");
-              if (_vpsOnline) {
-                _vpsProxyUrl = _vpsBaseUrl;
-              }
-            } catch {
-              _vpsOnline = false;
-            }
-          }
-        }
+        _nextRetryAt = Date.now() + VPS_HEALTH_BACKOFF_MS;
       } else {
         _vpsOnline = true;
+        _nextRetryAt = 0;
       }
     }
   } catch {
     _vpsOnline = false;
-  }
-
-  // Fallback probe if first check failed and proxy is not broken
-  if (!_vpsOnline && !_proxyBroken) {
-    try {
-      const probe = await vpsFetch(`/api/catalog?type=movie`, {
-        signal: AbortSignal.timeout(3500),
-      });
-      const probeCt = probe.headers.get("content-type") || "";
-      if (probeCt.includes("text/html")) {
-        _proxyBroken = true;
-        _vpsOnline = false;
-      } else {
-        _vpsOnline = probe.ok;
-      }
-    } catch {
-      _vpsOnline = false;
-    }
+    _nextRetryAt = Date.now() + VPS_HEALTH_BACKOFF_MS;
   }
 
   _lastCheck = Date.now();
@@ -164,6 +134,7 @@ async function checkVpsHealth(): Promise<boolean> {
 export async function refreshVpsHealth(): Promise<boolean> {
   await initVpsClient();
   _lastCheck = 0;
+  _nextRetryAt = 0;
   return checkVpsHealth();
 }
 

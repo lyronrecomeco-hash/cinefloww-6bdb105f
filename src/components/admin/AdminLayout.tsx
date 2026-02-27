@@ -64,6 +64,7 @@ const AdminLayout = () => {
   const [allowedPaths, setAllowedPaths] = useState<string[]>([]);
   const [pendingRequests, setPendingRequests] = useState(0);
   const [menuQuery, setMenuQuery] = useState("");
+  const [backendError, setBackendError] = useState<string | null>(null);
   const prevPendingRef = useRef(0);
   const navSearchRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -92,7 +93,7 @@ const AdminLayout = () => {
         if (!isMounted) return;
         if (!session) { navigate("/admin/login"); return; }
 
-        // Check admin or moderator role (with cached fallback when Cloud is overloaded)
+        // Check admin or moderator role (with cached fallback when backend is overloaded)
         let role: string | null = null;
         try {
           const rolesResp = await withTimeout(
@@ -104,6 +105,9 @@ const AdminLayout = () => {
             6000
           );
           const roles = (rolesResp as any)?.data;
+          const rolesError = (rolesResp as any)?.error;
+          if (rolesError) throw rolesError;
+
           if (roles?.length) {
             role = roles[0].role;
             localStorage.setItem(ROLE_CACHE_KEY, JSON.stringify({ userId: session.user.id, role, ts: Date.now() }));
@@ -122,7 +126,10 @@ const AdminLayout = () => {
         }
 
         if (!isMounted) return;
-        if (!role) { await supabase.auth.signOut(); navigate("/admin/login"); return; }
+        if (!role) {
+          setBackendError("Backend temporariamente indisponível para validar permissões. Tente novamente em instantes.");
+          return;
+        }
 
         setUserRole(role);
         setUserEmail(session.user.email || "");
@@ -163,7 +170,9 @@ const AdminLayout = () => {
         }).catch(() => {});
       } catch (err) {
         console.error("[AdminLayout] Auth check failed:", err);
-        if (isMounted) navigate("/admin/login");
+        if (isMounted) {
+          setBackendError("Falha de conexão com o backend. Recarregue a página em alguns segundos.");
+        }
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -222,6 +231,23 @@ const AdminLayout = () => {
   const visibleMenuItems = roleMenuItems.filter((item) =>
     item.label.toLowerCase().includes(menuQuery.trim().toLowerCase())
   );
+
+  if (backendError) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <div className="max-w-md w-full rounded-2xl border border-border bg-card p-6 space-y-4 text-center">
+          <h2 className="text-lg font-semibold">Conexão instável no painel</h2>
+          <p className="text-sm text-muted-foreground">{backendError}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="w-full h-10 rounded-lg bg-primary text-primary-foreground font-medium"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
