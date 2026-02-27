@@ -286,6 +286,18 @@ img {
   scrollbar-color: hsl(var(--foreground) / 0.1) transparent;
 }
 
+/* Safe area for bottom nav on mobile */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Add bottom padding on pages so content isn't hidden behind bottom nav */
+@media (max-width: 767px) {
+  main, .page-content, footer {
+    padding-bottom: 4.5rem;
+  }
+}
+
 /* Standalone PWA mode */
 @media (display-mode: standalone) {
   body {

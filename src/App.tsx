@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense } from "react";
 
 import Index from "./pages/Index";
+import MobileBottomNav from "./components/MobileBottomNav";
 
 // Lazy load ALL non-index pages for faster initial load
 const DetailsPage = lazy(() => import("./pages/DetailsPage"));
@@ -78,6 +79,7 @@ const App = () => (
       <Sonner />
       {/* MaintenanceModal removed */}
       <BrowserRouter>
+        <MobileBottomNav />
         <Suspense fallback={<PageLoader />}>
           <Routes>
             {/* Public */}
