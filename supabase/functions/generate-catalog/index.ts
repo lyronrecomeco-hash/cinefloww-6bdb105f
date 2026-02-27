@@ -18,6 +18,7 @@ const DELAY_MS = 1000;
 const M3U_BUCKETS = 100;
 const M3U_LOCK_PATH = "m3u-index/_lock.json";
 const M3U_LOCK_TTL_MS = 15 * 60 * 1000;
+const UPLOAD_BATCH = 10; // parallel uploads per batch
 
 interface M3ULockState {
   running: boolean;
@@ -50,12 +51,18 @@ function isFreshM3ULock(lock: M3ULockState | null): boolean {
 }
 
 async function acquireM3ULock(supabase: any, runId: string): Promise<boolean> {
-  const createPayload = () => new Blob([JSON.stringify({
-    running: true,
-    run_id: runId,
-    started_at_ms: Date.now(),
-    updated_at: new Date().toISOString(),
-  } satisfies M3ULockState)], { type: "application/json" });
+  const createPayload = () =>
+    new Blob(
+      [
+        JSON.stringify({
+          running: true,
+          run_id: runId,
+          started_at_ms: Date.now(),
+          updated_at: new Date().toISOString(),
+        } satisfies M3ULockState),
+      ],
+      { type: "application/json" },
+    );
 
   const tryCreate = async () => {
     return await supabase.storage.from("catalog").upload(M3U_LOCK_PATH, createPayload(), {
@@ -87,15 +94,35 @@ function normalizeDate(value: unknown): string | null {
   return null;
 }
 
+/**
+ * Enhanced M3U parser — handles multiple tvg-id formats:
+ *   tvg-id="movie:12345"  tvg-id="serie:12345"  tvg-id="series:12345"
+ *   tvg-id="tv:12345"     tvg-id="12345" (infers type from URL path)
+ */
 function parseM3UEntry(extinf: string, url: string) {
-  const idMatch = extinf.match(/tvg-id="(movie|serie|tv|series)[:\s]*(\d+)"/i);
-  if (!idMatch) return null;
+  // Try typed format first: movie:123, serie:123, series:123, tv:123
+  let idMatch = extinf.match(/tvg-id="(movie|serie|tv|series)[:\s]*(\d+)"/i);
+  let tmdb_id: number;
+  let content_type: "movie" | "series";
 
-  const tmdb_id = Number(idMatch[2]);
+  if (idMatch) {
+    tmdb_id = Number(idMatch[2]);
+    const rawType = String(idMatch[1]).toLowerCase();
+    content_type = rawType === "movie" ? "movie" : "series";
+  } else {
+    // Fallback: plain numeric tvg-id="12345"
+    const plainMatch = extinf.match(/tvg-id="(\d+)"/i);
+    if (!plainMatch) return null;
+    tmdb_id = Number(plainMatch[1]);
+    // Infer type from URL path patterns
+    if (url.includes("/series/") || url.includes("/tv/") || /\/\d+\/\d+\.\w+/.test(url)) {
+      content_type = "series";
+    } else {
+      content_type = "movie";
+    }
+  }
+
   if (!tmdb_id) return null;
-
-  const rawType = String(idMatch[1]).toLowerCase();
-  const content_type: "movie" | "series" = rawType === "movie" ? "movie" : "series";
 
   let season = 0;
   let episode = 0;
@@ -107,6 +134,14 @@ function parseM3UEntry(extinf: string, url: string) {
     }
   }
 
+  // Extract poster from tvg-logo if available
+  const logoMatch = extinf.match(/tvg-logo="([^"]+)"/i);
+  const poster = logoMatch?.[1] || null;
+
+  // Extract title from after the last comma
+  const titleMatch = extinf.match(/,\s*(.+)$/);
+  const title = titleMatch?.[1]?.trim() || null;
+
   return {
     tmdb_id,
     content_type,
@@ -115,34 +150,55 @@ function parseM3UEntry(extinf: string, url: string) {
     url,
     type: url.toLowerCase().includes(".m3u8") ? "m3u8" : "mp4",
     provider: "cineveo-m3u",
+    poster,
+    title,
   };
 }
 
-async function fetchCineveoPage(type: string, page: number) {
-  const url = `${CINEVEO_API}?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=${type}&page=${page}`;
-  const res = await fetch(url, {
-    headers: { "User-Agent": UA, Accept: "application/json" },
-    signal: AbortSignal.timeout(25000),
-  });
-  if (!res.ok) throw new Error(`CineVeo ${type} p${page} → ${res.status}`);
-  const payload = await res.json();
-  const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
-  const totalPages = Number(payload?.pagination?.total_pages || 0) || null;
-  return { items, totalPages };
+/** Upload a blob to storage with retry */
+async function uploadWithRetry(supabase: any, path: string, blob: Blob, retries = 2): Promise<boolean> {
+  for (let i = 0; i <= retries; i++) {
+    const { error } = await supabase.storage.from("catalog").upload(path, blob, {
+      upsert: true,
+      contentType: "application/json",
+    });
+    if (!error) return true;
+    if (i < retries) await sleep(500);
+  }
+  return false;
+}
+
+/** Upload items in parallel batches */
+async function uploadBatch(supabase: any, uploads: Array<{ path: string; data: any }>): Promise<number> {
+  let uploaded = 0;
+  for (let i = 0; i < uploads.length; i += UPLOAD_BATCH) {
+    const batch = uploads.slice(i, i + UPLOAD_BATCH);
+    const results = await Promise.allSettled(
+      batch.map(({ path, data }) => uploadWithRetry(supabase, path, new Blob([JSON.stringify(data)], { type: "application/json" }))),
+    );
+    for (const r of results) if (r.status === "fulfilled" && r.value) uploaded++;
+  }
+  return uploaded;
 }
 
 async function generateM3UIndex(supabase: any) {
+  console.log("[m3u] Fetching IPTV list...");
   const res = await fetch(IPTV_URL, {
     headers: { "User-Agent": UA, Accept: "text/plain,*/*" },
-    signal: AbortSignal.timeout(90000),
+    signal: AbortSignal.timeout(120000), // 2min for large lists
   });
   if (!res.ok) throw new Error(`M3U download failed: ${res.status}`);
 
   const text = await res.text();
   const lines = text.split("\n");
+  console.log(`[m3u] ${lines.length} lines downloaded`);
 
   const movieBuckets: Record<string, any>[] = Array.from({ length: M3U_BUCKETS }, () => ({}));
   const seriesBuckets: Record<string, any>[] = Array.from({ length: M3U_BUCKETS }, () => ({}));
+
+  // Also track unique tmdb_ids with video links for stats
+  const movieIds = new Set<number>();
+  const seriesIds = new Set<number>();
 
   let parsed = 0;
   for (let i = 0; i < lines.length; i++) {
@@ -160,6 +216,7 @@ async function generateM3UIndex(supabase: any) {
     const key = String(entry.tmdb_id);
 
     if (entry.content_type === "movie") {
+      movieIds.add(entry.tmdb_id);
       if (!movieBuckets[bucket][key]) {
         movieBuckets[bucket][key] = {
           url: entry.url,
@@ -170,6 +227,7 @@ async function generateM3UIndex(supabase: any) {
       continue;
     }
 
+    seriesIds.add(entry.tmdb_id);
     const existing = seriesBuckets[bucket][key] || { default: null, episodes: {} };
 
     if (entry.season > 0 && entry.episode > 0) {
@@ -200,40 +258,56 @@ async function generateM3UIndex(supabase: any) {
     seriesBuckets[bucket][key] = existing;
   }
 
+  console.log(`[m3u] Parsed ${parsed} entries. Movies: ${movieIds.size}, Series: ${seriesIds.size}. Uploading shards...`);
+
+  // Build all uploads list then upload in parallel batches
+  const uploads: Array<{ path: string; data: any }> = [];
+  const now = new Date().toISOString();
+
   for (let i = 0; i < M3U_BUCKETS; i++) {
-    const movieBlob = new Blob([
-      JSON.stringify({ updated_at: new Date().toISOString(), bucket: i, items: movieBuckets[i] }),
-    ], { type: "application/json" });
-
-    const seriesBlob = new Blob([
-      JSON.stringify({ updated_at: new Date().toISOString(), bucket: i, items: seriesBuckets[i] }),
-    ], { type: "application/json" });
-
-    await supabase.storage.from("catalog").upload(`m3u-index/movie/${i}.json`, movieBlob, {
-      upsert: true,
-      contentType: "application/json",
+    uploads.push({
+      path: `m3u-index/movie/${i}.json`,
+      data: { updated_at: now, bucket: i, items: movieBuckets[i] },
     });
-
-    await supabase.storage.from("catalog").upload(`m3u-index/series/${i}.json`, seriesBlob, {
-      upsert: true,
-      contentType: "application/json",
+    uploads.push({
+      path: `m3u-index/series/${i}.json`,
+      data: { updated_at: now, bucket: i, items: seriesBuckets[i] },
     });
   }
 
+  const uploaded = await uploadBatch(supabase, uploads);
+  console.log(`[m3u] Uploaded ${uploaded}/${uploads.length} shards`);
+
   const m3uManifest = {
-    updated_at: new Date().toISOString(),
+    updated_at: now,
     parsed,
     buckets: M3U_BUCKETS,
     source: IPTV_URL,
+    movies_with_video: movieIds.size,
+    series_with_video: seriesIds.size,
+    total_with_video: movieIds.size + seriesIds.size,
   };
 
-  await supabase.storage.from("catalog").upload(
+  await uploadWithRetry(
+    supabase,
     "m3u-index/manifest.json",
     new Blob([JSON.stringify(m3uManifest)], { type: "application/json" }),
-    { upsert: true, contentType: "application/json" },
   );
 
   return m3uManifest;
+}
+
+async function fetchCineveoPage(type: string, page: number) {
+  const url = `${CINEVEO_API}?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=${type}&page=${page}`;
+  const res = await fetch(url, {
+    headers: { "User-Agent": UA, Accept: "application/json" },
+    signal: AbortSignal.timeout(25000),
+  });
+  if (!res.ok) throw new Error(`CineVeo ${type} p${page} → ${res.status}`);
+  const payload = await res.json();
+  const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+  const totalPages = Number(payload?.pagination?.total_pages || 0) || null;
+  return { items, totalPages };
 }
 
 Deno.serve(async (req) => {
@@ -241,36 +315,36 @@ Deno.serve(async (req) => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
+  const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
   try {
     const body = await req.json().catch(() => ({}));
 
-    await supabase.storage.createBucket("catalog", {
-      public: true,
-      fileSizeLimit: 52428800,
-      allowedMimeTypes: ["application/json", "text/plain"],
-    }).catch(() => {});
+    await supabase.storage
+      .createBucket("catalog", {
+        public: true,
+        fileSizeLimit: 52428800,
+        allowedMimeTypes: ["application/json", "text/plain"],
+      })
+      .catch(() => {});
 
+    // ── M3U-only mode: index IPTV list into shards ──
     if (body.mode === "m3u-only") {
-      // Fast-start mode com lock atômico para impedir loops por múltiplos cliques
       if (!body._run) {
         const runId = crypto.randomUUID();
         const acquired = await acquireM3ULock(supabase, runId);
         if (!acquired) {
           const lock = await readM3ULock(supabase);
-          return new Response(JSON.stringify({
-            done: false,
-            started: false,
-            mode: "m3u-only",
-            message: "Indexação M3U já está em andamento",
-            run_id: lock?.run_id || null,
-          }), {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
+          return new Response(
+            JSON.stringify({
+              done: false,
+              started: false,
+              mode: "m3u-only",
+              message: "Indexação M3U já está em andamento",
+              run_id: lock?.run_id || null,
+            }),
+            { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+          );
         }
 
         const selfUrl = `${Deno.env.get("SUPABASE_URL")!}/functions/v1/generate-catalog`;
@@ -283,32 +357,60 @@ Deno.serve(async (req) => {
           body: JSON.stringify({ mode: "m3u-only", _run: true, run_id: runId }),
         }).catch(() => {});
 
-        return new Response(JSON.stringify({
-          done: false,
-          started: true,
-          mode: "m3u-only",
-          run_id: runId,
-          message: "Indexação M3U iniciada em background",
-        }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            done: false,
+            started: true,
+            mode: "m3u-only",
+            run_id: runId,
+            message: "Indexação M3U iniciada em background",
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
 
       const currentLock = await readM3ULock(supabase);
       if (!currentLock?.running || currentLock.run_id !== body.run_id) {
-        return new Response(JSON.stringify({
-          done: false,
-          started: false,
-          ignored: true,
-          mode: "m3u-only",
-          message: "Execução ignorada (run inválido ou lock expirado)",
-        }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({
+            done: false,
+            started: false,
+            ignored: true,
+            mode: "m3u-only",
+            message: "Execução ignorada (run inválido ou lock expirado)",
+          }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
 
       try {
         const manifest = await generateM3UIndex(supabase);
+
+        // Also update main manifest with video coverage stats
+        let existingManifest: any = {};
+        try {
+          const { data: mf } = await supabase.storage.from("catalog").download("manifest.json");
+          if (mf) existingManifest = JSON.parse(await mf.text());
+        } catch {}
+
+        const updatedManifest = {
+          ...existingManifest,
+          updated_at: new Date().toISOString(),
+          video_coverage: {
+            movies_with_video: manifest.movies_with_video,
+            series_with_video: manifest.series_with_video,
+            total_with_video: manifest.total_with_video,
+            indexed_at: manifest.updated_at,
+            total_links_parsed: manifest.parsed,
+          },
+        };
+
+        await uploadWithRetry(
+          supabase,
+          "manifest.json",
+          new Blob([JSON.stringify(updatedManifest)], { type: "application/json" }),
+        );
+
         return new Response(JSON.stringify({ done: true, mode: "m3u-only", ...manifest }), {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -317,6 +419,7 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ── Full catalog generation from CineVeo API ──
     const apiType: string = body.type || "movies";
     const startPage: number = Number(body.start_page || 1);
     const accumulated: any[] = body.accumulated || [];
@@ -375,40 +478,38 @@ Deno.serve(async (req) => {
         }),
       }).catch(() => {});
 
-      return new Response(JSON.stringify({
-        done: false,
-        type: apiType,
-        fetched_so_far: allItems.length,
-        next_page: currentPage,
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(
+        JSON.stringify({
+          done: false,
+          type: apiType,
+          fetched_so_far: allItems.length,
+          next_page: currentPage,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
+    // Deduplicate & sort
     const seen = new Map<number, any>();
     for (const item of allItems) seen.set(item.tmdb_id, item);
     const unique = [...seen.values()];
-
-    unique.sort((a, b) => {
-      const da = a.release_date || "0000";
-      const db = b.release_date || "0000";
-      return db.localeCompare(da);
-    });
+    unique.sort((a, b) => (b.release_date || "0000").localeCompare(a.release_date || "0000"));
 
     const contentType = apiType === "movies" ? "movie" : "series";
     const totalPages = Math.ceil(unique.length / ITEMS_PER_FILE);
-    let uploaded = 0;
 
+    // Upload catalog pages in parallel batches
+    const catalogUploads: Array<{ path: string; data: any }> = [];
     for (let p = 0; p < totalPages; p++) {
       const pageItems = unique.slice(p * ITEMS_PER_FILE, (p + 1) * ITEMS_PER_FILE);
-      const pageData = { total: unique.length, page: p + 1, per_page: ITEMS_PER_FILE, items: pageItems };
-      const filePath = `${contentType}/${p + 1}.json`;
-      const blob = new Blob([JSON.stringify(pageData)], { type: "application/json" });
-      const { error } = await supabase.storage.from("catalog").upload(filePath, blob, {
-        upsert: true,
-        contentType: "application/json",
+      catalogUploads.push({
+        path: `${contentType}/${p + 1}.json`,
+        data: { total: unique.length, page: p + 1, per_page: ITEMS_PER_FILE, items: pageItems },
       });
-      if (!error) uploaded++;
     }
+    const uploaded = await uploadBatch(supabase, catalogUploads);
 
+    // Update manifest
     let existingManifest: any = { updated_at: null, types: {} };
     try {
       const { data: manifestFile } = await supabase.storage.from("catalog").download("manifest.json");
@@ -416,6 +517,7 @@ Deno.serve(async (req) => {
     } catch {}
 
     const mergedManifest = {
+      ...existingManifest,
       updated_at: new Date().toISOString(),
       types: {
         ...(existingManifest?.types || {}),
@@ -423,12 +525,13 @@ Deno.serve(async (req) => {
       },
     };
 
-    await supabase.storage.from("catalog").upload(
+    await uploadWithRetry(
+      supabase,
       "manifest.json",
       new Blob([JSON.stringify(mergedManifest)], { type: "application/json" }),
-      { upsert: true, contentType: "application/json" },
     );
 
+    // Chain: movies done → start series, then M3U index
     if (apiType === "movies" && !body.skip_series) {
       const selfUrl = `${Deno.env.get("SUPABASE_URL")!}/functions/v1/generate-catalog`;
       fetch(selfUrl, {
@@ -441,7 +544,7 @@ Deno.serve(async (req) => {
       }).catch(() => {});
     }
 
-    // Build/update M3U ultra-fast lookup index after full run
+    // After series completes → also build M3U index
     if (apiType === "series") {
       try {
         await generateM3UIndex(supabase);
@@ -450,17 +553,23 @@ Deno.serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({
-      done: true,
-      type: apiType,
-      total_items: unique.length,
-      files_uploaded: uploaded,
-    }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(
+      JSON.stringify({
+        done: true,
+        type: apiType,
+        total_items: unique.length,
+        files_uploaded: uploaded,
+      }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   } catch (error) {
     console.error("[generate-catalog] Error:", error);
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Generation failed" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: error instanceof Error ? error.message : "Generation failed" }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   }
 });
