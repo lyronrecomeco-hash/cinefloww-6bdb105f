@@ -131,26 +131,38 @@ const BancoPage = () => {
 
   const handleSync = async () => {
     setGenerating(true);
+    const syncStartTime = Date.now();
     try {
-      toast({ title: "🚀 Sincronizando catálogo...", description: "Baixando lista IPTV completa (~400k itens) e gerando catálogo + links em background." });
-      const { error } = await supabase.functions.invoke("generate-catalog", {
-        body: {},
-      });
+      toast({ title: "🚀 Sincronizando catálogo...", description: "Crawling API CineVeo (filmes + séries) → catálogo + links de vídeo." });
+      const { error } = await supabase.functions.invoke("sync-catalog", { body: {} });
       if (error) throw error;
-      toast({ title: "✅ Sincronização iniciada", description: "Processamento em background. Atualize em 2-3 min." });
-      // Poll for completion
+      toast({ title: "✅ Sincronização iniciada", description: "Processamento em background. Aguarde..." });
+
+      // Poll manifest for completion (new updated_at > syncStartTime)
       const pollInterval = setInterval(async () => {
-        invalidateCatalogCache();
-        await loadStats();
-      }, 15000);
-      setTimeout(async () => {
+        try {
+          invalidateCatalogCache();
+          const manifest = await fetchCatalogManifest();
+          if (manifest?.updated_at && new Date(manifest.updated_at).getTime() > syncStartTime) {
+            clearInterval(pollInterval);
+            await loadStats();
+            await loadItems();
+            setGenerating(false);
+            toast({ title: "✅ Catálogo sincronizado!", description: `${manifest.types?.movie?.total || 0} filmes + ${manifest.types?.series?.total || 0} séries indexados.` });
+          }
+        } catch {}
+      }, 10000);
+
+      // Safety timeout (10 min)
+      setTimeout(() => {
         clearInterval(pollInterval);
-        invalidateCatalogCache();
-        await loadStats();
-        await loadItems();
-        setGenerating(false);
-        toast({ title: "✅ Catálogo atualizado!", description: "Todos os títulos e links foram sincronizados." });
-      }, 120000);
+        if (generating) {
+          invalidateCatalogCache();
+          loadStats();
+          loadItems();
+          setGenerating(false);
+        }
+      }, 600000);
     } catch (err: any) {
       toast({ title: "❌ Erro", description: err?.message || "Falha ao sincronizar", variant: "destructive" });
       setGenerating(false);
