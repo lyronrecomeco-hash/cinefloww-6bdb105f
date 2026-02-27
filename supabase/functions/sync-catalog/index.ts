@@ -1,9 +1,11 @@
 /**
  * sync-catalog: Crawls CineVeo API (movies + series) → static catalog + video shards.
+ * 100% Storage-only — zero DB writes for catalog/video data.
  * 
  * Modes:
  *   action: "count" → returns total pages/items from API (fast)
  *   action: "sync"  → full crawl + build (self-chaining)
+ *   action: "clean" → wipe all catalog storage
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -18,11 +20,11 @@ const CINEVEO_USER = "lyneflix-vods";
 const CINEVEO_PASS = "uVljs2d";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
-const PAGES_PER_RUN = 15;
+const PAGES_PER_RUN = 30;
 const ITEMS_PER_FILE = 100;
 const M3U_BUCKETS = 100;
-const UPLOAD_BATCH = 15;
-const DELAY_MS = 50;
+const UPLOAD_BATCH = 25;
+const DELAY_MS = 30;
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -68,7 +70,7 @@ async function uploadWithRetry(supabase: any, path: string, blob: Blob, retries 
       contentType: "application/json",
     });
     if (!error) return true;
-    if (i < retries) await sleep(300);
+    if (i < retries) await sleep(200);
   }
   return false;
 }
@@ -239,7 +241,7 @@ async function handleCrawl(supabase: any, body: any): Promise<any> {
   return { done: false, phase: "building" };
 }
 
-// ── Build phase ──
+// ── Build phase (storage-only, zero DB) ──
 
 async function handleBuild(supabase: any, body: any): Promise<any> {
   const moviesBatches = body.movies_batches || 0;
@@ -427,129 +429,7 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
   for (let i = 0; i < seriesBatches; i++) cleanups.push(supabase.storage.from("catalog").remove([`_sync/series_${i}.json`]));
   await Promise.allSettled(cleanups);
 
-  // ── DB Sync phase: upsert content + video_cache ──
-  await saveProgress(supabase, {
-    phase: "db_sync",
-    step: "content",
-    movies: movies.length,
-    series: series.length,
-    files_uploaded: uploaded,
-    db_content_done: 0,
-    db_cache_done: 0,
-  });
-
-  let dbContentDone = 0;
-  let dbCacheDone = 0;
-
-  // Upsert content table in batches of 200
-  const allCatalog = [...movies, ...series];
-  for (let i = 0; i < allCatalog.length; i += 200) {
-    const batch = allCatalog.slice(i, i + 200).map((item) => ({
-      tmdb_id: item.tmdb_id,
-      content_type: item.content_type,
-      title: item.title,
-      overview: item.synopsis || "",
-      poster_path: item.poster || null,
-      backdrop_path: item.backdrop || null,
-      release_date: item.year ? `${item.year}-01-01` : null,
-      vote_average: 0,
-      status: "published",
-      featured: false,
-      audio_type: ["dublado"],
-    }));
-    const { error } = await supabase.from("content").upsert(batch, { onConflict: "tmdb_id,content_type" });
-    if (!error) dbContentDone += batch.length;
-
-    if (i % 1000 === 0) {
-      await saveProgress(supabase, {
-        phase: "db_sync",
-        step: "content",
-        movies: movies.length,
-        series: series.length,
-        db_content_done: dbContentDone,
-        db_content_total: allCatalog.length,
-      });
-    }
-  }
-
-  // Upsert video_cache table
-  await saveProgress(supabase, {
-    phase: "db_sync",
-    step: "video_cache",
-    movies: movies.length,
-    series: series.length,
-    db_content_done: dbContentDone,
-    db_cache_done: 0,
-  });
-
-  const cacheRows: any[] = [];
-  const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
-
-  for (const item of movies) {
-    if (!item.stream_url) continue;
-    cacheRows.push({
-      tmdb_id: item.tmdb_id,
-      content_type: "movie",
-      audio_type: "dublado",
-      video_url: item.stream_url,
-      video_type: item.stream_url.includes(".m3u8") ? "m3u8" : "mp4",
-      provider: "cineveo-api",
-      season: 0,
-      episode: 0,
-      expires_at: expiresAt,
-    });
-  }
-
-  for (const item of series) {
-    if (item.episodes?.length) {
-      for (const ep of item.episodes) {
-        cacheRows.push({
-          tmdb_id: item.tmdb_id,
-          content_type: "series",
-          audio_type: "dublado",
-          video_url: ep.stream_url,
-          video_type: ep.stream_url.includes(".m3u8") ? "m3u8" : "mp4",
-          provider: "cineveo-api",
-          season: ep.season,
-          episode: ep.episode,
-          expires_at: expiresAt,
-        });
-      }
-    } else if (item.stream_url) {
-      cacheRows.push({
-        tmdb_id: item.tmdb_id,
-        content_type: "series",
-        audio_type: "dublado",
-        video_url: item.stream_url,
-        video_type: item.stream_url.includes(".m3u8") ? "m3u8" : "mp4",
-        provider: "cineveo-api",
-        season: 0,
-        episode: 0,
-        expires_at: expiresAt,
-      });
-    }
-  }
-
-  for (let i = 0; i < cacheRows.length; i += 200) {
-    const batch = cacheRows.slice(i, i + 200);
-    const { error } = await supabase.from("video_cache").upsert(batch, {
-      onConflict: "tmdb_id,content_type,audio_type,season,episode",
-    });
-    if (!error) dbCacheDone += batch.length;
-
-    if (i % 1000 === 0) {
-      await saveProgress(supabase, {
-        phase: "db_sync",
-        step: "video_cache",
-        movies: movies.length,
-        series: series.length,
-        db_content_done: dbContentDone,
-        db_cache_done: dbCacheDone,
-        db_cache_total: cacheRows.length,
-      });
-    }
-  }
-
+  // Done — no DB writes, everything is in Storage
   await saveProgress(supabase, {
     phase: "done",
     done: true,
@@ -558,8 +438,6 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
     movies_with_video: moviesWithVideo,
     series_with_video: seriesWithVideo,
     files_uploaded: uploaded,
-    db_content_done: dbContentDone,
-    db_cache_done: dbCacheDone,
   });
 
   return {
@@ -569,8 +447,6 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
     moviesWithVideo,
     seriesWithVideo,
     files_uploaded: uploaded,
-    db_content: dbContentDone,
-    db_cache: dbCacheDone,
   };
 }
 
@@ -609,7 +485,6 @@ Deno.serve(async (req) => {
           await supabase.storage.from("catalog").remove(paths);
           deleted += paths.length;
         }
-        // Check subfolders for m3u-index
         if (folder === "m3u-index") {
           for (const sub of ["movie", "series"]) {
             const { data: subFiles } = await supabase.storage.from("catalog").list(`${folder}/${sub}`, { limit: 1000 });
@@ -621,7 +496,6 @@ Deno.serve(async (req) => {
           }
         }
       }
-      // Also remove root manifest
       await supabase.storage.from("catalog").remove(["manifest.json"]);
       deleted++;
       return new Response(JSON.stringify({ cleaned: true, deleted }), {
