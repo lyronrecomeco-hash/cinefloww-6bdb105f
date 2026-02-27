@@ -1,15 +1,19 @@
-import { useRef, forwardRef } from "react";
+import { useRef, forwardRef, memo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import MovieCard from "./MovieCard";
+import MovieCardSkeleton from "./MovieCardSkeleton";
 import { TMDBMovie } from "@/services/tmdb";
 
 interface ContentRowProps {
   title: string;
   movies: TMDBMovie[];
   icon?: React.ReactNode;
+  loading?: boolean;
 }
 
-const ContentRow = forwardRef<HTMLElement, ContentRowProps>(({ title, movies, icon }, ref) => {
+const SKELETON_COUNT = 8;
+
+const ContentRow = memo(forwardRef<HTMLElement, ContentRowProps>(({ title, movies, icon, loading }, ref) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const scroll = (direction: "left" | "right") => {
@@ -21,10 +25,10 @@ const ContentRow = forwardRef<HTMLElement, ContentRowProps>(({ title, movies, ic
     });
   };
 
-  if (movies.length === 0) return null;
+  if (!loading && movies.length === 0) return null;
 
   return (
-    <section className="mb-8 sm:mb-10 lg:mb-14" style={{ contain: "layout style" }}>
+    <section className="mb-8 sm:mb-10 lg:mb-14 gpu-layer" style={{ contain: "layout style" }}>
       <div className="flex items-center justify-between px-3 sm:px-6 lg:px-12 mb-3 sm:mb-4 lg:mb-6">
         <div className="flex items-center gap-2 sm:gap-3">
           {icon && (
@@ -53,17 +57,23 @@ const ContentRow = forwardRef<HTMLElement, ContentRowProps>(({ title, movies, ic
       <div
         ref={scrollRef}
         className="flex gap-2.5 sm:gap-4 overflow-x-auto scrollbar-hide px-3 sm:px-6 lg:px-12 pb-2 snap-x snap-proximity overscroll-x-contain"
-        style={{ WebkitOverflowScrolling: "touch", willChange: "scroll-position" }}
+        style={{ WebkitOverflowScrolling: "touch" }}
       >
-        {movies.map((movie) => (
-          <div key={movie.id} className="flex-shrink-0 w-[120px] sm:w-[160px] lg:w-[180px] snap-start">
-            <MovieCard movie={movie} />
-          </div>
-        ))}
+        {loading
+          ? Array.from({ length: SKELETON_COUNT }).map((_, i) => (
+              <div key={`sk-${i}`} className="flex-shrink-0 w-[120px] sm:w-[160px] lg:w-[180px] snap-start">
+                <MovieCardSkeleton />
+              </div>
+            ))
+          : movies.map((movie) => (
+              <div key={movie.id} className="flex-shrink-0 w-[120px] sm:w-[160px] lg:w-[180px] snap-start">
+                <MovieCard movie={movie} />
+              </div>
+            ))}
       </div>
     </section>
   );
-});
+}));
 
 ContentRow.displayName = "ContentRow";
 

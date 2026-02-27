@@ -30,7 +30,7 @@ const Index = () => {
   const [doramas, setDoramas] = useState<TMDBMovie[]>([]);
   const [animes, setAnimes] = useState<TMDBMovie[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sectionsReady, setSectionsReady] = useState(false);
+  
 
   useEffect(() => {
     const mapToTMDB = (items: any[]): TMDBMovie[] =>
@@ -47,7 +47,7 @@ const Index = () => {
       }));
 
     let done = false;
-    const finish = () => { if (!done) { done = true; setLoading(false); setSectionsReady(true); } };
+    const finish = () => { if (!done) { done = true; setLoading(false); } };
 
     // Hard timeout: never stay loading >4s
     const safetyTimer = setTimeout(finish, 4000);
@@ -80,33 +80,21 @@ const Index = () => {
     return () => clearTimeout(safetyTimer);
   }, []);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-background animate-page-enter">
       <Navbar />
-      <HeroSlider movies={trending} />
+      {loading ? (
+        <div className="w-full aspect-[16/7] bg-muted animate-pulse" />
+      ) : (
+        <HeroSlider movies={trending} />
+      )}
 
       <div className="mt-4 sm:mt-6 lg:mt-8 relative z-10 pb-12 sm:pb-20 space-y-1 sm:space-y-2" style={{ contentVisibility: "auto", containIntrinsicSize: "0 500px" }}>
-        {sectionsReady ? (
-          <>
-            <ContentRow title="🔥 Em Alta" movies={nowPlaying} icon={<Flame className="w-4 h-4" />} />
-            <ContentRow title="🎬 Filmes Populares" movies={popularMovies} icon={<Film className="w-4 h-4" />} />
-            <ContentRow title="📺 Séries Populares" movies={popularSeries} icon={<Tv className="w-4 h-4" />} />
-            {doramas.length > 0 && <ContentRow title="🌸 Doramas" movies={doramas} icon={<Heart className="w-4 h-4" />} />}
-            {animes.length > 0 && <ContentRow title="⚡ Animes" movies={animes} icon={<Sparkles className="w-4 h-4" />} />}
-          </>
-        ) : (
-          <div className="flex justify-center py-12">
-            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          </div>
-        )}
+        <ContentRow title="🔥 Em Alta" movies={nowPlaying} icon={<Flame className="w-4 h-4" />} loading={loading} />
+        <ContentRow title="🎬 Filmes Populares" movies={popularMovies} icon={<Film className="w-4 h-4" />} loading={loading} />
+        <ContentRow title="📺 Séries Populares" movies={popularSeries} icon={<Tv className="w-4 h-4" />} loading={loading} />
+        {doramas.length > 0 && <ContentRow title="🌸 Doramas" movies={doramas} icon={<Heart className="w-4 h-4" />} />}
+        {animes.length > 0 && <ContentRow title="⚡ Animes" movies={animes} icon={<Sparkles className="w-4 h-4" />} />}
       </div>
 
       <Footer />
