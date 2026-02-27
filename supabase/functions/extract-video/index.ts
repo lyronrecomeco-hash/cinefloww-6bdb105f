@@ -1,7 +1,8 @@
 /**
  * extract-video: On-demand video link resolution.
- * Queries CineVeo API directly at the moment of the request.
- * Does NOT save results to database — pure on-demand resolution.
+ * Priority:
+ * 1) Static M3U index lookup (ultra-fast, no DB)
+ * 2) CineVeo catalog scan fallback
  */
 
 const corsHeaders = {
@@ -14,6 +15,7 @@ const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 const CINEVEO_API_BASE = "https://cinetvembed.cineveo.site/api";
 const CINEVEO_USER = "lyneflix-vods";
 const CINEVEO_PASS = "uVljs2d";
+const M3U_BUCKETS = 100;
 
 function fetchWithTimeout(url: string, opts: RequestInit & { timeout?: number } = {}): Promise<Response> {
   const { timeout = 8000, ...fetchOpts } = opts;
@@ -51,6 +53,65 @@ function pickEpisodeStream(
 interface CineVeoResult {
   url: string;
   type: "mp4" | "m3u8";
+  provider?: string;
+}
+
+async function fetchM3UBucket(contentType: string, tmdbId: number): Promise<any | null> {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const bucket = Math.abs(tmdbId) % M3U_BUCKETS;
+  const kind = contentType === "movie" ? "movie" : "series";
+  const url = `${supabaseUrl}/storage/v1/object/public/catalog/m3u-index/${kind}/${bucket}.json`;
+
+  try {
+    const res = await fetchWithTimeout(url, {
+      timeout: 2500,
+      headers: { "User-Agent": UA, Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function resolveFromM3UIndex(
+  tmdbId: number,
+  contentType: string,
+  season?: number,
+  episode?: number,
+): Promise<CineVeoResult | null> {
+  const bucketData = await fetchM3UBucket(contentType, tmdbId);
+  const row = bucketData?.items?.[String(tmdbId)];
+  if (!row) return null;
+
+  if (contentType === "movie") {
+    if (!row.url) return null;
+    return {
+      url: row.url,
+      type: row.type === "mp4" ? "mp4" : "m3u8",
+      provider: row.provider || "cineveo-m3u",
+    };
+  }
+
+  const key = season && episode ? `${season}:${episode}` : null;
+  if (key && row.episodes?.[key]?.url) {
+    const hit = row.episodes[key];
+    return {
+      url: hit.url,
+      type: hit.type === "mp4" ? "mp4" : "m3u8",
+      provider: hit.provider || "cineveo-m3u",
+    };
+  }
+
+  if (row.default?.url) {
+    return {
+      url: row.default.url,
+      type: row.default.type === "mp4" ? "mp4" : "m3u8",
+      provider: row.default.provider || "cineveo-m3u",
+    };
+  }
+
+  return null;
 }
 
 async function fetchCatalogPage(apiType: string, page: number): Promise<any[] | null> {
@@ -84,7 +145,7 @@ function findInItems(items: any[], tmdbStr: string, apiType: string, season?: nu
 
   if (!streamUrl) return null;
   const type: "mp4" | "m3u8" = streamUrl.includes(".m3u8") ? "m3u8" : "mp4";
-  return { url: streamUrl, type };
+  return { url: streamUrl, type, provider: "cineveo-api" };
 }
 
 async function tryCineveoCatalog(
@@ -163,7 +224,6 @@ async function tryCineveoCatalog(
   return null;
 }
 
-// ── Main handler ─────────────────────────────────────────────────────
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -181,15 +241,27 @@ Deno.serve(async (req) => {
 
     const cType = content_type || "movie";
 
-    // Direct on-demand resolution — no cache, no DB
-    console.log(`[extract] On-demand resolve tmdb_id=${tmdb_id} type=${cType}`);
+    // 1) Ultra-fast static M3U lookup first
+    const m3uResult = await resolveFromM3UIndex(tmdb_id, cType, season, episode);
+    if (m3uResult) {
+      console.log(`[extract] M3U hit tmdb_id=${tmdb_id} type=${cType}`);
+      return new Response(JSON.stringify({
+        url: m3uResult.url,
+        type: m3uResult.type,
+        provider: m3uResult.provider || "cineveo-m3u",
+        cached: false,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    // 2) Fallback: deep CineVeo scan
+    console.log(`[extract] Scan fallback tmdb_id=${tmdb_id} type=${cType}`);
     const result = await tryCineveoCatalog(tmdb_id, cType, season, episode);
 
     if (result) {
       return new Response(JSON.stringify({
         url: result.url,
         type: result.type,
-        provider: "cineveo-api",
+        provider: result.provider || "cineveo-api",
         cached: false,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -202,7 +274,8 @@ Deno.serve(async (req) => {
   } catch (error) {
     console.error("[extract] Error:", error);
     return new Response(JSON.stringify({ error: error instanceof Error ? error.message : "Extraction failed" }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

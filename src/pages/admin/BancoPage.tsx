@@ -102,14 +102,23 @@ const BancoPage = () => {
   const handleGenerate = async () => {
     setGenerating(true);
     try {
-      toast({ title: "🚀 Gerando catálogo...", description: "Isso pode levar alguns minutos." });
-      const { error } = await supabase.functions.invoke("generate-catalog", {
-        body: { type: "movies" },
+      toast({ title: "🚀 Indexando links...", description: "Gerando índice M3U rápido e atualizando catálogo em background." });
+
+      // 1) Ultra-fast links index from M3U (no DB)
+      const { error: m3uError } = await supabase.functions.invoke("generate-catalog", {
+        body: { mode: "m3u-only" },
       });
-      if (error) throw error;
-      toast({ title: "✅ Geração iniciada", description: "O catálogo será atualizado em background." });
+      if (m3uError) throw m3uError;
+
+      // 2) Refresh static catalog pages in background (non-blocking)
+      supabase.functions.invoke("generate-catalog", {
+        body: { type: "movies" },
+      }).catch(() => {});
+
+      await loadStats();
+      toast({ title: "✅ Índice atualizado", description: "Links da lista M3U indexados com sucesso." });
     } catch (err: any) {
-      toast({ title: "❌ Erro", description: err?.message || "Falha ao gerar catálogo", variant: "destructive" });
+      toast({ title: "❌ Erro", description: err?.message || "Falha ao indexar links", variant: "destructive" });
     } finally {
       setGenerating(false);
     }
