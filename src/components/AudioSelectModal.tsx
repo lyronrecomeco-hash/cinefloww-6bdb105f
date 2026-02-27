@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { X, Mic, Subtitles, Globe, ChevronRight } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 
 interface AudioSelectModalProps {
   tmdbId: number;
@@ -23,37 +22,37 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSe
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Query ALL audio types for this content from video_cache
-    const cTypes = type === "tv" ? ["series", "tv"] : ["movie"];
-    
-    const fetchAudios = async () => {
-      let query = supabase
-        .from("video_cache")
-        .select("audio_type")
-        .eq("tmdb_id", tmdbId)
-        .in("content_type", cTypes)
-        .gt("expires_at", new Date().toISOString());
+    // Check M3U shards in storage to see if this content has video
+    const checkM3UShards = async () => {
+      const bucket = Math.abs(tmdbId) % 100;
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const kinds = type === "tv" ? ["series", "movie"] : ["movie", "series"];
 
-      // For specific episode, check episode-level entries
-      if (season !== undefined && episode !== undefined) {
-        query = query.eq("season", season).eq("episode", episode);
-      } else if (type === "movie") {
-        // Movies: entries with season=0, episode=0
-        query = query.eq("season", 0).eq("episode", 0);
-      }
-      // For series without specific ep, check any available audio across all episodes
+      try {
+        const results = await Promise.all(
+          kinds.map(async (kind) => {
+            try {
+              const res = await fetch(
+                `${supabaseUrl}/storage/v1/object/public/catalog/m3u-index/${kind}/${bucket}.json`,
+                { headers: { Accept: "application/json" } }
+              );
+              if (!res.ok) return false;
+              const data = await res.json();
+              return !!data?.items?.[String(tmdbId)];
+            } catch { return false; }
+          })
+        );
 
-      const { data } = await query;
-      
-      if (data && data.length > 0) {
-        const audios = new Set(data.map(d => d.audio_type));
-        setAvailableAudios(audios);
-      }
+        if (results.some(Boolean)) {
+          // Content exists in M3U index — show both audio options as available
+          setAvailableAudios(new Set(["dublado", "legendado"]));
+        }
+      } catch { /* no sources */ }
       setLoading(false);
     };
 
-    fetchAudios();
-  }, [tmdbId, type, season, episode]);
+    checkM3UShards();
+  }, [tmdbId, type]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
