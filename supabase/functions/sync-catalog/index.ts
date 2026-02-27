@@ -215,21 +215,56 @@ Deno.serve(async (req) => {
       }).catch(() => {});
     }
 
-    // Upload manifest
-    const manifestBlob = new Blob([JSON.stringify({
+    // Upload/merge manifest
+    let existingManifest: any = { updated_at: null, types: {} };
+    try {
+      const { data: manifestFile } = await supabase.storage.from("catalog").download("manifest.json");
+      if (manifestFile) {
+        existingManifest = JSON.parse(await manifestFile.text());
+      }
+    } catch {
+      // ignore
+    }
+
+    const mergedManifest = {
       updated_at: new Date().toISOString(),
-      types: { [contentType]: { total: unique.length, pages: totalPages } },
-    })], { type: "application/json" });
+      types: {
+        ...(existingManifest?.types || {}),
+        [contentType]: {
+          total: unique.length,
+          pages: totalPages,
+          video_links: cacheRows.length,
+        },
+      },
+    };
+
+    const manifestBlob = new Blob([JSON.stringify(mergedManifest)], { type: "application/json" });
     await supabase.storage.from("catalog").upload("manifest.json", manifestBlob, {
       upsert: true,
       contentType: "application/json",
     });
+
+    const movieStats = mergedManifest.types?.movie || { total: 0, video_links: 0 };
+    const seriesStats = mergedManifest.types?.series || { total: 0, video_links: 0 };
+
+    await supabase.from("site_settings").upsert({
+      key: "catalog_stats",
+      value: {
+        updated_at: mergedManifest.updated_at,
+        total_catalog: Number(movieStats.total || 0) + Number(seriesStats.total || 0),
+        with_video_total: Number(movieStats.video_links || 0) + Number(seriesStats.video_links || 0),
+        by_provider: { "cineveo-api": Number(movieStats.video_links || 0) + Number(seriesStats.video_links || 0) },
+        types: mergedManifest.types,
+      },
+    }, { onConflict: "key" });
 
     await saveProgress("done", {
       type: apiType,
       total_items: unique.length,
       files_uploaded: uploaded,
       cache_rows: cacheRows.length,
+      done: true,
+      video_links_total: Number(movieStats.video_links || 0) + Number(seriesStats.video_links || 0),
     });
 
     // Auto-chain to next type if we started with movies
