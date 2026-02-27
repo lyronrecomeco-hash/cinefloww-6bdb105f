@@ -24,6 +24,12 @@ interface SyncProgress {
   files?: number;
   files_uploaded?: number;
   updated_at?: string;
+  step?: string;
+  db_content_done?: number;
+  db_content_total?: number;
+  db_cache_done?: number;
+  db_cache_total?: number;
+  error?: string;
 }
 
 interface SyncModalProps {
@@ -113,7 +119,7 @@ export default function SyncModal({ open, onClose, onComplete }: SyncModalProps)
             setError((p as any).error || "Erro durante sincronização");
           }
         } catch {}
-      }, 4000);
+      }, 2000);
 
       // Safety timeout (15 min)
       setTimeout(() => {
@@ -137,6 +143,10 @@ export default function SyncModal({ open, onClose, onComplete }: SyncModalProps)
         return `Crawling ${p.type === "series" ? "séries" : "filmes"} — página ${p.page || "?"}${p.total_pages ? ` / ${p.total_pages}` : ""}`;
       case "building": return "Gerando catálogo e shards de vídeo...";
       case "uploading": return `Enviando ${p.files || 0} arquivos...`;
+      case "db_sync":
+        if (p.step === "content") return `Atualizando banco — conteúdo ${p.db_content_done?.toLocaleString() || 0}${p.db_content_total ? ` / ${p.db_content_total.toLocaleString()}` : ""}`;
+        if (p.step === "video_cache") return `Atualizando banco — links ${p.db_cache_done?.toLocaleString() || 0}${p.db_cache_total ? ` / ${p.db_cache_total.toLocaleString()}` : ""}`;
+        return "Atualizando banco de dados...";
       case "done": return "✅ Concluído!";
       case "error": return "❌ Erro";
       default: return p.phase;
@@ -223,6 +233,21 @@ export default function SyncModal({ open, onClose, onComplete }: SyncModalProps)
                 </p>
               </div>
             )}
+            {progress.phase === "db_sync" && (
+              <div className="space-y-1">
+                <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-primary to-amber-400 transition-all duration-700"
+                    style={{
+                      width: `${Math.min(100, progress.step === "content"
+                        ? (progress.db_content_total ? Math.round((progress.db_content_done || 0) / progress.db_content_total * 100) : 50)
+                        : (progress.db_cache_total ? Math.round(((progress.db_cache_done || 0) / progress.db_cache_total) * 100) : 50)
+                      )}%`
+                    }}
+                  />
+                </div>
+              </div>
+            )}
             {progress.movies !== undefined && progress.series !== undefined && (
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-white/5 rounded-lg p-2 text-center">
@@ -242,7 +267,7 @@ export default function SyncModal({ open, onClose, onComplete }: SyncModalProps)
         {progress?.done && (
           <div className="space-y-3 text-center py-2">
             <CheckCircle className="w-10 h-10 text-emerald-400 mx-auto" />
-            <p className="text-sm font-medium">Catálogo sincronizado com sucesso!</p>
+            <p className="text-sm font-medium">Catálogo e banco sincronizados!</p>
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-2">
                 <span className="text-emerald-400 font-bold">{progress.movies?.toLocaleString()}</span>
@@ -252,6 +277,20 @@ export default function SyncModal({ open, onClose, onComplete }: SyncModalProps)
                 <span className="text-emerald-400 font-bold">{progress.series?.toLocaleString()}</span>
                 <span className="text-muted-foreground ml-1">séries</span>
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              {progress.db_content_done !== undefined && (
+                <div className="bg-white/5 rounded-lg p-2 text-center">
+                  <span className="text-foreground font-medium">{progress.db_content_done?.toLocaleString()}</span>
+                  <span className="text-muted-foreground ml-1">no banco</span>
+                </div>
+              )}
+              {progress.db_cache_done !== undefined && (
+                <div className="bg-white/5 rounded-lg p-2 text-center">
+                  <span className="text-foreground font-medium">{progress.db_cache_done?.toLocaleString()}</span>
+                  <span className="text-muted-foreground ml-1">links salvos</span>
+                </div>
+              )}
             </div>
             {progress.files_uploaded && (
               <p className="text-[10px] text-muted-foreground">{progress.files_uploaded} arquivos gerados</p>
