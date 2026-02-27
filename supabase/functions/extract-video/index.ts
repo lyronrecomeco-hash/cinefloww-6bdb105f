@@ -157,11 +157,12 @@ async function tryCineveoCatalog(
   const tmdbStr = String(tmdbId);
   const isMovie = contentType === "movie";
 
-  const MOVIES_SOFT_MAX = 1800;
-  const SERIES_SOFT_MAX = 800;
-  const PRIMARY_BATCH_SIZE = 20;
-  const SECONDARY_BATCH_SIZE = 12;
-  const MAX_BATCHES = 120;
+  // Capped to prevent timeouts — if not in first few pages, it's not there
+  const MOVIES_SOFT_MAX = 5;
+  const SERIES_SOFT_MAX = 5;
+  const PRIMARY_BATCH_SIZE = 5;
+  const SECONDARY_BATCH_SIZE = 3;
+  const MAX_BATCHES = 2;
 
   const primaryType = isMovie ? "movies" : "series";
   const secondaryType = isMovie ? "series" : "movies";

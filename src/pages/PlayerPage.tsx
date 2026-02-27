@@ -153,11 +153,15 @@ const PlayerPage = () => {
       supabase.from("content").select("title").eq("tmdb_id", tmdbId).in("content_type", cTypes).maybeSingle()
         .then(({ data }) => { if (data?.title) setBankTitle(data.title); });
 
-      // On-demand: call extract-video directly (no cache)
+      // On-demand: call extract-video with 15s timeout
       const extractCType = params.type === "movie" ? "movie" : "tv";
-      const { data } = await supabase.functions.invoke("extract-video", {
+      const extractPromise = supabase.functions.invoke("extract-video", {
         body: { tmdb_id: tmdbId, content_type: extractCType, season, episode },
       });
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("extract-timeout")), 15000)
+      );
+      const { data } = await Promise.race([extractPromise, timeoutPromise]);
 
       if (data?.url) {
         if (data.type === "iframe-proxy") {
@@ -182,7 +186,14 @@ const PlayerPage = () => {
       }
 
       setError(true);
-    } catch {
+    } catch (err) {
+      // Auto-retry once on timeout/error
+      if (playerRetryCount.current < 2) {
+        playerRetryCount.current++;
+        console.warn(`[PlayerPage] Extraction failed, retry ${playerRetryCount.current}/2`);
+        setTimeout(() => loadVideo(true), 1500);
+        return;
+      }
       setError(true);
     }
     setBankLoading(false);

@@ -18,11 +18,9 @@ export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
   // Cloudflare R2/CDN e CineVeo MP4 direto devem ir nativo no browser.
   // Evita token/proxy desnecessário que pode quebrar alguns provedores.
   const lowerUrl = rawUrl.toLowerCase();
+  // Only R2/CDN links go direct — CineVeo MUST be proxied for CORS/Referer
   const directHosts = [
     "cdf.lyneflix.online/vd/",
-    "cinetvembed.cineveo.site/",
-    "cdn.cineveo.site/",
-    "cineveo.site/",
   ];
   if (directHosts.some((h) => lowerUrl.includes(h))) return rawUrl;
 
