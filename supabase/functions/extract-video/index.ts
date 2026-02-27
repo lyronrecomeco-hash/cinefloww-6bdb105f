@@ -2,7 +2,8 @@
  * extract-video: On-demand video link resolution.
  * Priority:
  * 1) Static M3U index lookup (ultra-fast, no DB)
- * 2) CineVeo catalog scan fallback (capped)
+ * 2) Direct CineVeo URL construction + HEAD verify (instant)
+ * 3) CineVeo catalog API search (broader scan)
  */
 
 const corsHeaders = {
@@ -13,6 +14,7 @@ const corsHeaders = {
 
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 const CINEVEO_API_BASE = "https://cinetvembed.cineveo.site/api";
+const CINEVEO_STREAM_BASE = "https://cinetvembed.cineveo.site";
 const CINEVEO_USER = "lyneflix-vods";
 const CINEVEO_PASS = "uVljs2d";
 const M3U_BUCKETS = 100;
@@ -82,7 +84,6 @@ async function resolveFromM3UIndex(
   season?: number,
   episode?: number,
 ): Promise<CineVeoResult | null> {
-  // Try both types in parallel for maximum hit rate
   const primaryType = contentType === "movie" ? "movie" : "series";
   const secondaryType = contentType === "movie" ? "series" : "movie";
 
@@ -91,12 +92,10 @@ async function resolveFromM3UIndex(
     fetchM3UBucket(secondaryType, tmdbId),
   ]);
 
-  // Check primary type first
   const primaryRow = primaryBucket?.items?.[String(tmdbId)];
   const result = extractFromRow(primaryRow, primaryType, season, episode);
   if (result) return result;
 
-  // Fallback: check secondary type
   const secondaryRow = secondaryBucket?.items?.[String(tmdbId)];
   return extractFromRow(secondaryRow, secondaryType, season, episode);
 }
@@ -109,7 +108,6 @@ function extractFromRow(
 ): CineVeoResult | null {
   if (!row) return null;
 
-  // Movie-style entry (flat url)
   if (row.url) {
     return {
       url: row.url,
@@ -118,7 +116,6 @@ function extractFromRow(
     };
   }
 
-  // Series-style entry (episodes map + default)
   const key = season && episode ? `${season}:${episode}` : null;
   if (key && row.episodes?.[key]?.url) {
     const hit = row.episodes[key];
@@ -140,7 +137,130 @@ function extractFromRow(
   return null;
 }
 
-// ── CineVeo API fallback (capped scan) ──
+// ── Direct CineVeo URL construction + verification ──
+
+async function tryDirectCineVeoUrl(
+  tmdbId: number,
+  contentType: string,
+  season?: number,
+  episode?: number,
+): Promise<CineVeoResult | null> {
+  const isMovie = contentType === "movie";
+
+  // Build candidate URLs to try
+  const candidates: string[] = [];
+
+  if (isMovie) {
+    // Movie direct URL pattern
+    candidates.push(`${CINEVEO_STREAM_BASE}/movie/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}.mp4`);
+    candidates.push(`${CINEVEO_STREAM_BASE}/movie/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}`);
+  } else {
+    // Series with episode
+    const s = season || 1;
+    const e = episode || 1;
+    candidates.push(`${CINEVEO_STREAM_BASE}/series/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}/${s}/${e}.mp4`);
+    candidates.push(`${CINEVEO_STREAM_BASE}/series/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}/${s}/${e}`);
+  }
+
+  // Also try the opposite type (movie might be listed as series and vice versa)
+  if (isMovie) {
+    candidates.push(`${CINEVEO_STREAM_BASE}/series/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}/1/1.mp4`);
+  } else {
+    candidates.push(`${CINEVEO_STREAM_BASE}/movie/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}.mp4`);
+  }
+
+  // Try all candidates in parallel with HEAD requests
+  const checks = candidates.map(async (url) => {
+    try {
+      const res = await fetchWithTimeout(url, {
+        method: "HEAD",
+        timeout: 5000,
+        headers: { "User-Agent": UA },
+      });
+      // Accept 200, 206 (partial content), or 302 (redirect to actual file)
+      if (res.ok || res.status === 302 || res.status === 301) {
+        const ct = res.headers.get("content-type") || "";
+        // Reject HTML pages (embed pages, not video files)
+        if (ct.includes("text/html")) return null;
+        return url;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  });
+
+  const results = await Promise.all(checks);
+  const validUrl = results.find((u) => u !== null);
+
+  if (validUrl) {
+    const type: "mp4" | "m3u8" = validUrl.includes(".m3u8") ? "m3u8" : "mp4";
+    return { url: validUrl, type, provider: "cineveo-direct" };
+  }
+
+  return null;
+}
+
+// ── CineVeo Catalog API: detail endpoint (single item lookup) ──
+
+async function tryCineVeoDetail(
+  tmdbId: number,
+  contentType: string,
+  season?: number,
+  episode?: number,
+): Promise<CineVeoResult | null> {
+  const isMovie = contentType === "movie";
+  const apiType = isMovie ? "movies" : "series";
+  
+  // Try the detail/search endpoint if available
+  const detailUrl = `${CINEVEO_API_BASE}/catalog.php?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=${apiType}&tmdb_id=${tmdbId}`;
+  
+  try {
+    const res = await fetchWithTimeout(detailUrl, {
+      timeout: 8000,
+      headers: { "User-Agent": UA, Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const payload = await res.json();
+    
+    const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+    if (items.length === 0) return null;
+    
+    const found = findInItems(items, String(tmdbId), apiType, season, episode);
+    if (found) {
+      console.log(`[extract] Detail API hit tmdb_id=${tmdbId}`);
+      return found;
+    }
+  } catch {
+    // Detail endpoint may not exist, continue
+  }
+  
+  // Also try the opposite type
+  const altType = isMovie ? "series" : "movies";
+  const altUrl = `${CINEVEO_API_BASE}/catalog.php?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=${altType}&tmdb_id=${tmdbId}`;
+  
+  try {
+    const res = await fetchWithTimeout(altUrl, {
+      timeout: 6000,
+      headers: { "User-Agent": UA, Accept: "application/json" },
+    });
+    if (!res.ok) return null;
+    const payload = await res.json();
+    
+    const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+    if (items.length === 0) return null;
+    
+    const found = findInItems(items, String(tmdbId), altType, season, episode);
+    if (found) {
+      console.log(`[extract] Detail API (alt) hit tmdb_id=${tmdbId}`);
+      return found;
+    }
+  } catch {}
+  
+  return null;
+}
+
+// ── CineVeo catalog page scan fallback (broader) ──
 
 async function fetchCatalogPage(apiType: string, page: number): Promise<any[] | null> {
   const url = `${CINEVEO_API_BASE}/catalog.php?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=${apiType}&page=${page}`;
@@ -159,7 +279,7 @@ async function fetchCatalogPage(apiType: string, page: number): Promise<any[] | 
 
 function findInItems(items: any[], tmdbStr: string, apiType: string, season?: number, episode?: number): CineVeoResult | null {
   const match = items.find(
-    (item: any) => String(item?.tmdb_id) === tmdbStr || String(item?.tmdbId) === tmdbStr,
+    (item: any) => String(item?.tmdb_id) === tmdbStr || String(item?.tmdbId) === tmdbStr || String(item?.id) === tmdbStr,
   );
   if (!match) return null;
 
@@ -177,7 +297,7 @@ function findInItems(items: any[], tmdbStr: string, apiType: string, season?: nu
   return { url: streamUrl, type, provider: "cineveo-api" };
 }
 
-async function tryCineveoCatalog(
+async function tryCineveoCatalogScan(
   tmdbId: number,
   contentType: string,
   season?: number,
@@ -185,53 +305,37 @@ async function tryCineveoCatalog(
 ): Promise<CineVeoResult | null> {
   const tmdbStr = String(tmdbId);
   const isMovie = contentType === "movie";
-
-  const SOFT_MAX = 5;
-  const BATCH_SIZE = 5;
-  const MAX_BATCHES = 2;
-
   const primaryType = isMovie ? "movies" : "series";
   const secondaryType = isMovie ? "series" : "movies";
 
-  let primaryPage = 1;
-  let secondaryPage = 1;
-  let primaryDone = false;
-  let secondaryDone = false;
+  // Scan up to 20 pages in parallel batches of 10
+  const MAX_PAGES = 20;
+  const BATCH_SIZE = 10;
 
-  for (let batch = 0; batch < MAX_BATCHES; batch++) {
-    if (primaryDone && secondaryDone) break;
-
-    const fetches: Array<{ apiType: string; page: number; promise: Promise<any[] | null> }> = [];
-
-    if (!primaryDone) {
-      for (let i = 0; i < BATCH_SIZE && primaryPage <= SOFT_MAX; i++, primaryPage++) {
-        fetches.push({ apiType: primaryType, page: primaryPage, promise: fetchCatalogPage(primaryType, primaryPage) });
+  for (const apiType of [primaryType, secondaryType]) {
+    for (let start = 1; start <= MAX_PAGES; start += BATCH_SIZE) {
+      const fetches: Promise<any[] | null>[] = [];
+      const pages: number[] = [];
+      for (let p = start; p < start + BATCH_SIZE && p <= MAX_PAGES; p++) {
+        pages.push(p);
+        fetches.push(fetchCatalogPage(apiType, p));
       }
-      if (primaryPage > SOFT_MAX) primaryDone = true;
-    }
-
-    if (!secondaryDone) {
-      for (let i = 0; i < 3 && secondaryPage <= SOFT_MAX; i++, secondaryPage++) {
-        fetches.push({ apiType: secondaryType, page: secondaryPage, promise: fetchCatalogPage(secondaryType, secondaryPage) });
+      
+      const results = await Promise.all(fetches);
+      
+      for (let i = 0; i < results.length; i++) {
+        const rows = results[i];
+        if (!rows || !rows.length) continue;
+        
+        const found = findInItems(rows, tmdbStr, apiType, season, episode);
+        if (found) {
+          console.log(`[extract] Scan hit tmdb_id=${tmdbId} in ${apiType} page=${pages[i]}`);
+          return found;
+        }
       }
-      if (secondaryPage > SOFT_MAX) secondaryDone = true;
-    }
-
-    if (fetches.length === 0) break;
-
-    const results = await Promise.allSettled(fetches.map((f) => f.promise));
-
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      if (r.status !== "fulfilled") continue;
-      const rows = Array.isArray(r.value) ? r.value : [];
-      if (!rows.length) continue;
-
-      const found = findInItems(rows, tmdbStr, fetches[i].apiType, season, episode);
-      if (found) {
-        console.log(`[extract] Found tmdb_id=${tmdbId} in ${fetches[i].apiType} page=${fetches[i].page}`);
-        return found;
-      }
+      
+      // If first batch returned empty pages, stop scanning this type
+      if (results.every(r => !r || r.length === 0)) break;
     }
   }
 
@@ -257,7 +361,7 @@ Deno.serve(async (req) => {
 
     const cType = content_type || "movie";
 
-    // 1) Ultra-fast static M3U lookup (both types in parallel)
+    // 1) Ultra-fast static M3U lookup
     const m3uResult = await resolveFromM3UIndex(tmdb_id, cType, season, episode);
     if (m3uResult) {
       console.log(`[extract] M3U hit tmdb_id=${tmdb_id} type=${cType}`);
@@ -272,16 +376,45 @@ Deno.serve(async (req) => {
       );
     }
 
-    // 2) Fallback: capped CineVeo API scan
-    console.log(`[extract] Scan fallback tmdb_id=${tmdb_id} type=${cType}`);
-    const result = await tryCineveoCatalog(tmdb_id, cType, season, episode);
-
-    if (result) {
+    // 2) Direct URL construction + HEAD verify (instant, no scanning)
+    const directResult = await tryDirectCineVeoUrl(tmdb_id, cType, season, episode);
+    if (directResult) {
+      console.log(`[extract] Direct URL hit tmdb_id=${tmdb_id}`);
       return new Response(
         JSON.stringify({
-          url: result.url,
-          type: result.type,
-          provider: result.provider,
+          url: directResult.url,
+          type: directResult.type,
+          provider: directResult.provider,
+          cached: false,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // 3) CineVeo detail/search API (single item lookup by tmdb_id)
+    const detailResult = await tryCineVeoDetail(tmdb_id, cType, season, episode);
+    if (detailResult) {
+      return new Response(
+        JSON.stringify({
+          url: detailResult.url,
+          type: detailResult.type,
+          provider: detailResult.provider,
+          cached: false,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // 4) Broader catalog page scan (up to 20 pages per type)
+    console.log(`[extract] Full scan fallback tmdb_id=${tmdb_id} type=${cType}`);
+    const scanResult = await tryCineveoCatalogScan(tmdb_id, cType, season, episode);
+
+    if (scanResult) {
+      return new Response(
+        JSON.stringify({
+          url: scanResult.url,
+          type: scanResult.type,
+          provider: scanResult.provider,
           cached: false,
         }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } },
