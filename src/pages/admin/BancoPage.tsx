@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Database, Film, Tv, Loader2, RefreshCw, CheckCircle, Search, Zap, Link2 } from "lucide-react";
+import { Database, Film, Tv, Loader2, RefreshCw, CheckCircle, Search, Zap, Link2, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchCatalog, fetchCatalogManifest } from "@/lib/catalogFetcher";
@@ -27,7 +27,16 @@ const BancoPage = () => {
   const [filterText, setFilterText] = useState("");
   const [debouncedFilter, setDebouncedFilter] = useState("");
   const [filterType, setFilterType] = useState<"all" | "movie" | "series">("all");
-  const [stats, setStats] = useState({ movies: 0, series: 0, total: 0, updatedAt: "", videoCoverage: { movies: 0, series: 0, total: 0, indexedAt: "" } });
+  const [stats, setStats] = useState({
+    movies: 0, series: 0, total: 0, updatedAt: "",
+    videoCoverage: {
+      movies: 0, series: 0, total: 0,
+      moviesWithout: 0, seriesWithout: 0, totalWithout: 0,
+      catalogMovies: 0, catalogSeries: 0, catalogTotal: 0,
+      m3uMovies: 0, m3uSeries: 0, m3uTotal: 0,
+      indexedAt: "",
+    },
+  });
   const [generating, setGenerating] = useState(false);
   const [indexingM3U, setIndexingM3U] = useState(false);
 
@@ -37,7 +46,7 @@ const BancoPage = () => {
     return () => clearTimeout(t);
   }, [filterText]);
 
-  // Load manifest stats (from static JSON, no DB)
+  // Load manifest stats
   const loadStats = useCallback(async () => {
     try {
       const manifest = await fetchCatalogManifest();
@@ -46,14 +55,21 @@ const BancoPage = () => {
         const s = manifest.types?.series?.total || 0;
         const vc = manifest.video_coverage || {};
         setStats({
-          movies: m,
-          series: s,
-          total: m + s,
+          movies: m, series: s, total: m + s,
           updatedAt: manifest.updated_at || "",
           videoCoverage: {
             movies: vc.movies_with_video || 0,
             series: vc.series_with_video || 0,
             total: vc.total_with_video || 0,
+            moviesWithout: vc.movies_without_video || 0,
+            seriesWithout: vc.series_without_video || 0,
+            totalWithout: vc.total_without_video || 0,
+            catalogMovies: vc.catalog_movies || 0,
+            catalogSeries: vc.catalog_series || 0,
+            catalogTotal: vc.catalog_total || 0,
+            m3uMovies: vc.m3u_movies || 0,
+            m3uSeries: vc.m3u_series || 0,
+            m3uTotal: vc.m3u_total || 0,
             indexedAt: vc.indexed_at || "",
           },
         });
@@ -66,7 +82,6 @@ const BancoPage = () => {
     setLoading(true);
     try {
       const offset = page * ITEMS_PER_PAGE;
-
       const loadByType = async (type: "movie" | "series") => {
         const windowSize = debouncedFilter ? Math.max(400, offset + ITEMS_PER_PAGE) : ITEMS_PER_PAGE;
         return fetchCatalog(type, { limit: windowSize, offset: debouncedFilter ? 0 : offset });
@@ -84,9 +99,9 @@ const BancoPage = () => {
         total = debouncedFilter ? filtered.length : result.total;
       } else {
         const [movies, series] = await Promise.all([loadByType("movie"), loadByType("series")]);
-        const merged = [...movies.items, ...series.items].sort((a, b) => {
-          return (b.release_date || "0000").localeCompare(a.release_date || "0000");
-        });
+        const merged = [...movies.items, ...series.items].sort((a, b) =>
+          (b.release_date || "0000").localeCompare(a.release_date || "0000")
+        );
         const filtered = debouncedFilter
           ? merged.filter(i => i.title.toLowerCase().includes(debouncedFilter.toLowerCase()))
           : merged;
@@ -106,7 +121,6 @@ const BancoPage = () => {
   useEffect(() => { loadStats(); }, [loadStats]);
   useEffect(() => { loadItems(); }, [loadItems]);
 
-  // Generate full catalog
   const handleGenerate = async () => {
     setGenerating(true);
     try {
@@ -123,33 +137,38 @@ const BancoPage = () => {
     }
   };
 
-  // Index M3U links only (fast)
   const handleIndexM3U = async () => {
     setIndexingM3U(true);
     try {
-      toast({ title: "🚀 Indexando links...", description: "Indexando lista IPTV completa em background." });
+      toast({ title: "🔍 Sincronizando...", description: "Verificando cada título do catálogo contra a lista IPTV." });
       const { error } = await supabase.functions.invoke("generate-catalog", {
         body: { mode: "m3u-only" },
       });
       if (error) throw error;
       // Poll for completion
+      const pollInterval = setInterval(async () => {
+        await loadStats();
+      }, 10000);
       setTimeout(async () => {
+        clearInterval(pollInterval);
         await loadStats();
         setIndexingM3U(false);
-        toast({ title: "✅ Links indexados!", description: "Índice M3U atualizado com sucesso." });
-      }, 30000);
+        toast({ title: "✅ Sincronização concluída!", description: "Verificação cruzada do catálogo finalizada." });
+      }, 60000);
     } catch (err: any) {
-      toast({ title: "❌ Erro", description: err?.message || "Falha ao indexar M3U", variant: "destructive" });
+      toast({ title: "❌ Erro", description: err?.message || "Falha ao sincronizar", variant: "destructive" });
       setIndexingM3U(false);
     }
   };
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
-
   const formatDate = (d: string) => {
     if (!d) return "—";
     try { return new Date(d).toLocaleString("pt-BR"); } catch { return d; }
   };
+
+  const vc = stats.videoCoverage;
+  const coveragePercent = vc.catalogTotal > 0 ? Math.round((vc.total / vc.catalogTotal) * 100) : 0;
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -160,7 +179,7 @@ const BancoPage = () => {
             <Database className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
             Banco de Conteúdo
           </h1>
-          <p className="text-xs sm:text-sm text-muted-foreground mt-1">Catálogo estático — sem dependência de banco</p>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">Catálogo estático — verificação cruzada IPTV</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -169,9 +188,9 @@ const BancoPage = () => {
             className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
           >
             {indexingM3U ? (
-              <><Loader2 className="w-4 h-4 animate-spin" />Indexando...</>
+              <><Loader2 className="w-4 h-4 animate-spin" />Sincronizando...</>
             ) : (
-              <><Link2 className="w-4 h-4" />Indexar Links</>
+              <><RefreshCw className="w-4 h-4" />Sincronizar</>
             )}
           </button>
           <button
@@ -188,39 +207,65 @@ const BancoPage = () => {
         </div>
       </div>
 
-      {/* Stats from manifest */}
+      {/* Stats cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         <div className="glass p-3 sm:p-4 rounded-xl text-center">
           <p className="text-lg sm:text-2xl font-bold text-primary">{stats.total.toLocaleString()}</p>
           <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Total Catálogo</p>
         </div>
         <div className="glass p-3 sm:p-4 rounded-xl text-center">
-          <p className="text-lg sm:text-2xl font-bold text-blue-400">{stats.movies.toLocaleString()}</p>
-          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Filmes</p>
-        </div>
-        <div className="glass p-3 sm:p-4 rounded-xl text-center">
-          <p className="text-lg sm:text-2xl font-bold text-purple-400">{stats.series.toLocaleString()}</p>
-          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Séries</p>
-        </div>
-        <div className="glass p-3 sm:p-4 rounded-xl text-center">
-          <p className="text-lg sm:text-2xl font-bold text-emerald-400">{stats.videoCoverage.total.toLocaleString()}</p>
+          <p className="text-lg sm:text-2xl font-bold text-emerald-400">{vc.total.toLocaleString()}</p>
           <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Com Vídeo</p>
+        </div>
+        <div className="glass p-3 sm:p-4 rounded-xl text-center">
+          <p className="text-lg sm:text-2xl font-bold text-amber-400">{vc.totalWithout.toLocaleString()}</p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Sem Vídeo</p>
+        </div>
+        <div className="glass p-3 sm:p-4 rounded-xl text-center">
+          <p className="text-lg sm:text-2xl font-bold text-blue-400">{coveragePercent}%</p>
+          <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Cobertura</p>
         </div>
       </div>
 
-      {/* Video coverage detail */}
-      {stats.videoCoverage.total > 0 && (
-        <div className="glass p-3 rounded-xl flex flex-wrap items-center gap-3 text-xs">
-          <Link2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-          <span className="text-muted-foreground">Links indexados:</span>
-          <span className="text-blue-400 font-medium">{stats.videoCoverage.movies} filmes</span>
-          <span className="text-muted-foreground">•</span>
-          <span className="text-purple-400 font-medium">{stats.videoCoverage.series} séries</span>
-          {stats.videoCoverage.indexedAt && (
-            <>
-              <span className="text-muted-foreground">•</span>
-              <span className="text-muted-foreground">Indexado: {formatDate(stats.videoCoverage.indexedAt)}</span>
-            </>
+      {/* Detailed coverage breakdown */}
+      {vc.total > 0 && (
+        <div className="glass p-3 sm:p-4 rounded-xl space-y-3">
+          <div className="flex items-center gap-2 text-xs font-medium">
+            <Link2 className="w-4 h-4 text-emerald-400" />
+            <span>Verificação Cruzada — Catálogo vs IPTV</span>
+          </div>
+          {/* Progress bar */}
+          <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
+            <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-500"
+              style={{ width: `${coveragePercent}%` }} />
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <Film className="w-3.5 h-3.5 text-blue-400" />
+              <span className="text-muted-foreground">Filmes:</span>
+              <span className="text-emerald-400 font-medium">{vc.movies}</span>
+              <span className="text-muted-foreground">/</span>
+              <span className="text-foreground">{vc.catalogMovies || stats.movies}</span>
+              {vc.moviesWithout > 0 && <span className="text-amber-400">({vc.moviesWithout} sem)</span>}
+            </div>
+            <div className="flex items-center gap-2">
+              <Tv className="w-3.5 h-3.5 text-purple-400" />
+              <span className="text-muted-foreground">Séries:</span>
+              <span className="text-emerald-400 font-medium">{vc.series}</span>
+              <span className="text-muted-foreground">/</span>
+              <span className="text-foreground">{vc.catalogSeries || stats.series}</span>
+              {vc.seriesWithout > 0 && <span className="text-amber-400">({vc.seriesWithout} sem)</span>}
+            </div>
+            <div className="flex items-center gap-2">
+              <Database className="w-3.5 h-3.5 text-muted-foreground" />
+              <span className="text-muted-foreground">Links IPTV:</span>
+              <span className="text-foreground font-medium">{vc.m3uTotal.toLocaleString()}</span>
+            </div>
+          </div>
+          {vc.indexedAt && (
+            <p className="text-[10px] text-muted-foreground">
+              Última verificação: {formatDate(vc.indexedAt)}
+            </p>
           )}
         </div>
       )}
@@ -229,7 +274,7 @@ const BancoPage = () => {
       {stats.updatedAt && (
         <div className="glass p-3 rounded-xl flex items-center gap-2">
           <CheckCircle className="w-4 h-4 text-emerald-400" />
-          <span className="text-xs text-muted-foreground">Última atualização: <span className="text-foreground font-medium">{formatDate(stats.updatedAt)}</span></span>
+          <span className="text-xs text-muted-foreground">Última atualização do catálogo: <span className="text-foreground font-medium">{formatDate(stats.updatedAt)}</span></span>
         </div>
       )}
 
@@ -237,12 +282,10 @@ const BancoPage = () => {
       <div className="flex flex-col gap-2 sm:gap-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input
-            type="text" value={filterText}
+          <input type="text" value={filterText}
             onChange={(e) => { setFilterText(e.target.value); setPage(0); }}
             placeholder="Buscar por título..."
-            className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
-          />
+            className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50" />
         </div>
         <div className="flex flex-wrap gap-1.5 sm:gap-2">
           {(["all", "movie", "series"] as const).map(t => (
@@ -274,8 +317,7 @@ const BancoPage = () => {
           <div className="sm:hidden space-y-2">
             {items.map((item) => (
               <div key={item.id} className="glass p-3 rounded-xl flex items-center gap-3"
-                onClick={() => navigate(`/${item.content_type === "movie" ? "filme" : "serie"}/${toSlug(item.title, item.tmdb_id)}`)}
-              >
+                onClick={() => navigate(`/${item.content_type === "movie" ? "filme" : "serie"}/${toSlug(item.title, item.tmdb_id)}`)}>
                 {item.poster_path ? (
                   <img src={item.poster_path.startsWith("http") ? item.poster_path : `https://image.tmdb.org/t/p/w92${item.poster_path}`}
                     alt={item.title} className="w-10 h-14 rounded-lg object-cover flex-shrink-0" />
@@ -345,9 +387,7 @@ const BancoPage = () => {
                 className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs disabled:opacity-30 hover:bg-white/10">
                 ← Anterior
               </button>
-              <span className="text-xs text-muted-foreground">
-                Página {page + 1} de {totalPages}
-              </span>
+              <span className="text-xs text-muted-foreground">Página {page + 1} de {totalPages}</span>
               <button onClick={() => setPage(Math.min(totalPages - 1, page + 1))} disabled={page >= totalPages - 1}
                 className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-xs disabled:opacity-30 hover:bg-white/10">
                 Próxima →

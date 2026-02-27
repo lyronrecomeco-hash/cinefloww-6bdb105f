@@ -8,7 +8,7 @@ const COLORS = ["hsl(217, 91%, 60%)", "hsl(250, 80%, 60%)", "hsl(160, 60%, 50%)"
 
 const Dashboard = () => {
   const [counts, setCounts] = useState({ movies: 0, series: 0, total: 0 });
-  const [videoCoverage, setVideoCoverage] = useState({ movies: 0, series: 0, total: 0 });
+  const [videoCoverage, setVideoCoverage] = useState({ movies: 0, series: 0, total: 0, without: 0, coveragePercent: 0 });
   const [uniqueVisitors, setUniqueVisitors] = useState(0);
   const [recentContent, setRecentContent] = useState<any[]>([]);
   const [viewsByDay, setViewsByDay] = useState<{ date: string; views: number }[]>([]);
@@ -134,10 +134,15 @@ const Dashboard = () => {
         // Video coverage from manifest
         const vc = manifest?.video_coverage;
         if (vc) {
+          const total = vc.total_with_video || 0;
+          const without = vc.total_without_video || 0;
+          const catalogTotal = vc.catalog_total || (m + s);
           setVideoCoverage({
             movies: vc.movies_with_video || 0,
             series: vc.series_with_video || 0,
-            total: vc.total_with_video || 0,
+            total,
+            without,
+            coveragePercent: catalogTotal > 0 ? Math.round((total / catalogTotal) * 100) : 0,
           });
         }
 
@@ -200,8 +205,8 @@ const Dashboard = () => {
   const statCards = useMemo(() => [
     { label: "Filmes", value: counts.movies, icon: Film, color: "text-blue-400", bg: "bg-blue-400/10" },
     { label: "Séries", value: counts.series, icon: Tv, color: "text-purple-400", bg: "bg-purple-400/10" },
-    { label: "Total Catálogo", value: counts.total, icon: Sparkles, color: "text-emerald-400", bg: "bg-emerald-400/10" },
-    { label: "Com Vídeo", value: videoCoverage.total, icon: Link2, color: "text-pink-400", bg: "bg-pink-400/10" },
+    { label: "Com Vídeo", value: videoCoverage.total, icon: Link2, color: "text-emerald-400", bg: "bg-emerald-400/10", suffix: videoCoverage.coveragePercent > 0 ? ` (${videoCoverage.coveragePercent}%)` : "" },
+    { label: "Sem Vídeo", value: videoCoverage.without, icon: Sparkles, color: "text-amber-400", bg: "bg-amber-400/10" },
   ], [counts, videoCoverage]);
 
   const formatTime = (d: string) => {
@@ -288,7 +293,10 @@ const Dashboard = () => {
               <card.icon className={`w-5 h-5 ${card.color}`} />
             </div>
             <div>
-              <p className="text-2xl font-bold font-display">{card.value}</p>
+              <p className="text-2xl font-bold font-display">
+                {card.value}
+                {(card as any).suffix && <span className="text-sm font-normal text-muted-foreground">{(card as any).suffix}</span>}
+              </p>
               <p className="text-xs text-muted-foreground">{card.label}</p>
             </div>
           </div>
