@@ -1,12 +1,9 @@
 /**
- * sync-catalog: Crawls entire CineVeo API (movies + series) and generates
- * static catalog pages + video link shards in Storage.
+ * sync-catalog: Crawls CineVeo API (movies + series) → static catalog + video shards.
  * 
- * Architecture:
- *   Phase "crawl" → paginated API fetch, saves temp batches to Storage
- *   Phase "build" → reads all batches, generates catalog + shards + manifest
- * 
- * Self-chains automatically. Frontend just triggers and polls manifest.
+ * Modes:
+ *   action: "count" → returns total pages/items from API (fast)
+ *   action: "sync"  → full crawl + build (self-chaining)
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -31,8 +28,6 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ── Types ──
-
 interface CrawledItem {
   tmdb_id: number;
   title: string;
@@ -44,8 +39,6 @@ interface CrawledItem {
   stream_url: string | null;
   episodes: Array<{ season: number; episode: number; stream_url: string }>;
 }
-
-// ── Helpers ──
 
 function normalizeYear(value: unknown): string | null {
   const raw = String(value ?? "").trim();
@@ -64,7 +57,8 @@ async function fetchApiPage(type: string, page: number) {
   const payload = await res.json();
   const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
   const totalPages = Number(payload?.pagination?.total_pages || 0) || null;
-  return { items, totalPages };
+  const totalItems = Number(payload?.pagination?.total_items || 0) || 0;
+  return { items, totalPages, totalItems };
 }
 
 async function uploadWithRetry(supabase: any, path: string, blob: Blob, retries = 2): Promise<boolean> {
@@ -94,10 +88,14 @@ async function uploadBatch(supabase: any, uploads: Array<{ path: string; data: a
 }
 
 async function saveProgress(supabase: any, data: Record<string, unknown>) {
-  await supabase.from("site_settings").upsert({
-    key: "catalog_sync_progress",
-    value: { updated_at: new Date().toISOString(), ...data },
-  }, { onConflict: "key" }).catch(() => {});
+  try {
+    await supabase.from("site_settings").upsert({
+      key: "catalog_sync_progress",
+      value: { updated_at: new Date().toISOString(), ...data },
+    }, { onConflict: "key" });
+  } catch (e) {
+    console.warn("[sync] saveProgress failed:", e);
+  }
 }
 
 function selfChain(body: Record<string, unknown>) {
@@ -112,7 +110,31 @@ function selfChain(body: Record<string, unknown>) {
   }).catch(() => {});
 }
 
-// ── Phase 1: Crawl API pages ──
+// ── Count mode: fast API probe ──
+
+async function handleCount(): Promise<any> {
+  const [moviesRes, seriesRes] = await Promise.all([
+    fetchApiPage("movies", 1),
+    fetchApiPage("series", 1),
+  ]);
+
+  return {
+    movies: {
+      total_pages: moviesRes.totalPages || 0,
+      total_items: moviesRes.totalItems || moviesRes.items.length,
+      sample_page_size: moviesRes.items.length,
+    },
+    series: {
+      total_pages: seriesRes.totalPages || 0,
+      total_items: seriesRes.totalItems || seriesRes.items.length,
+      sample_page_size: seriesRes.items.length,
+    },
+    total_items: (moviesRes.totalItems || 0) + (seriesRes.totalItems || 0),
+    total_pages: (moviesRes.totalPages || 0) + (seriesRes.totalPages || 0),
+  };
+}
+
+// ── Crawl phase ──
 
 async function handleCrawl(supabase: any, body: any): Promise<any> {
   const apiType: string = body.type || "movies";
@@ -184,8 +206,8 @@ async function handleCrawl(supabase: any, body: any): Promise<any> {
     await uploadWithRetry(supabase, `_sync/${apiType}_${batchIndex}.json`, blob);
   }
 
-  const hasMore = pagesProcessed > 0 && (totalApiPages ? currentPage <= totalApiPages : true);
   const currentBatchCount = batchIndex + (items.length > 0 ? 1 : 0);
+  const hasMore = pagesProcessed > 0 && (totalApiPages ? currentPage <= totalApiPages : true);
 
   if (hasMore) {
     await saveProgress(supabase, {
@@ -194,7 +216,6 @@ async function handleCrawl(supabase: any, body: any): Promise<any> {
       page: currentPage,
       batch: currentBatchCount,
       total_pages: totalApiPages,
-      items_this_batch: items.length,
     });
     selfChain({
       phase: "crawl",
@@ -206,41 +227,19 @@ async function handleCrawl(supabase: any, body: any): Promise<any> {
     return { done: false, type: apiType, page: currentPage, batch: currentBatchCount };
   }
 
-  // Current type complete
   if (apiType === "movies") {
-    const mb = currentBatchCount;
-    await saveProgress(supabase, {
-      phase: "crawling",
-      type: "series",
-      page: 1,
-      movies_batches: mb,
-    });
-    selfChain({
-      phase: "crawl",
-      type: "series",
-      page: 1,
-      batch: 0,
-      movies_batches: mb,
-    });
-    return { done: false, movies_done: true, movies_batches: mb };
+    await saveProgress(supabase, { phase: "crawling", type: "series", page: 1, movies_batches: currentBatchCount });
+    selfChain({ phase: "crawl", type: "series", page: 1, batch: 0, movies_batches: currentBatchCount });
+    return { done: false, movies_done: true, movies_batches: currentBatchCount };
   }
 
-  // Both types done → build phase
-  const seriesBatches = currentBatchCount;
-  await saveProgress(supabase, {
-    phase: "building",
-    movies_batches: moviesBatches,
-    series_batches: seriesBatches,
-  });
-  selfChain({
-    phase: "build",
-    movies_batches: moviesBatches,
-    series_batches: seriesBatches,
-  });
+  // Both done → build
+  await saveProgress(supabase, { phase: "building", movies_batches: moviesBatches, series_batches: currentBatchCount });
+  selfChain({ phase: "build", movies_batches: moviesBatches, series_batches: currentBatchCount });
   return { done: false, phase: "building" };
 }
 
-// ── Phase 2: Build catalog + shards from batches ──
+// ── Build phase ──
 
 async function handleBuild(supabase: any, body: any): Promise<any> {
   const moviesBatches = body.movies_batches || 0;
@@ -248,7 +247,6 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
 
   await saveProgress(supabase, { phase: "building", step: "reading_batches" });
 
-  // Read all batch files in parallel
   const readBatch = async (path: string): Promise<CrawledItem[]> => {
     try {
       const { data, error } = await supabase.storage.from("catalog").download(path);
@@ -268,7 +266,7 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
 
   console.log(`[sync] Read ${allItems.length} items from ${moviesBatches + seriesBatches} batches`);
 
-  // Deduplicate by tmdb_id + content_type
+  // Deduplicate
   const seen = new Map<string, CrawledItem>();
   for (const item of allItems) {
     const key = `${item.content_type}:${item.tmdb_id}`;
@@ -276,13 +274,10 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
     if (!existing) {
       seen.set(key, item);
     } else {
-      // Merge episodes
       if (item.episodes?.length) {
         const existingEps = new Set(existing.episodes.map((e) => `${e.season}:${e.episode}`));
         for (const ep of item.episodes) {
-          if (!existingEps.has(`${ep.season}:${ep.episode}`)) {
-            existing.episodes.push(ep);
-          }
+          if (!existingEps.has(`${ep.season}:${ep.episode}`)) existing.episodes.push(ep);
         }
       }
       if (item.poster && !existing.poster) existing.poster = item.poster;
@@ -298,20 +293,12 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
     else series.push(item);
   }
 
-  const sortByYear = (a: CrawledItem, b: CrawledItem) =>
-    (b.year || "0000").localeCompare(a.year || "0000");
-  movies.sort(sortByYear);
-  series.sort(sortByYear);
+  movies.sort((a, b) => (b.year || "0000").localeCompare(a.year || "0000"));
+  series.sort((a, b) => (b.year || "0000").localeCompare(a.year || "0000"));
 
   console.log(`[sync] Unique: ${movies.length} movies, ${series.length} series`);
-  await saveProgress(supabase, {
-    phase: "building",
-    step: "generating",
-    movies: movies.length,
-    series: series.length,
-  });
+  await saveProgress(supabase, { phase: "building", step: "generating", movies: movies.length, series: series.length });
 
-  // ── Build uploads ──
   const uploads: Array<{ path: string; data: any }> = [];
   const now = new Date().toISOString();
 
@@ -319,25 +306,22 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
   const buildPages = (items: CrawledItem[], type: string) => {
     const totalPages = Math.ceil(items.length / ITEMS_PER_FILE) || 1;
     for (let p = 0; p < totalPages; p++) {
-      const pageItems = items
-        .slice(p * ITEMS_PER_FILE, (p + 1) * ITEMS_PER_FILE)
-        .map((item) => ({
-          id: `ct-${item.tmdb_id}`,
-          tmdb_id: item.tmdb_id,
-          title: item.title,
-          poster_path: item.poster,
-          backdrop_path: item.backdrop,
-          vote_average: 0,
-          release_date: item.year ? `${item.year}-01-01` : null,
-          content_type: item.content_type,
-        }));
       uploads.push({
         path: `${type}/${p + 1}.json`,
         data: {
           total: items.length,
           page: p + 1,
           per_page: ITEMS_PER_FILE,
-          items: pageItems,
+          items: items.slice(p * ITEMS_PER_FILE, (p + 1) * ITEMS_PER_FILE).map((item) => ({
+            id: `ct-${item.tmdb_id}`,
+            tmdb_id: item.tmdb_id,
+            title: item.title,
+            poster_path: item.poster,
+            backdrop_path: item.backdrop,
+            vote_average: 0,
+            release_date: item.year ? `${item.year}-01-01` : null,
+            content_type: item.content_type,
+          })),
         },
       });
     }
@@ -347,7 +331,7 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
   const moviePages = buildPages(movies, "movie");
   const seriesPages = buildPages(series, "series");
 
-  // ── Link shards (extract-video compatible) ──
+  // Link shards
   const movieBuckets: Record<string, any>[] = Array.from({ length: M3U_BUCKETS }, () => ({}));
   const seriesBuckets: Record<string, any>[] = Array.from({ length: M3U_BUCKETS }, () => ({}));
 
@@ -397,46 +381,29 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
   }
 
   for (let i = 0; i < M3U_BUCKETS; i++) {
-    uploads.push({
-      path: `m3u-index/movie/${i}.json`,
-      data: { updated_at: now, bucket: i, items: movieBuckets[i] },
-    });
-    uploads.push({
-      path: `m3u-index/series/${i}.json`,
-      data: { updated_at: now, bucket: i, items: seriesBuckets[i] },
-    });
+    uploads.push({ path: `m3u-index/movie/${i}.json`, data: { updated_at: now, bucket: i, items: movieBuckets[i] } });
+    uploads.push({ path: `m3u-index/series/${i}.json`, data: { updated_at: now, bucket: i, items: seriesBuckets[i] } });
   }
 
-  // IDs for cross-reference
   const movieIds = movies.map((m) => m.tmdb_id);
   const seriesIds = series.map((s) => s.tmdb_id);
-  uploads.push({
-    path: "m3u-index/ids.json",
-    data: { updated_at: now, movies: movieIds, series: seriesIds, total: movieIds.length + seriesIds.length },
-  });
-
-  // Video coverage stats
   const moviesWithVideo = movies.filter((m) => m.stream_url).length;
   const seriesWithVideo = series.filter((s) => s.stream_url || s.episodes?.length > 0).length;
 
   uploads.push({
+    path: "m3u-index/ids.json",
+    data: { updated_at: now, movies: movieIds, series: seriesIds, total: movieIds.length + seriesIds.length },
+  });
+  uploads.push({
     path: "m3u-index/manifest.json",
-    data: {
-      updated_at: now,
-      source: "cineveo-api",
-      m3u_movies: moviesWithVideo,
-      m3u_series: seriesWithVideo,
-      m3u_total: moviesWithVideo + seriesWithVideo,
-    },
+    data: { updated_at: now, source: "cineveo-api", m3u_movies: moviesWithVideo, m3u_series: seriesWithVideo, m3u_total: moviesWithVideo + seriesWithVideo },
   });
 
   console.log(`[sync] Uploading ${uploads.length} files...`);
   await saveProgress(supabase, { phase: "uploading", files: uploads.length });
 
   const uploaded = await uploadBatch(supabase, uploads);
-  console.log(`[sync] Uploaded ${uploaded}/${uploads.length} files`);
 
-  // Main manifest
   const manifest = {
     updated_at: now,
     types: {
@@ -452,20 +419,12 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
     },
   };
 
-  await uploadWithRetry(
-    supabase,
-    "manifest.json",
-    new Blob([JSON.stringify(manifest)], { type: "application/json" }),
-  );
+  await uploadWithRetry(supabase, "manifest.json", new Blob([JSON.stringify(manifest)], { type: "application/json" }));
 
-  // Cleanup temp batch files
+  // Cleanup temp files
   const cleanups: Promise<any>[] = [];
-  for (let i = 0; i < moviesBatches; i++) {
-    cleanups.push(supabase.storage.from("catalog").remove([`_sync/movies_${i}.json`]));
-  }
-  for (let i = 0; i < seriesBatches; i++) {
-    cleanups.push(supabase.storage.from("catalog").remove([`_sync/series_${i}.json`]));
-  }
+  for (let i = 0; i < moviesBatches; i++) cleanups.push(supabase.storage.from("catalog").remove([`_sync/movies_${i}.json`]));
+  for (let i = 0; i < seriesBatches; i++) cleanups.push(supabase.storage.from("catalog").remove([`_sync/series_${i}.json`]));
   await Promise.allSettled(cleanups);
 
   await saveProgress(supabase, {
@@ -478,14 +437,7 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
     files_uploaded: uploaded,
   });
 
-  return {
-    done: true,
-    movies: movies.length,
-    series: series.length,
-    movies_with_video: moviesWithVideo,
-    series_with_video: seriesWithVideo,
-    files_uploaded: uploaded,
-  };
+  return { done: true, movies: movies.length, series: series.length, moviesWithVideo, seriesWithVideo, files_uploaded: uploaded };
 }
 
 // ── HTTP Handler ──
@@ -501,47 +453,50 @@ Deno.serve(async (req) => {
   );
 
   try {
-    await supabase.storage
-      .createBucket("catalog", {
+    const body = await req.json().catch(() => ({}));
+    const action = body.action || "sync";
+
+    // Fast count mode — probe API for totals
+    if (action === "count") {
+      const counts = await handleCount();
+      return new Response(JSON.stringify(counts), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Ensure bucket
+    try {
+      await supabase.storage.createBucket("catalog", {
         public: true,
         fileSizeLimit: 52428800,
         allowedMimeTypes: ["application/json"],
-      })
-      .catch(() => {});
-
-    const body = await req.json().catch(() => ({}));
+      });
+    } catch {}
 
     // Direct execution (self-chained calls)
     if (body._exec) {
       const phase = body.phase || "crawl";
-      let result;
-      if (phase === "build") {
-        result = await handleBuild(supabase, body);
-      } else {
-        result = await handleCrawl(supabase, body);
-      }
+      const result = phase === "build"
+        ? await handleBuild(supabase, body)
+        : await handleCrawl(supabase, body);
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Initial trigger from frontend — start crawl and return immediately
+    // Initial trigger
     await saveProgress(supabase, { phase: "starting" });
     selfChain({ phase: "crawl", type: "movies", page: 1, batch: 0 });
 
     return new Response(
-      JSON.stringify({
-        started: true,
-        message: "Sincronização iniciada. Crawling API CineVeo → catálogo estático + links de vídeo.",
-      }),
+      JSON.stringify({ started: true, message: "Sincronização iniciada." }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error) {
     console.error("[sync] Error:", error);
-    await saveProgress(supabase, {
-      phase: "error",
-      error: error instanceof Error ? error.message : String(error),
-    });
+    try {
+      await saveProgress(supabase, { phase: "error", error: error instanceof Error ? error.message : String(error) });
+    } catch {}
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Sync failed" }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
