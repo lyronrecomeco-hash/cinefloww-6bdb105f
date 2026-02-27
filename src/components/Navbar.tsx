@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Search, Menu, X, MessageSquare, User, LogIn, LayoutGrid } from "lucide-react";
+import { Search, User, LogIn, LayoutGrid } from "lucide-react";
 import { searchMulti, TMDBMovie, posterUrl, getDisplayTitle, getMediaType } from "@/services/tmdb";
 import { toSlug } from "@/lib/slugify";
 import { supabase } from "@/integrations/supabase/client";
@@ -40,7 +40,6 @@ const Navbar = () => {
   const [showCategories, setShowCategories] = useState(false);
   const [showCineVeo, setShowCineVeo] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<TMDBMovie[]>([]);
@@ -81,7 +80,6 @@ const Navbar = () => {
   }, []);
 
   useEffect(() => {
-    setMenuOpen(false);
     setSearchOpen(false);
     setQuery("");
     setResults([]);
@@ -150,7 +148,7 @@ const Navbar = () => {
           </span>
         </Link>
 
-        {/* Desktop Nav */}
+        {/* Desktop Nav — hidden on mobile (bottom nav handles it) */}
         <div className="hidden md:flex items-center gap-1">
           {navItems.map((item) => (
             <Link
@@ -279,42 +277,8 @@ const Navbar = () => {
               <span className="hidden sm:inline">Entrar</span>
             </Link>
           )}
-
-          {/* Mobile menu */}
-          <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="md:hidden w-9 h-9 flex items-center justify-center rounded-xl text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
-          >
-            {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
         </div>
       </div>
-
-      {/* Mobile Menu */}
-      {menuOpen && (
-        <div className="md:hidden glass mx-3 mb-3 p-2 animate-scale-in">
-          {navItems.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              className={`block px-4 py-3 rounded-xl text-sm font-medium transition-all ${
-                location.pathname === item.path
-                  ? "text-foreground bg-white/10"
-                  : "text-muted-foreground hover:text-foreground hover:bg-white/5"
-              }`}
-            >
-              {item.label}
-            </Link>
-          ))}
-          <button
-            onClick={() => { setShowRequest(true); setMenuOpen(false); }}
-            className="w-full flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-white/5 transition-all"
-          >
-            <MessageSquare className="w-4 h-4" />
-            Fazer Pedido
-          </button>
-        </div>
-      )}
     </nav>
     {showRequest && <RequestModal onClose={() => setShowRequest(false)} />}
     {showCineVeo && <CineVeoModal onClose={() => setShowCineVeo(false)} />}

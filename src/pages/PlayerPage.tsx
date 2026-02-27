@@ -52,7 +52,9 @@ const PlayerPage = () => {
   const episode = searchParams.get("e") ? Number(searchParams.get("e")) : undefined;
 
   const [bankSources, setBankSources] = useState<VideoSource[]>([]);
-  const [bankLoading, setBankLoading] = useState(false);
+  // Start as true when we have slug params to prevent flash of error screen
+  const [bankLoading, setBankLoading] = useState(!!params.id);
+  const [noSources, setNoSources] = useState(false);
   const [bankTitle, setBankTitle] = useState(title);
   const [iframeProxyUrl, setIframeProxyUrl] = useState<string | null>(null);
 
@@ -144,6 +146,7 @@ const PlayerPage = () => {
     if (!params.id || !params.type || !tmdbId) return;
     setBankLoading(true);
     setBankSources([]);
+    setNoSources(false);
 
     const aType = audioParam || "legendado";
 
@@ -182,16 +185,17 @@ const PlayerPage = () => {
         return;
       }
 
-      setError(true);
+      // No video found — not an error, just no sources
+      setNoSources(true);
     } catch (err) {
-      // Auto-retry once on timeout/error
+      // Auto-retry on timeout/error
       if (playerRetryCount.current < 2) {
         playerRetryCount.current++;
         console.warn(`[PlayerPage] Extraction failed, retry ${playerRetryCount.current}/2`);
         setTimeout(() => loadVideo(true), 1500);
         return;
       }
-      setError(true);
+      setNoSources(true);
     }
     setBankLoading(false);
   }, [params.id, params.type, audioParam, season, episode, tmdbId]);
@@ -799,8 +803,36 @@ const PlayerPage = () => {
         </div>
       )}
 
-      {/* Error */}
-      {(error || (!bankLoading && !loading && sources.length === 0)) && (
+      {/* No sources available (content not in CineVeo) */}
+      {noSources && !error && !bankLoading && sources.length === 0 && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black z-20">
+          <div className="relative text-center p-6 sm:p-8 max-w-sm mx-4 bg-card/80 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl">
+            <div className="w-14 h-14 rounded-2xl bg-muted/30 flex items-center justify-center mx-auto mb-5">
+              <AlertTriangle className="w-7 h-7 text-muted-foreground" />
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2">Sem fontes disponíveis</h3>
+            <p className="text-sm text-white/50 mb-6 leading-relaxed">
+              Este conteúdo ainda não possui fontes de vídeo. Tente novamente mais tarde.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => {
+                extractionRef.current = null;
+                playerRetryCount.current = 0;
+                setNoSources(false);
+                loadVideo(true);
+              }} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
+                <RefreshCw className="w-4 h-4" /> Tentar de novo
+              </button>
+              <button onClick={goBack} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 text-white/70 text-sm font-medium hover:bg-white/10 transition-colors">
+                <ArrowLeft className="w-4 h-4" /> Voltar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Playback Error (HLS/video element error) */}
+      {error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black z-20">
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03]">
             <span className="text-[100px] sm:text-[140px] font-black tracking-wider text-white select-none">LYNEFLIX</span>
@@ -811,34 +843,19 @@ const PlayerPage = () => {
             </div>
             <h3 className="text-lg font-bold text-white mb-2">Ops! Tivemos um probleminha</h3>
             <p className="text-sm text-white/50 mb-6 leading-relaxed">
-              Nossa equipe está mexendo na infraestrutura. Clique abaixo para avisar!
+              Erro ao reproduzir o vídeo. Tente outra fonte ou volte mais tarde.
             </p>
             <div className="flex flex-col gap-3">
-              <button
-                onClick={() => {
-                  const btn = document.getElementById("player-report-btn");
-                  if (btn) { btn.textContent = "✓ Equipe avisada!"; btn.classList.add("bg-green-600"); }
-                }}
-                id="player-report-btn"
-                className="flex items-center justify-center gap-2 px-5 py-3 rounded-2xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all duration-200"
-              >
-                <AlertTriangle className="w-4 h-4" /> Avisar a equipe
-              </button>
               <div className="flex gap-2">
-                {error && (
-                  <button onClick={() => {
-                    if (playerRetryCount.current < 2) {
-                      playerRetryCount.current++;
-                      extractionRef.current = null;
-                      setError(false);
-                      loadVideo(true);
-                    } else if (source) {
-                      attachSource(source, true);
-                    }
-                  }} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/20 transition-colors">
-                    <RefreshCw className="w-4 h-4" /> Tentar de novo
-                  </button>
-                )}
+                <button onClick={() => {
+                  playerRetryCount.current = 0;
+                  extractionRef.current = null;
+                  setError(false);
+                  setNoSources(false);
+                  loadVideo(true);
+                }} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors">
+                  <RefreshCw className="w-4 h-4" /> Tentar de novo
+                </button>
                 <button onClick={goBack} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 text-white/70 text-sm font-medium hover:bg-white/10 transition-colors">
                   <ArrowLeft className="w-4 h-4" /> Voltar
                 </button>
