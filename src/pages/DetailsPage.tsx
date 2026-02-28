@@ -101,7 +101,18 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         setHasVideo(false);
       } else {
         setIsFutureRelease(false);
-        setHasVideo(true);
+        // Check video_cache for actual video availability
+        const contentType = type === "movie" ? "movie" : "tv";
+        supabase
+          .from("video_cache")
+          .select("id")
+          .eq("tmdb_id", data.id)
+          .in("content_type", [contentType, type === "tv" ? "series" : "movie"])
+          .gt("expires_at", new Date().toISOString())
+          .limit(1)
+          .then(({ data: cached }) => {
+            setHasVideo(cached && cached.length > 0);
+          });
       }
 
       // Track view (non-blocking)
@@ -292,9 +303,17 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                     : "Data a definir"}
                 </div>
               ) : hasVideo === false ? (
-                <div className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-semibold text-xs sm:text-sm cursor-not-allowed select-none">
-                  <TimerIcon className="w-4 h-4 sm:w-5 sm:h-5" />
-                  Disponível em breve
+                <div className="flex flex-col items-center sm:items-start gap-1.5">
+                  <div className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-semibold text-xs sm:text-sm cursor-not-allowed select-none">
+                    <TimerIcon className="w-4 h-4 sm:w-5 sm:h-5" />
+                    Sem fonte disponível
+                  </div>
+                  <button
+                    onClick={() => setShowReport(true)}
+                    className="text-[10px] sm:text-xs text-amber-400/70 hover:text-amber-300 underline underline-offset-2 transition-colors"
+                  >
+                    Este {type === "tv" ? "série" : "filme"} está sem fonte. Clique aqui para reportar.
+                  </button>
                 </div>
               ) : (
                 <button
