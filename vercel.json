@@ -6,6 +6,7 @@
     { "source": "/v/c/:path*", "destination": "https://vods.playcnvs.com/:path*" },
     { "source": "/v/tv/:path*", "destination": "https://www2.embedtv.best/:path*" },
     { "source": "/b/rest/:path*", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/rest/:path*" },
+    { "source": "/b/storage/:path*", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/storage/:path*" },
     { "source": "/b/functions/:path*", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/functions/:path*" },
     { "source": "/b/realtime/:path*", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/realtime/:path*" },
     { "source": "/b/auth/:path*", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/auth/:path*" },

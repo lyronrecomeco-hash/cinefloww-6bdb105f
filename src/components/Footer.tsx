@@ -1,13 +1,65 @@
-import { forwardRef, useState } from "react";
+import { forwardRef, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import LyneflixLogo from "@/components/LyneflixLogo";
 import DnsHelpModal from "@/components/DnsHelpModal";
 import PartnersModal from "@/components/PartnersModal";
-import { WifiOff, Handshake } from "lucide-react";
+import { WifiOff, Handshake, RefreshCw } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+
+const CURRENT_VERSION = "V-514";
+const LOCAL_KEY = "lyneflix_cache_version";
 
 const Footer = forwardRef<HTMLElement>((_, ref) => {
   const [showDnsHelp, setShowDnsHelp] = useState(false);
   const [showPartners, setShowPartners] = useState(false);
+  const [checking, setChecking] = useState(false);
+
+  const checkVersion = useCallback(async () => {
+    if (checking) return;
+    setChecking(true);
+    try {
+      const { data } = await supabase
+        .from("site_settings")
+        .select("value")
+        .eq("key", "cache_version")
+        .maybeSingle();
+
+      if (!data?.value) {
+        setChecking(false);
+        return;
+      }
+
+      const remoteVersion = String(
+        typeof data.value === "object" && data.value !== null && "v" in (data.value as Record<string, unknown>)
+          ? (data.value as Record<string, string>).v
+          : data.value
+      );
+
+      const localNum = CURRENT_VERSION.replace("V-", "");
+      if (remoteVersion === localNum) {
+        // Already up to date — brief flash green
+        const el = document.getElementById("lyneflix-version");
+        if (el) { el.style.color = "#22c55e"; setTimeout(() => { el.style.color = ""; }, 1500); }
+      } else {
+        // Outdated — force full cache clear + reload
+        console.log(`[VersionCheck] ${localNum} → ${remoteVersion} — atualizando…`);
+        if ("serviceWorker" in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map((r) => r.unregister()));
+        }
+        if ("caches" in window) {
+          const names = await caches.keys();
+          await Promise.all(names.map((n) => caches.delete(n)));
+        }
+        localStorage.setItem(LOCAL_KEY, remoteVersion);
+        window.location.reload();
+        return;
+      }
+    } catch {
+      // silently fail
+    }
+    setChecking(false);
+  }, [checking]);
 
   return (
     <footer ref={ref} className="border-t border-white/5 py-8 sm:py-10 px-4 sm:px-6 lg:px-12">
@@ -45,7 +97,17 @@ const Footer = forwardRef<HTMLElement>((_, ref) => {
         </div>
 
         <p className="text-muted-foreground/60 text-[10px] sm:text-xs">
-          © 2026 LyneFlix. Todos os direitos reservados. <span className="ml-1 text-muted-foreground/40">V-514</span>
+          © 2026 LyneFlix. Todos os direitos reservados.{" "}
+          <button
+            id="lyneflix-version"
+            onClick={checkVersion}
+            disabled={checking}
+            className="ml-1 text-muted-foreground/40 hover:text-primary/60 transition-colors cursor-pointer inline-flex items-center gap-1"
+            title="Clique para verificar atualizações"
+          >
+            {CURRENT_VERSION}
+            {checking && <RefreshCw className="w-2.5 h-2.5 animate-spin" />}
+          </button>
         </p>
       </div>
 
