@@ -30,14 +30,8 @@ const MoviesPage = () => {
       if (selectedYear) {
         const params: Record<string, string> = { sort_by: "popularity.desc" };
         if (genreId) params.with_genres = String(genreId);
-        if (selectedYear.includes("-")) {
-          const [start, end] = selectedYear.split("-");
-          params["primary_release_date.gte"] = `${start}-01-01`;
-          params["primary_release_date.lte"] = `${end}-12-31`;
-        } else {
-          params["primary_release_date.gte"] = `${selectedYear}-01-01`;
-          params["primary_release_date.lte"] = `${selectedYear}-12-31`;
-        }
+        params["primary_release_date.gte"] = `${selectedYear}-01-01`;
+        params["primary_release_date.lte"] = `${selectedYear}-12-31`;
         data = await discoverMovies(p, params);
       } else {
         data = await getPopularMovies(p, genreId);

@@ -97,19 +97,11 @@
   }
 
   .scrollbar-hide {
-    scrollbar-width: thin;
-    scrollbar-color: hsl(var(--foreground) / 0.08) transparent;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
   .scrollbar-hide::-webkit-scrollbar {
-    height: 4px;
-    background: transparent;
-  }
-  .scrollbar-hide::-webkit-scrollbar-thumb {
-    background: hsl(var(--foreground) / 0.08);
-    border-radius: 9999px;
-  }
-  .scrollbar-hide::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--foreground) / 0.15);
+    display: none;
   }
 
   .card-shine {
@@ -232,6 +224,19 @@ html {
   font-size: 16px;
   scroll-behavior: smooth;
   -webkit-tap-highlight-color: transparent;
+  scrollbar-width: thin;
+  scrollbar-color: hsl(217 91% 60% / 0.15) transparent;
+}
+html::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+html::-webkit-scrollbar-thumb {
+  background: hsl(217 91% 60% / 0.15);
+  border-radius: 9999px;
+}
+html::-webkit-scrollbar-thumb:hover {
+  background: hsl(217 91% 60% / 0.25);
 }
 
 /* Smooth page transitions */
