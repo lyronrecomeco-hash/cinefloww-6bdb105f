@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
-import { Radio, Search, Tv2, ArrowLeft, Loader2 } from "lucide-react";
+import { Radio, Search, Tv2, ArrowLeft, Loader2, Volume2, VolumeX } from "lucide-react";
 
 interface TVChannel {
   id: string;
@@ -30,6 +30,74 @@ interface EPGEntry {
   };
 }
 
+/** CineVeo TV embed base */
+const CINEVEO_TV_BASE = "https://cinetvembed.cineveo.site";
+
+/**
+ * Build a clean srcdoc that loads the CineVeo embed
+ * but strips ads, overlays and tracking scripts.
+ */
+function buildCleanPlayerHtml(embedUrl: string, channelName: string): string {
+  return `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#000}
+iframe{width:100%;height:100%;border:0;position:fixed;inset:0;z-index:1}
+/* Block common ad overlays injected by embeds */
+[id*="ad"],[class*="ad-"],[class*="overlay"],[id*="overlay"],
+[class*="popup"],[id*="popup"],[class*="banner"],[id*="banner"],
+[class*="preroll"],[id*="preroll"],[class*="vast"],[id*="vast"],
+div[style*="z-index: 999"],div[style*="z-index:999"],
+div[style*="z-index: 9999"],div[style*="z-index:9999"],
+div[style*="position: fixed"][onclick],
+a[target="_blank"][style*="position"],
+div[class*="close"],div[id*="close"]{
+  display:none!important;visibility:hidden!important;
+  width:0!important;height:0!important;opacity:0!important;
+  pointer-events:none!important
+}
+</style>
+</head>
+<body>
+<iframe src="${embedUrl}" 
+  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+  allowfullscreen
+  title="${channelName}"
+  referrerpolicy="no-referrer">
+</iframe>
+<script>
+// Anti-ad: periodically remove injected ad elements
+setInterval(function(){
+  try{
+    var sels=['[id*="ad"]','[class*="overlay"]','[class*="popup"]',
+      'a[target="_blank"][style*="position"]','div[onclick]',
+      '[class*="banner"]','[class*="preroll"]','[class*="vast"]',
+      'div[style*="z-index: 999"]','div[style*="z-index: 9999"]'];
+    sels.forEach(function(s){
+      document.querySelectorAll(s).forEach(function(el){
+        if(el.tagName!=='IFRAME'){el.remove();}
+      });
+    });
+  }catch(e){}
+},1500);
+
+// Block popups
+window.open=function(){return null};
+
+// Block ad-related event listeners on body
+document.addEventListener('click',function(e){
+  var t=e.target;
+  if(t&&t.tagName==='A'&&t.target==='_blank'){
+    e.preventDefault();e.stopPropagation();
+  }
+},true);
+</script>
+</body></html>`;
+}
+
 const TVPage = () => {
   const { channelId } = useParams<{ channelId?: string }>();
   const [channels, setChannels] = useState<TVChannel[]>([]);
@@ -44,7 +112,6 @@ const TVPage = () => {
   const [playerChannel, setPlayerChannel] = useState<TVChannel | null>(null);
   const [playerHtml, setPlayerHtml] = useState<string | null>(null);
   const [playerLoading, setPlayerLoading] = useState(false);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -57,32 +124,25 @@ const TVPage = () => {
     setLoading(false);
   }, []);
 
-  // Fetch EPG data
   const fetchEpg = useCallback(async () => {
     try {
       const resp = await fetch("https://embedtv.best/api/epgs");
       if (resp.ok) {
         const data: EPGEntry[] = await resp.json();
         const map: Record<string, EPGEntry["epg"]> = {};
-        for (const entry of data) {
-          map[entry.id] = entry.epg;
-        }
+        for (const entry of data) map[entry.id] = entry.epg;
         setEpgMap(map);
       }
-    } catch {
-      // EPG is optional, fail silently
-    }
+    } catch {}
   }, []);
 
   useEffect(() => { fetchData(); fetchEpg(); }, [fetchData, fetchEpg]);
-
-  // Refresh EPG every 5 minutes
   useEffect(() => {
     const interval = setInterval(fetchEpg, 5 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchEpg]);
 
-  // Handle channel route - auto-open player
+  // Auto-open player when route has channelId
   useEffect(() => {
     if (channelId && channels.length > 0) {
       const ch = channels.find(c => c.id === channelId);
@@ -90,22 +150,14 @@ const TVPage = () => {
     }
   }, [channelId, channels]);
 
-  const openPlayer = useCallback(async (channel: TVChannel) => {
+  const openPlayer = useCallback((channel: TVChannel) => {
     setPlayerChannel(channel);
     setPlayerLoading(true);
-    setPlayerHtml(null);
 
-    try {
-      const { data, error } = await supabase.functions.invoke("proxy-tv", {
-        body: { url: channel.stream_url },
-      });
-
-      if (!error && data?.html) {
-        setPlayerHtml(data.html);
-      }
-    } catch {
-      // fallback: show embed directly
-    }
+    // Build clean embed HTML with ad blocking
+    const embedUrl = channel.stream_url;
+    const html = buildCleanPlayerHtml(embedUrl, channel.name);
+    setPlayerHtml(html);
     setPlayerLoading(false);
   }, []);
 
@@ -130,7 +182,7 @@ const TVPage = () => {
     return (
       <div className="fixed inset-0 z-[100] bg-black flex flex-col">
         {/* Header */}
-        <div className="flex items-center gap-3 px-4 py-3 bg-black/80 backdrop-blur-sm z-10">
+        <div className="flex items-center gap-3 px-4 py-3 bg-black/80 backdrop-blur-sm z-10 safe-top">
           <button onClick={closePlayer} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
             <ArrowLeft className="w-4 h-4 text-white" />
           </button>
@@ -154,7 +206,6 @@ const TVPage = () => {
             </div>
           ) : playerHtml ? (
             <iframe
-              ref={iframeRef}
               srcDoc={playerHtml}
               className="w-full h-full border-0"
               allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
