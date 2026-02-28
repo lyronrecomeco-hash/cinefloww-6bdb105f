@@ -20,14 +20,9 @@ const TMDB_TV_GENRES = [
   { id: 37, name: "Faroeste" },
 ];
 
-// Year ranges for quick selection
-const YEAR_RANGES = [
-  { label: "2026", value: "2026" }, { label: "2025", value: "2025" }, { label: "2024", value: "2024" },
-  { label: "2023", value: "2023" }, { label: "2022", value: "2022" }, { label: "2020s", value: "2020-2029" },
-  { label: "2010s", value: "2010-2019" }, { label: "2000s", value: "2000-2009" },
-  { label: "90s", value: "1990-1999" }, { label: "80s", value: "1980-1989" },
-  { label: "70s", value: "1970-1979" }, { label: "Clássicos", value: "1888-1969" },
-];
+// Individual years from 2026 down to 1888
+const ALL_YEARS: string[] = [];
+for (let y = 2026; y >= 1888; y--) ALL_YEARS.push(String(y));
 
 interface CategoriesModalProps {
   open: boolean;
@@ -84,16 +79,16 @@ const CategoriesModal = ({ open, onClose, onSelect, onYearFilter, selectedId, se
               ))}
             </div>
           ) : (
-            <div className="grid grid-cols-3 gap-1.5">
+            <div className="grid grid-cols-4 sm:grid-cols-5 gap-1.5">
               <button onClick={() => { onYearFilter?.(null); onClose(); }}
-                className={`px-2 py-2 rounded-lg text-xs font-medium transition-all text-center ${
+                className={`px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all text-center ${
                   !selectedYear ? "bg-primary text-primary-foreground" : "bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground border border-white/5"
                 }`}>Todos</button>
-              {YEAR_RANGES.map((yr) => (
-                <button key={yr.value} onClick={() => { onYearFilter?.(yr.value); onClose(); }}
-                  className={`px-2 py-2 rounded-lg text-xs font-medium transition-all text-center ${
-                    selectedYear === yr.value ? "bg-primary text-primary-foreground" : "bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground border border-white/5"
-                  }`}>{yr.label}</button>
+              {ALL_YEARS.map((yr) => (
+                <button key={yr} onClick={() => { onYearFilter?.(yr); onClose(); }}
+                  className={`px-2 py-1.5 rounded-lg text-[11px] font-medium transition-all text-center ${
+                    selectedYear === yr ? "bg-primary text-primary-foreground" : "bg-white/5 text-muted-foreground hover:bg-white/10 hover:text-foreground border border-white/5"
+                  }`}>{yr}</button>
               ))}
             </div>
           )}

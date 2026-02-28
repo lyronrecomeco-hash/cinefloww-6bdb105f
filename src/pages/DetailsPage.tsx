@@ -48,6 +48,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [inMyList, setInMyList] = useState(false);
   const [hasVideo, setHasVideo] = useState<boolean | null>(null);
+  const [isFutureRelease, setIsFutureRelease] = useState(false);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [showAdGate, setShowAdGate] = useState(false);
   const [adGateCallback, setAdGateCallback] = useState<(() => void) | null>(null);
@@ -91,13 +92,23 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
       }
       setDetail(data);
       setLoading(false);
+
+      // Check if future release
+      const rd = data.release_date || data.first_air_date;
+      const today = new Date().toISOString().split("T")[0];
+      if (rd && rd > today) {
+        setIsFutureRelease(true);
+        setHasVideo(false);
+      } else {
+        setIsFutureRelease(false);
+        setHasVideo(true);
+      }
+
       // Track view (non-blocking)
       supabase.from("content_views").insert({
         tmdb_id: id,
         content_type: type === "movie" ? "movie" : "tv",
       }).then(() => {});
-      // Always show "Assistir Agora" — link resolved on-demand
-      setHasVideo(true);
     }).catch(() => { if (!cancelled) setLoading(false); });
 
     // Check for resolved reports for this visitor
@@ -273,7 +284,14 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
             {/* Actions */}
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 sm:gap-3 mb-4 sm:mb-6">
-              {hasVideo === false ? (
+              {isFutureRelease ? (
+                <div className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-semibold text-xs sm:text-sm cursor-default select-none">
+                  <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
+                  Em Breve — {detail.release_date || detail.first_air_date
+                    ? new Date((detail.release_date || detail.first_air_date)! + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })
+                    : "Data a definir"}
+                </div>
+              ) : hasVideo === false ? (
                 <div className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-semibold text-xs sm:text-sm cursor-not-allowed select-none">
                   <TimerIcon className="w-4 h-4 sm:w-5 sm:h-5" />
                   Disponível em breve

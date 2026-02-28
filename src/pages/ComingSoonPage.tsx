@@ -72,7 +72,7 @@ const ComingSoonPage = () => {
           <div className="flex items-center gap-3">
             <div className="w-1 h-6 sm:h-7 rounded-full bg-primary" />
             <div>
-              <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-bold">Em Breve</h1>
+              <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-bold">| Em Breve</h1>
               <p className="text-[10px] sm:text-xs text-muted-foreground">Próximos lançamentos</p>
             </div>
           </div>
@@ -106,7 +106,7 @@ const ComingSoonPage = () => {
           <>
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-2.5 sm:gap-4 lg:gap-5" style={{ contentVisibility: "auto" }}>
               {items.map((item, idx) => (
-                <MovieCard key={`${item.id}-${idx}`} movie={item} />
+                <MovieCard key={`${item.id}-${idx}`} movie={item} comingSoon />
               ))}
             </div>
 
