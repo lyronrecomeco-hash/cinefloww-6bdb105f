@@ -54,6 +54,8 @@ const TVManager = lazy(() => import("./pages/admin/TVManager"));
 const R2UploadPage = lazy(() => import("./pages/admin/R2UploadPage"));
 const PublicLogsPage = lazy(() => import("./pages/PublicLogsPage"));
 const QrxpPage = lazy(() => import("./pages/QrxpPage"));
+const SupportPage = lazy(() => import("./pages/SupportPage"));
+const TicketsPage = lazy(() => import("./pages/admin/TicketsPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -105,6 +107,7 @@ const App = () => (
             <Route path="/extrator" element={<CineveoTester />} />
             <Route path="/logs" element={<PublicLogsPage />} />
             <Route path="/qrxp" element={<QrxpPage />} />
+            <Route path="/suporte" element={<SupportPage />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
@@ -133,6 +136,7 @@ const App = () => (
               <Route path="config" element={<SettingsPage />} />
               <Route path="watch-rooms" element={<WatchRoomsPage />} />
               <Route path="r2" element={<R2UploadPage />} />
+              <Route path="tickets" element={<TicketsPage />} />
             </Route>
 
             <Route path="*" element={<NotFound />} />

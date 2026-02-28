@@ -3,7 +3,7 @@ import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import {
   LayoutDashboard, Film, Tv, Sparkles, Drama, FolderOpen, ScrollText,
-  Settings, LogOut, Menu, X, ChevronRight, Database, MessageSquare, Bell, Shield, Bot, Flag, Radio, Users, Wrench, Cloud, Search
+  Settings, LogOut, Menu, X, ChevronRight, Database, MessageSquare, Bell, Shield, Bot, Flag, Radio, Users, Wrench, Cloud, Search, Headphones
 } from "lucide-react";
 
 const menuItems = [
@@ -13,6 +13,7 @@ const menuItems = [
   { label: "Doramas", path: "/admin/doramas", icon: Drama },
   { label: "Animes", path: "/admin/animes", icon: Sparkles },
   { label: "Pedidos", path: "/admin/pedidos", icon: MessageSquare, badge: true },
+  { label: "Tickets", path: "/admin/tickets", icon: Headphones, badgeType: "tickets" },
   { label: "ADS Manager", path: "/admin/ads", icon: Flag },
   { label: "Categorias", path: "/admin/categorias", icon: FolderOpen },
   { label: "Banco", path: "/admin/banco", icon: Database },
@@ -62,6 +63,7 @@ const AdminLayout = () => {
   const [userRole, setUserRole] = useState<string>("admin");
   const [allowedPaths, setAllowedPaths] = useState<string[]>([]);
   const [pendingRequests, setPendingRequests] = useState(0);
+  const [openTickets, setOpenTickets] = useState(0);
   const [menuQuery, setMenuQuery] = useState("");
   const [backendError, setBackendError] = useState<string | null>(null);
   const prevPendingRef = useRef(0);
@@ -178,15 +180,14 @@ const AdminLayout = () => {
         // Fetch pendências (non-blocking)
         (async () => {
           try {
-            const result = await supabase
-              .from("content_requests")
-              .select("id")
-              .eq("status", "pending")
-              .limit(200);
+            const [reqResult, ticketResult] = await Promise.all([
+              supabase.from("content_requests").select("id").eq("status", "pending").limit(200),
+              supabase.from("support_tickets").select("id").eq("status", "open").limit(200),
+            ]);
             if (!isMounted) return;
-            const rows = result.data || [];
-            setPendingRequests(rows.length);
-            prevPendingRef.current = rows.length;
+            setPendingRequests((reqResult.data || []).length);
+            setOpenTickets((ticketResult.data || []).length);
+            prevPendingRef.current = (reqResult.data || []).length;
           } catch {}
         })();
       } catch (err) {
@@ -225,25 +226,24 @@ const AdminLayout = () => {
   useEffect(() => {
     const channel = supabase
       .channel("admin-requests")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "content_requests" },
-        () => {
-          setPendingRequests((prev) => {
-            playNotificationSound();
-            return prev + 1;
-          });
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "content_requests" }, () => {
+        setPendingRequests((prev) => { playNotificationSound(); return prev + 1; });
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "content_requests" }, (payload) => {
+        if (payload.old && (payload.old as any).status === "pending" && (payload.new as any).status !== "pending") {
+          setPendingRequests((prev) => Math.max(0, prev - 1));
         }
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "content_requests" },
-        (payload) => {
-          if (payload.old && (payload.old as any).status === "pending" && (payload.new as any).status !== "pending") {
-            setPendingRequests((prev) => Math.max(0, prev - 1));
-          }
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "support_tickets" }, () => {
+        setOpenTickets((prev) => { playNotificationSound(); return prev + 1; });
+      })
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "support_tickets" }, (payload) => {
+        if ((payload.old as any).status === "open" && (payload.new as any).status !== "open") {
+          setOpenTickets((prev) => Math.max(0, prev - 1));
+        } else if ((payload.old as any).status !== "open" && (payload.new as any).status === "open") {
+          setOpenTickets((prev) => prev + 1);
         }
-      )
+      })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
@@ -339,6 +339,11 @@ const AdminLayout = () => {
                   {(item as any).badge && pendingRequests > 0 && (
                     <span className="absolute -top-2 -right-5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center animate-pulse">
                       {pendingRequests}
+                    </span>
+                  )}
+                  {(item as any).badgeType === "tickets" && openTickets > 0 && (
+                    <span className="absolute -top-2 -right-5 min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center animate-pulse">
+                      {openTickets}
                     </span>
                   )}
                 </span>
