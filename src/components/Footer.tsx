@@ -45,7 +45,7 @@ const Footer = forwardRef<HTMLElement>((_, ref) => {
         </div>
 
         <p className="text-muted-foreground/60 text-[10px] sm:text-xs">
-          © 2026 LyneFlix. Todos os direitos reservados.
+          © 2026 LyneFlix. Todos os direitos reservados. <span className="ml-1 text-muted-foreground/40">V-512</span>
         </p>
       </div>
 

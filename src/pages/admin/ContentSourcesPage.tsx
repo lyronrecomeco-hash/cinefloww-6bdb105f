@@ -54,17 +54,40 @@ const NoVideo2026Tab = () => {
     if (!allContent || allContent.length === 0) { setLoading(false); return; }
 
     const tmdbIds = allContent.map(c => c.tmdb_id);
+    
+    // Fetch ALL video_cache entries for these IDs (including season/episode info)
     const { data: cached } = await supabase
       .from("video_cache")
-      .select("tmdb_id")
+      .select("tmdb_id, content_type, season, episode")
       .in("tmdb_id", tmdbIds)
       .gt("expires_at", new Date().toISOString());
 
-    const cachedSet = new Set(cached?.map(c => c.tmdb_id) || []);
-    const noVideo = allContent.filter(c => !cachedSet.has(c.tmdb_id));
+    // For movies: has ANY entry = has video
+    // For series: must check properly - a series with episodes cached is NOT "sem vídeo"
+    const movieCachedSet = new Set<number>();
+    const seriesCachedSet = new Set<number>();
+    
+    cached?.forEach(row => {
+      if (row.content_type === "movie") {
+        movieCachedSet.add(row.tmdb_id);
+      } else {
+        // Any entry for tv/series means it has at least one episode
+        seriesCachedSet.add(row.tmdb_id);
+      }
+    });
 
-    setMovies(noVideo.filter(c => c.content_type === "movie"));
-    setSeries(noVideo.filter(c => c.content_type === "series" || c.content_type === "tv"));
+    const movieItems = allContent
+      .filter(c => c.content_type === "movie" && !movieCachedSet.has(c.tmdb_id))
+      // Also exclude movies that might be cached as tv type
+      .filter(c => !seriesCachedSet.has(c.tmdb_id));
+    
+    const seriesItems = allContent
+      .filter(c => (c.content_type === "series" || c.content_type === "tv") && !seriesCachedSet.has(c.tmdb_id))
+      // Also exclude series cached as movie type
+      .filter(c => !movieCachedSet.has(c.tmdb_id));
+
+    setMovies(movieItems);
+    setSeries(seriesItems);
     setLoading(false);
   }, []);
 
