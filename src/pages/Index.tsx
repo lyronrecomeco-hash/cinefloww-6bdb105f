@@ -13,6 +13,7 @@ import {
   getNowPlayingMovies,
   getAiringTodaySeries,
   discoverMovies,
+  discoverSeries,
   getYear,
 } from "@/services/tmdb";
 
@@ -80,8 +81,14 @@ const Index = () => {
     }).catch(finish);
 
     // Load catalog rows separately (non-blocking)
-    fetchCatalogRow("dorama", 20).then(items => setDoramas(mapToTMDB(items))).catch(() => {});
-    fetchCatalogRow("anime", 20).then(items => setAnimes(mapToTMDB(items))).catch(() => {});
+    fetchCatalogRow("dorama", 20).then(items => setDoramas(mapToTMDB(items.filter(i => i.poster_path)))).catch(() => {});
+    fetchCatalogRow("anime", 20).then(items => setAnimes(mapToTMDB(items.filter(i => i.poster_path)))).catch(() => {});
+
+    // Animes from TMDB as fallback
+    race(discoverSeries(1, { with_genres: "16", sort_by: "popularity.desc", with_original_language: "ja" }), empty)
+      .then(data => {
+        if (animes.length === 0) setAnimes(data.results.filter(m => m.poster_path));
+      }).catch(() => {});
 
     // Recently added — fetch latest from all catalog types
     Promise.all([
@@ -89,6 +96,7 @@ const Index = () => {
       fetchCatalogRow("series", 10).catch(() => []),
     ]).then(([movies, series]) => {
       const all = [...movies, ...series]
+        .filter(i => i.poster_path)
         .sort((a, b) => (b.release_date || "").localeCompare(a.release_date || ""))
         .slice(0, 20);
       setRecentlyAdded(mapToTMDB(all));

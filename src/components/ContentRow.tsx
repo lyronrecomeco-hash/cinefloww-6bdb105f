@@ -52,17 +52,17 @@ const ContentRow = memo(forwardRef<HTMLElement, ContentRowProps>(({ title, movie
 
       <div
         ref={scrollRef}
-        className="flex gap-2.5 sm:gap-4 overflow-x-auto scrollbar-hide px-3 sm:px-6 lg:px-12 pb-2 snap-x snap-proximity overscroll-x-contain"
+        className="flex gap-2.5 sm:gap-4 overflow-x-auto scrollbar-hide px-3 sm:px-6 lg:px-12 pb-2 overscroll-x-contain"
         style={{ WebkitOverflowScrolling: "touch" }}
       >
         {loading
           ? Array.from({ length: SKELETON_COUNT }).map((_, i) => (
-              <div key={`sk-${i}`} className="flex-shrink-0 w-[120px] sm:w-[160px] lg:w-[180px] snap-start">
+              <div key={`sk-${i}`} className="flex-shrink-0 w-[120px] sm:w-[160px] lg:w-[180px]">
                 <MovieCardSkeleton />
               </div>
             ))
-          : movies.map((movie) => (
-              <div key={movie.id} className="flex-shrink-0 w-[120px] sm:w-[160px] lg:w-[180px] snap-start">
+          : movies.map((movie, idx) => (
+              <div key={`${movie.id}-${idx}`} className="flex-shrink-0 w-[120px] sm:w-[160px] lg:w-[180px]">
                 <MovieCard movie={movie} />
               </div>
             ))}

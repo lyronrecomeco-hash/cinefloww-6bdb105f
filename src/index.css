@@ -97,11 +97,19 @@
   }
 
   .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--foreground) / 0.08) transparent;
   }
   .scrollbar-hide::-webkit-scrollbar {
-    display: none;
+    height: 4px;
+    background: transparent;
+  }
+  .scrollbar-hide::-webkit-scrollbar-thumb {
+    background: hsl(var(--foreground) / 0.08);
+    border-radius: 9999px;
+  }
+  .scrollbar-hide::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--foreground) / 0.15);
   }
 
   .card-shine {
