@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
-import { Radio, Search, Tv2, ArrowLeft, Loader2, Volume2, VolumeX } from "lucide-react";
+import { Radio, Search, Tv2, ArrowLeft, Loader2 } from "lucide-react";
 
 interface TVChannel {
   id: string;
@@ -33,70 +33,6 @@ interface EPGEntry {
 /** CineVeo TV embed base */
 const CINEVEO_TV_BASE = "https://cinetvembed.cineveo.site";
 
-/**
- * Build a clean srcdoc that loads the CineVeo embed
- * but strips ads, overlays and tracking scripts.
- */
-function buildCleanPlayerHtml(embedUrl: string, channelName: string): string {
-  return `<!DOCTYPE html>
-<html><head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;background:#000}
-iframe{width:100%;height:100%;border:0;position:fixed;inset:0;z-index:1}
-/* Block common ad overlays injected by embeds */
-[id*="ad"],[class*="ad-"],[class*="overlay"],[id*="overlay"],
-[class*="popup"],[id*="popup"],[class*="banner"],[id*="banner"],
-[class*="preroll"],[id*="preroll"],[class*="vast"],[id*="vast"],
-div[style*="z-index: 999"],div[style*="z-index:999"],
-div[style*="z-index: 9999"],div[style*="z-index:9999"],
-div[style*="position: fixed"][onclick],
-a[target="_blank"][style*="position"],
-div[class*="close"],div[id*="close"]{
-  display:none!important;visibility:hidden!important;
-  width:0!important;height:0!important;opacity:0!important;
-  pointer-events:none!important
-}
-</style>
-</head>
-<body>
-<iframe src="${embedUrl}" 
-  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-  allowfullscreen
-  title="${channelName}"
-  referrerpolicy="no-referrer">
-</iframe>
-<script>
-// Anti-ad: periodically remove injected ad elements
-setInterval(function(){
-  try{
-    var sels=['[id*="ad"]','[class*="overlay"]','[class*="popup"]',
-      'a[target="_blank"][style*="position"]','div[onclick]',
-      '[class*="banner"]','[class*="preroll"]','[class*="vast"]',
-      'div[style*="z-index: 999"]','div[style*="z-index: 9999"]'];
-    sels.forEach(function(s){
-      document.querySelectorAll(s).forEach(function(el){
-        if(el.tagName!=='IFRAME'){el.remove();}
-      });
-    });
-  }catch(e){}
-},1500);
-
-// Block popups
-window.open=function(){return null};
-
-// Block ad-related event listeners on body
-document.addEventListener('click',function(e){
-  var t=e.target;
-  if(t&&t.tagName==='A'&&t.target==='_blank'){
-    e.preventDefault();e.stopPropagation();
-  }
-},true);
-</script>
-</body></html>`;
-}
 
 const TVPage = () => {
   const { channelId } = useParams<{ channelId?: string }>();
@@ -150,14 +86,23 @@ const TVPage = () => {
     }
   }, [channelId, channels]);
 
-  const openPlayer = useCallback((channel: TVChannel) => {
+  const openPlayer = useCallback(async (channel: TVChannel) => {
     setPlayerChannel(channel);
     setPlayerLoading(true);
+    setPlayerHtml(null);
 
-    // Build clean embed HTML with ad blocking
-    const embedUrl = channel.stream_url;
-    const html = buildCleanPlayerHtml(embedUrl, channel.name);
-    setPlayerHtml(html);
+    try {
+      // Use server-side proxy to clean HTML (removes sandbox detection + ads)
+      const { data, error } = await supabase.functions.invoke("proxy-tv", {
+        body: { url: channel.stream_url },
+      });
+
+      if (!error && data?.html) {
+        setPlayerHtml(data.html);
+      }
+    } catch {
+      // fallback handled by direct iframe
+    }
     setPlayerLoading(false);
   }, []);
 
@@ -209,7 +154,7 @@ const TVPage = () => {
               srcDoc={playerHtml}
               className="w-full h-full border-0"
               allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+              allowFullScreen
               title={playerChannel.name}
             />
           ) : (
