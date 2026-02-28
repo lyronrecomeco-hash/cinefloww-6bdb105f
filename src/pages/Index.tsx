@@ -45,7 +45,7 @@ const Index = () => {
         vote_average: d.vote_average || 0,
         first_air_date: d.release_date,
         genre_ids: [],
-        media_type: "tv" as const,
+        media_type: (d.content_type === "movie" ? "movie" : "tv") as "movie" | "tv",
       }));
 
     let done = false;
