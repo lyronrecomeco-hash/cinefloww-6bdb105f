@@ -122,19 +122,9 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         setIsFutureRelease(true);
         setHasVideo(false);
       } else {
-        setIsFutureRelease(false);
-        // Check video_cache for actual video availability
-        const contentType = type === "movie" ? "movie" : "tv";
-        supabase
-          .from("video_cache")
-          .select("id")
-          .eq("tmdb_id", data.id)
-          .in("content_type", [contentType, type === "tv" ? "series" : "movie"])
-          .gt("expires_at", new Date().toISOString())
-          .limit(1)
-          .then(({ data: cached }) => {
-            setHasVideo(cached && cached.length > 0);
-          });
+      setIsFutureRelease(false);
+        // Video is resolved on-demand via CineVeo API — always available
+        setHasVideo(true);
       }
 
       // Track view (non-blocking)
