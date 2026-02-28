@@ -266,7 +266,7 @@ const SupportPage = () => {
 
           {/* Reply input */}
           {selectedTicket.status !== "closed" && (
-            <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-xl border-t border-white/10 p-4 safe-area-bottom z-40">
+            <div className="fixed bottom-0 left-0 right-0 bg-background/95 backdrop-blur-xl border-t border-white/10 p-4 z-[60] pb-[calc(1rem+env(safe-area-inset-bottom))] md:pb-4 mb-16 md:mb-0">
               {attachFile && (
                 <div className="max-w-2xl mx-auto mb-2 flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10">
                   {attachPreview ? (
