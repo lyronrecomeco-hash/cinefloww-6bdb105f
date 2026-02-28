@@ -131,27 +131,46 @@ const TicketsPage = () => {
   };
 
   const uploadFile = async (file: File): Promise<string | null> => {
-    const ext = file.name.split(".").pop();
-    const path = `admin/${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from("ticket-attachments").upload(path, file);
-    if (error) return null;
-    const { data } = supabase.storage.from("ticket-attachments").getPublicUrl(path);
-    return data.publicUrl;
+    try {
+      const ext = file.name.split(".").pop() || "bin";
+      const path = `admin/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error } = await supabase.storage.from("ticket-attachments").upload(path, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+      if (error) {
+        console.error("[Upload]", error);
+        toast.error("Falha ao enviar arquivo");
+        return null;
+      }
+      const { data } = supabase.storage.from("ticket-attachments").getPublicUrl(path);
+      return data.publicUrl;
+    } catch (err) {
+      console.error("[Upload]", err);
+      toast.error("Falha ao enviar arquivo");
+      return null;
+    }
   };
 
-  const isImage = (url: string) => /\.(jpg|jpeg|png|gif|webp|avif)$/i.test(url);
+  const isImage = (url: string) => /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)/i.test(url) || url.includes("/ticket-attachments/") && /image/i.test(url);
 
   const sendReply = async () => {
     if ((!replyText.trim() && !attachFile) || !selected) return;
     setSending(true);
 
     let attachUrl: string | null = null;
-    if (attachFile) attachUrl = await uploadFile(attachFile);
+    if (attachFile) {
+      attachUrl = await uploadFile(attachFile);
+      if (!attachUrl) {
+        setSending(false);
+        return; // upload failed
+      }
+    }
 
     await supabase.from("ticket_messages").insert({
       ticket_id: selected.id,
       sender_type: "admin",
-      message: replyText.trim() || (attachUrl ? "📎 Anexo" : ""),
+      message: replyText.trim() || "📎 Anexo",
       ...(attachUrl ? { attachment_url: attachUrl } : {}),
     } as any);
     await supabase.from("support_tickets").update({ status: "answered" } as any).eq("id", selected.id);
