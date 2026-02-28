@@ -31,11 +31,7 @@ const ContentRow = memo(forwardRef<HTMLElement, ContentRowProps>(({ title, movie
     <section className="mb-8 sm:mb-10 lg:mb-14 gpu-layer" style={{ contain: "layout style" }}>
       <div className="flex items-center justify-between px-3 sm:px-6 lg:px-12 mb-3 sm:mb-4 lg:mb-6">
         <div className="flex items-center gap-2 sm:gap-3">
-          {icon && (
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-primary/20 flex items-center justify-center text-primary">
-              {icon}
-            </div>
-          )}
+          <div className="w-1 h-5 sm:h-6 rounded-full bg-primary" />
           <h2 className="font-display text-base sm:text-xl lg:text-2xl font-bold">{title}</h2>
         </div>
         <div className="flex items-center gap-1.5">
