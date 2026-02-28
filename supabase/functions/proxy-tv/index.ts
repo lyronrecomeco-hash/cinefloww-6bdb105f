@@ -1,9 +1,9 @@
 /**
- * TV Proxy — fetches embedtv/cineveo pages server-side:
- * 1. Removes sandbox detection elements and scripts
- * 2. Injects window.top/parent/frameElement overrides before any other JS
+ * TV Proxy v3 — fetches embedtv/cineveo pages server-side:
+ * 1. Strips ALL anti-iframe/sandbox detection scripts (obfuscated included)
+ * 2. Injects window.top/parent/frameElement overrides FIRST
  * 3. Strips ad scripts and overlays
- * 4. Returns cleaned HTML as JSON for srcdoc rendering (NO sandbox attr)
+ * 4. Returns cleaned HTML for srcdoc rendering (NO sandbox attr on iframe)
  */
 
 const corsHeaders = {
@@ -16,57 +16,80 @@ const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 /**
- * Override script injected FIRST in <head>.
- * Spoofs top-level context so page thinks it's NOT inside an iframe.
- * Aggressively removes sandbox overlays + ad elements.
+ * Nuclear override script — runs BEFORE any page JS.
+ * 1) Freezes window.top/parent/frameElement so page can't detect iframe
+ * 2) Patches createElement to neuter hidden iframe sandbox checks
+ * 3) Aggressively removes sandbox overlays + ads
  */
 const OVERRIDE_SCRIPT = `<script>
 (function(){
-  // 1) Spoof top-level context BEFORE any page JS runs
-  try{Object.defineProperty(window,'frameElement',{get:function(){return null},configurable:true})}catch(e){}
-  try{Object.defineProperty(window,'top',{get:function(){return window.self},configurable:true})}catch(e){}
-  try{Object.defineProperty(window,'parent',{get:function(){return window.self},configurable:true})}catch(e){}
-  try{Object.defineProperty(window,'length',{get:function(){return 0},configurable:true})}catch(e){}
+  // === PHASE 1: Freeze iframe detection properties ===
+  var w=window,d=document;
+  function freeze(obj,prop,val){
+    try{Object.defineProperty(obj,prop,{get:function(){return val},set:function(){},configurable:false,enumerable:true})}catch(e){}
+  }
+  freeze(w,'frameElement',null);
+  freeze(w,'top',w.self);
+  freeze(w,'parent',w.self);
+  freeze(w,'length',0);
+  
+  // Prevent any script from re-defining these
+  var origDefProp=Object.defineProperty;
+  Object.defineProperty=function(obj,prop,desc){
+    if(obj===window&&(prop==='top'||prop==='parent'||prop==='frameElement'||prop==='length')){
+      return obj;
+    }
+    return origDefProp.call(Object,obj,prop,desc);
+  };
 
-  // 2) Override sandbox detection functions commonly used
-  window.__sandbox = false;
-  window.inIframe = function(){return false};
+  // === PHASE 2: Neuter hidden iframe creation (anti-sandbox technique) ===
+  var origCreateElement=d.createElement.bind(d);
+  d.createElement=function(tag){
+    var el=origCreateElement(tag);
+    if(tag.toLowerCase()==='iframe'){
+      // Override contentWindow to return current window (prevents clean-window detection)
+      try{
+        Object.defineProperty(el,'contentWindow',{get:function(){return w},configurable:true});
+        Object.defineProperty(el,'contentDocument',{get:function(){return d},configurable:true});
+      }catch(e){}
+    }
+    return el;
+  };
 
-  // 3) Block popups
-  window.open=function(){return null};
+  // === PHASE 3: Override common detection functions ===
+  w.__sandbox=false;
+  w.inIframe=function(){return false};
+  w.open=function(){return null};
 
-  // 4) Aggressive cleanup function
+  // === PHASE 4: Aggressive DOM cleanup ===
   function clean(){
     // Remove sandbox_detect by ID
-    var sd=document.getElementById('sandbox_detect');
+    var sd=d.getElementById('sandbox_detect');
     if(sd){try{sd.remove()}catch(e){sd.style.display='none'}}
 
-    // Remove any element mentioning SANDBOX or "DIGA NÃO"
-    document.querySelectorAll('div,section,aside').forEach(function(d){
-      var t=(d.textContent||'').trim();
-      if(t.length<200 && (t.indexOf('SANDBOX')>-1||t.indexOf('DIGA N')>-1||t.indexOf('sandbox')>-1||t.indexOf('embedtv.best')>-1)){
-        try{d.remove()}catch(e){d.style.display='none'}
+    // Remove any element mentioning SANDBOX or DIGA NÃO
+    d.querySelectorAll('div,section,aside,span').forEach(function(el){
+      var t=(el.textContent||'').trim();
+      if(t.length<300&&(t.indexOf('SANDBOX')>-1||t.indexOf('DIGA N')>-1||t.indexOf('sandbox')>-1||t.indexOf('embedtv.best')>-1)){
+        try{el.remove()}catch(e){el.style.display='none'}
       }
     });
 
-    // Remove fixed/absolute overlays with high z-index (ads, gates)
-    document.querySelectorAll('div[style],a[style]').forEach(function(el){
+    // Remove fixed/absolute overlays with high z-index
+    d.querySelectorAll('[style]').forEach(function(el){
       var s=el.style;
       var z=parseInt(s.zIndex||'0',10);
       if((s.position==='fixed'||s.position==='absolute')&&z>=100){
-        // Don't remove the video player itself
-        if(!el.querySelector('video')&&!el.querySelector('iframe[src*="m3u8"]')){
+        if(!el.querySelector('video')&&el.tagName!=='VIDEO'&&!el.classList.contains('player-poster')){
           try{el.remove()}catch(e){el.style.display='none'}
         }
       }
     });
 
-    // Remove ad-related elements
-    var adSels=['[id*="ad_"]','[class*="ad-wrap"]','[class*="overlay"]','[id*="overlay"]',
-      '[class*="popup"]','[id*="popup"]','a[target="_blank"][onclick]',
-      '[class*="preroll"]','[id*="preroll"]','[class*="vast"]'];
-    adSels.forEach(function(s){
-      document.querySelectorAll(s).forEach(function(el){
+    // Remove ad elements
+    ['[id*="ad_"]','[class*="ad-wrap"]','[class*="popup"]','[id*="popup"]',
+     'a[target="_blank"][onclick]','[class*="preroll"]','[class*="vast"]'].forEach(function(sel){
+      d.querySelectorAll(sel).forEach(function(el){
         if(el.tagName!=='VIDEO'&&el.tagName!=='IFRAME'&&!el.querySelector('video')){
           try{el.remove()}catch(e){el.style.display='none'}
         }
@@ -74,20 +97,51 @@ const OVERRIDE_SCRIPT = `<script>
     });
   }
 
-  // Run on DOM ready + periodically for 30s
-  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',clean)}else{clean()}
-  var c=0,ci=setInterval(function(){c++;if(c>60){clearInterval(ci);return;}clean()},500);
+  // Run cleanup immediately + on DOM ready + periodically for 60s
+  clean();
+  if(d.readyState==='loading'){d.addEventListener('DOMContentLoaded',clean)}
+  var c=0,ci=setInterval(function(){c++;if(c>120){clearInterval(ci);return;}clean()},500);
 
-  // Also intercept click events that try to open ad tabs
-  document.addEventListener('click',function(e){
+  // Block ad tab opens
+  d.addEventListener('click',function(e){
     var t=e.target;
-    while(t&&t!==document.body){
+    while(t&&t!==d.body){
       if(t.tagName==='A'&&t.target==='_blank'){e.preventDefault();e.stopPropagation();return false;}
       t=t.parentElement;
     }
   },true);
 })();
 </script>`;
+
+/**
+ * Remove ALL obfuscated anti-iframe scripts from HTML.
+ * These scripts typically:
+ * - Create hidden iframes to get a "clean" window reference
+ * - Check window.top !== window.self
+ * - Use heavily obfuscated string arrays (split/reduce patterns)
+ */
+function stripAntiIframeScripts(html: string): string {
+  // 1. Remove the obfuscated script that uses split("").reduce pattern
+  //    This is the main anti-iframe detection used by embedtv
+  html = html.replace(/<script[^>]*>[\s\S]*?\.split\s*\(\s*["']["']\s*\)\s*\.reduce[\s\S]*?<\/script>/gi, "");
+
+  // 2. Remove scripts containing sandbox_detect, inIframe, frameElement checks
+  html = html.replace(/<script[^>]*>[\s\S]*?(sandbox_detect|inIframe|window\.top\s*!==?\s*window\.self)[\s\S]*?<\/script>/gi, "");
+
+  // 3. Remove commented-out anti-iframe scripts (<!-- <script ...> -->)
+  html = html.replace(/<!--\s*<script[^>]*>[\s\S]*?<\/script>\s*-->/gi, "");
+
+  // 4. Remove div#sandbox_detect and its content
+  html = html.replace(/<div[^>]*id\s*=\s*["']?sandbox_detect["']?[^>]*>[\s\S]*?<\/div>(\s*<\/div>)*/gi, "");
+
+  // 5. Remove scripts that reference 'ChmaorrC' or similar obfuscation markers
+  html = html.replace(/<script[^>]*>[\s\S]*?ChmaorrC[\s\S]*?<\/script>/gi, "");
+
+  // 6. Remove scripts with data-cfasync that contain obfuscated code
+  html = html.replace(/<script[^>]*data-cfasync[^>]*>[\s\S]*?<\/script>/gi, "");
+
+  return html;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -112,7 +166,8 @@ Deno.serve(async (req) => {
     }
 
     const parsed = new URL(channelUrl);
-    if (!parsed.hostname.includes("embedtv") && !parsed.hostname.includes("cineveo")) {
+    const host = parsed.hostname;
+    if (!host.includes("embedtv") && !host.includes("cineveo")) {
       return new Response(JSON.stringify({ error: "Invalid URL" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -125,6 +180,7 @@ Deno.serve(async (req) => {
         "User-Agent": UA,
         Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        Referer: parsed.origin + "/",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
         "Sec-Fetch-Site": "none",
@@ -144,32 +200,30 @@ Deno.serve(async (req) => {
 
     // === SERVER-SIDE CLEANUP ===
 
-    // 1. Remove sandbox_detect div and ALL its content (multiple nesting patterns)
-    html = html.replace(/<div[^>]*id=["']sandbox_detect["'][^>]*>[\s\S]*?<\/div>\s*(<\/div>\s*)*<\/div>/gi, "");
-    // Also catch simpler patterns
-    html = html.replace(/<div[^>]*id=["']?sandbox_detect["']?[^>]*>[\s\S]{0,2000}?SANDBOX[\s\S]{0,500}?<\/div>/gi, "");
+    // Strip ALL anti-iframe/sandbox detection scripts
+    html = stripAntiIframeScripts(html);
 
-    // 2. Remove inline scripts that check for sandbox/iframe
-    html = html.replace(/<script[^>]*>[\s\S]*?(sandbox_detect|inIframe|frameElement|window\.top\s*!==?\s*window\.self)[\s\S]*?<\/script>/gi, "");
+    // Set <base href> for relative resource loading
+    const basePath = parsed.pathname.includes("/") 
+      ? parsed.pathname.replace(/\/[^/]*$/, "/") 
+      : "/";
+    const baseTag = `<base href="${parsed.origin + basePath}">`;
 
-    // 3. Set <base href> for relative resource loading
-    const baseTag = `<base href="${parsed.origin + parsed.pathname.replace(/\/[^/]*$/, "/")}">`;
-
-    // 4. Add CSS to hide any remaining sandbox/ad overlays
+    // CSS to hide any remaining sandbox/ad overlays
     const hideCSS = `<style>
-#sandbox_detect,[id*="sandbox"]{display:none!important}
+#sandbox_detect,[id*="sandbox"],[class*="sandbox"]{display:none!important;width:0!important;height:0!important}
 div[style*="z-index: 999"],div[style*="z-index:9999"],
-div[style*="z-index: 99999"]{display:none!important}
+div[style*="z-index: 99999"],div[style*="z-index:99999"]{display:none!important}
 </style>`;
 
-    // 5. Inject override script at VERY START of <head>
+    // Inject override script at VERY START of <head>
     if (html.includes("<head")) {
       html = html.replace(/<head[^>]*>/, "$&" + OVERRIDE_SCRIPT + hideCSS + baseTag);
     } else {
       html = "<!DOCTYPE html><html><head>" + OVERRIDE_SCRIPT + hideCSS + baseTag + "</head>" + html;
     }
 
-    // 6. Remove X-Frame-Options meta tags
+    // Remove X-Frame-Options meta tags
     html = html.replace(/<meta[^>]*x-frame-options[^>]*>/gi, "");
 
     return new Response(JSON.stringify({ html }), {

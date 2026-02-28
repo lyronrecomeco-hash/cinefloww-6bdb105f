@@ -89,14 +89,24 @@ const detectDevTools = () => {
   }
 };
 
-// Debugger timing detection — instant redirect
-const debuggerCheck = () => {
-  const start = performance.now();
-  // eslint-disable-next-line no-debugger
-  debugger;
-  const end = performance.now();
-  if (end - start > 100) {
-    redirectAway();
+// DevTools detection via console.log timing (no debugger statement — avoids pausing)
+const consoleDetect = () => {
+  const el = new Image();
+  let detected = false;
+  Object.defineProperty(el, 'id', {
+    get: function () {
+      detected = true;
+      redirectAway();
+    }
+  });
+  // When DevTools is open, console.log triggers getter inspection
+  try { console.log('%c', el as any); } catch {}
+  if (!detected) {
+    // Secondary: check toString override (DevTools inspects objects)
+    const d = /./;
+    let called = false;
+    d.toString = function () { called = true; redirectAway(); return ''; };
+    try { console.log(d); } catch {}
   }
 };
 
@@ -180,7 +190,8 @@ export const initSecurity = () => {
   const intervalId = setInterval(detectDevTools, 500);
 
   // Debugger timing check every 3s
-  const debugInterval = setInterval(debuggerCheck, 3000);
+  // Console-based DevTools detection every 3s (no debugger statement)
+  const debugInterval = setInterval(consoleDetect, 3000);
 
   disableConsole();
   disableTextSelection();
