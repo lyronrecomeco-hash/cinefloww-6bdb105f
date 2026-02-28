@@ -64,7 +64,7 @@ const CategoriesModal = ({ open, onClose, onSelect, onYearFilter, selectedId, se
           </button>
         </div>
 
-        <div className="p-3 max-h-[60vh] overflow-y-auto scrollbar-transparent">
+        <div className="p-3 max-h-[55vh] overflow-y-auto scrollbar-transparent">
           {tab === "genre" ? (
             <div className="grid grid-cols-3 gap-1.5">
               <button onClick={() => { onSelect(null); onClose(); }}

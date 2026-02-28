@@ -23,14 +23,8 @@ const SeriesPage = () => {
       if (selectedYear) {
         const params: Record<string, string> = { sort_by: "popularity.desc" };
         if (genreId) params.with_genres = String(genreId);
-        if (selectedYear.includes("-")) {
-          const [start, end] = selectedYear.split("-");
-          params["first_air_date.gte"] = `${start}-01-01`;
-          params["first_air_date.lte"] = `${end}-12-31`;
-        } else {
-          params["first_air_date.gte"] = `${selectedYear}-01-01`;
-          params["first_air_date.lte"] = `${selectedYear}-12-31`;
-        }
+        params["first_air_date.gte"] = `${selectedYear}-01-01`;
+        params["first_air_date.lte"] = `${selectedYear}-12-31`;
         data = await discoverSeries(p, params);
       } else {
         data = await getPopularSeries(p, genreId);
