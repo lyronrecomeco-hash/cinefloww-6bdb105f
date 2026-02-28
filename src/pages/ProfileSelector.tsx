@@ -321,7 +321,7 @@ const ProfileSelector = () => {
             className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-4 py-2 rounded-lg hover:bg-white/5"
           >
             <Headphones className="w-4 h-4" />
-            Suporte
+            Support
           </button>
           <button
             onClick={handleLogout}

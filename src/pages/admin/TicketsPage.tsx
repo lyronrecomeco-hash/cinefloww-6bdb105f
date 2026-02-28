@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Headphones, X, Send, CheckCircle, Clock, MessageSquare, XCircle } from "lucide-react";
+import { Headphones, X, Send, CheckCircle, Clock, MessageSquare, XCircle, Paperclip, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 
 interface Ticket {
@@ -17,6 +17,7 @@ interface TicketMessage {
   id: string;
   sender_type: string;
   message: string;
+  attachment_url: string | null;
   created_at: string;
 }
 
@@ -34,6 +35,11 @@ const TicketsPage = () => {
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [replyText, setReplyText] = useState("");
   const [sending, setSending] = useState(false);
+  const [userDisplayNames, setUserDisplayNames] = useState<Record<string, string>>({});
+  const [attachFile, setAttachFile] = useState<File | null>(null);
+  const [attachPreview, setAttachPreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchTickets = async () => {
     setLoading(true);
@@ -45,8 +51,25 @@ const TicketsPage = () => {
     if (filter !== "all") query = query.eq("status", filter);
 
     const { data } = await query.limit(200);
-    setTickets((data as any as Ticket[]) || []);
+    const ticketList = (data as any as Ticket[]) || [];
+    setTickets(ticketList);
     setLoading(false);
+
+    // Fetch display names for all unique user_ids
+    const userIds = [...new Set(ticketList.map((t) => t.user_id))];
+    if (userIds.length) {
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, display_name, email")
+        .in("user_id", userIds);
+      if (profiles) {
+        const map: Record<string, string> = {};
+        profiles.forEach((p: any) => {
+          map[p.user_id] = p.display_name || p.email?.split("@")[0] || "Usuário";
+        });
+        setUserDisplayNames(map);
+      }
+    }
   };
 
   const fetchMessages = async (ticketId: string) => {
@@ -68,28 +91,72 @@ const TicketsPage = () => {
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "ticket_messages" }, (payload) => {
         const msg = payload.new as any;
         if (selected && msg.ticket_id === selected.id) {
-          setMessages((prev) => [...prev, msg as TicketMessage]);
+          setMessages((prev) => {
+            if (prev.some((m) => m.id === msg.id)) return prev;
+            return [...prev, msg as TicketMessage];
+          });
         }
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [filter, selected]);
 
+  // Auto scroll messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
   const openTicket = async (ticket: Ticket) => {
     setSelected(ticket);
     await fetchMessages(ticket.id);
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || file.size > 5 * 1024 * 1024) return;
+    setAttachFile(file);
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = () => setAttachPreview(reader.result as string);
+      reader.readAsDataURL(file);
+    } else {
+      setAttachPreview(null);
+    }
+  };
+
+  const clearAttach = () => {
+    setAttachFile(null);
+    setAttachPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const uploadFile = async (file: File): Promise<string | null> => {
+    const ext = file.name.split(".").pop();
+    const path = `admin/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("ticket-attachments").upload(path, file);
+    if (error) return null;
+    const { data } = supabase.storage.from("ticket-attachments").getPublicUrl(path);
+    return data.publicUrl;
+  };
+
+  const isImage = (url: string) => /\.(jpg|jpeg|png|gif|webp|avif)$/i.test(url);
+
   const sendReply = async () => {
-    if (!replyText.trim() || !selected) return;
+    if ((!replyText.trim() && !attachFile) || !selected) return;
     setSending(true);
+
+    let attachUrl: string | null = null;
+    if (attachFile) attachUrl = await uploadFile(attachFile);
+
     await supabase.from("ticket_messages").insert({
       ticket_id: selected.id,
       sender_type: "admin",
-      message: replyText.trim(),
+      message: replyText.trim() || (attachUrl ? "📎 Anexo" : ""),
+      ...(attachUrl ? { attachment_url: attachUrl } : {}),
     } as any);
     await supabase.from("support_tickets").update({ status: "answered" } as any).eq("id", selected.id);
     setReplyText("");
+    clearAttach();
     await fetchMessages(selected.id);
     toast.success("Resposta enviada!");
     setSending(false);
@@ -130,7 +197,7 @@ const TicketsPage = () => {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         {(["open", "answered", "closed", "all"] as const).map((f) => (
           <button
             key={f}
@@ -160,6 +227,7 @@ const TicketsPage = () => {
         <div className="space-y-2">
           {tickets.map((t) => {
             const st = STATUS_MAP[t.status] || STATUS_MAP.open;
+            const displayName = userDisplayNames[t.user_id] || t.user_email?.split("@")[0];
             return (
               <button
                 key={t.id}
@@ -169,16 +237,16 @@ const TicketsPage = () => {
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className={`w-2 h-2 rounded-full ${t.status === "open" ? "bg-amber-500" : t.status === "answered" ? "bg-blue-500" : "bg-green-500"}`} />
+                      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.status === "open" ? "bg-amber-500" : t.status === "answered" ? "bg-blue-500" : "bg-green-500"}`} />
                       <span className="font-semibold text-sm truncate">{t.subject}</span>
                     </div>
-                    <p className="text-muted-foreground text-xs">{t.user_email}</p>
+                    <p className="text-muted-foreground text-xs">{displayName} • {t.user_email}</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-shrink-0">
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border ${st.color}`}>
                       {st.label}
                     </span>
-                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">{formatDate(t.created_at)}</span>
+                    <span className="text-[10px] text-muted-foreground whitespace-nowrap hidden sm:block">{formatDate(t.created_at)}</span>
                   </div>
                 </div>
               </button>
@@ -194,11 +262,13 @@ const TicketsPage = () => {
           <div className="relative w-full max-w-lg bg-card border border-white/10 rounded-2xl flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
             {/* Header */}
             <div className="p-5 border-b border-white/10 flex items-center justify-between">
-              <div>
-                <h3 className="font-display text-lg font-bold">{selected.subject}</h3>
-                <p className="text-xs text-muted-foreground">{selected.user_email} • {formatDate(selected.created_at)}</p>
+              <div className="min-w-0 flex-1">
+                <h3 className="font-display text-lg font-bold truncate">{selected.subject}</h3>
+                <p className="text-xs text-muted-foreground">
+                  {userDisplayNames[selected.user_id] || selected.user_email?.split("@")[0]} • {selected.user_email} • {formatDate(selected.created_at)}
+                </p>
               </div>
-              <button onClick={() => setSelected(null)} className="text-muted-foreground hover:text-foreground">
+              <button onClick={() => setSelected(null)} className="text-muted-foreground hover:text-foreground flex-shrink-0 ml-3">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -213,9 +283,19 @@ const TicketsPage = () => {
                       : "bg-white/5 border border-white/10"
                   }`}>
                     <p className="text-xs font-semibold mb-1 text-muted-foreground">
-                      {msg.sender_type === "admin" ? "⚡ Suporte" : "Usuário"}
+                      {msg.sender_type === "admin" ? "⚡ Support" : (userDisplayNames[selected.user_id] || "Usuário")}
                     </p>
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</p>
+                    {msg.attachment_url && isImage(msg.attachment_url) && (
+                      <a href={msg.attachment_url} target="_blank" rel="noopener noreferrer" className="block mb-2">
+                        <img src={msg.attachment_url} alt="Anexo" className="max-w-full max-h-48 rounded-xl object-cover" loading="lazy" />
+                      </a>
+                    )}
+                    {msg.attachment_url && !isImage(msg.attachment_url) && (
+                      <a href={msg.attachment_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-xs text-primary hover:underline mb-2">
+                        <Paperclip className="w-3 h-3" /> Abrir anexo
+                      </a>
+                    )}
+                    {msg.message && <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.message}</p>}
                     <p className="text-[10px] text-muted-foreground/50 mt-1">{formatDate(msg.created_at)}</p>
                   </div>
                 </div>
@@ -223,28 +303,51 @@ const TicketsPage = () => {
               {messages.length === 0 && (
                 <p className="text-center text-sm text-muted-foreground py-8">Nenhuma mensagem ainda</p>
               )}
+              <div ref={messagesEndRef} />
             </div>
 
             {/* Actions */}
             <div className="p-4 border-t border-white/10 space-y-3">
               {selected.status !== "closed" && (
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    placeholder="Responder ao ticket..."
-                    className="flex-1 h-10 px-4 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50"
-                    onKeyDown={(e) => e.key === "Enter" && sendReply()}
-                  />
-                  <button
-                    onClick={sendReply}
-                    disabled={!replyText.trim() || sending}
-                    className="h-10 w-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-50"
-                  >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </div>
+                <>
+                  {attachFile && (
+                    <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10">
+                      {attachPreview ? (
+                        <img src={attachPreview} alt="Preview" className="w-10 h-10 rounded-lg object-cover" />
+                      ) : (
+                        <Paperclip className="w-4 h-4 text-muted-foreground" />
+                      )}
+                      <span className="text-xs text-muted-foreground truncate flex-1">{attachFile.name}</span>
+                      <button onClick={clearAttach} className="text-muted-foreground hover:text-foreground">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
+                  <div className="flex gap-2">
+                    <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*,.pdf,.doc,.docx" className="hidden" />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="h-10 w-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors flex-shrink-0"
+                    >
+                      <ImageIcon className="w-4 h-4" />
+                    </button>
+                    <input
+                      type="text"
+                      value={replyText}
+                      onChange={(e) => setReplyText(e.target.value)}
+                      placeholder="Responder ao ticket..."
+                      className="flex-1 h-10 px-4 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50"
+                      onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && sendReply()}
+                    />
+                    <button
+                      onClick={sendReply}
+                      disabled={(!replyText.trim() && !attachFile) || sending}
+                      className="h-10 w-10 rounded-xl bg-primary text-primary-foreground flex items-center justify-center disabled:opacity-50 flex-shrink-0"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </div>
+                </>
               )}
               <div className="flex gap-2">
                 {selected.status !== "closed" ? (

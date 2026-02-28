@@ -907,6 +907,7 @@ export type Database = {
       }
       ticket_messages: {
         Row: {
+          attachment_url: string | null
           created_at: string
           id: string
           message: string
@@ -914,6 +915,7 @@ export type Database = {
           ticket_id: string
         }
         Insert: {
+          attachment_url?: string | null
           created_at?: string
           id?: string
           message: string
@@ -921,6 +923,7 @@ export type Database = {
           ticket_id: string
         }
         Update: {
+          attachment_url?: string | null
           created_at?: string
           id?: string
           message?: string
