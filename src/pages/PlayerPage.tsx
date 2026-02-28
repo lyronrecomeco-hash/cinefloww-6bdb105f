@@ -144,12 +144,46 @@ const PlayerPage = () => {
   const CINEVEO_PASS = "uVljs2d";
 
   const extractionRef = useRef<string | null>(null);
+  const fallbackTriedRef = useRef(false);
+
+  // Fallback: call extract-video edge function for the real URL
+  const tryApiFallback = useCallback(async () => {
+    if (fallbackTriedRef.current || !tmdbId) return;
+    fallbackTriedRef.current = true;
+    console.log("[Player] Direct URL failed, trying API fallback...");
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("extract-video", {
+        body: { tmdb_id: tmdbId, content_type: contentType === "movie" ? "movie" : "tv", season, episode },
+      });
+      if (fnErr || !data?.url) {
+        console.warn("[Player] API fallback failed:", fnErr || "no url");
+        return;
+      }
+      // Only use if different from direct pattern
+      const currentUrl = bankSources[0]?.url;
+      if (data.url !== currentUrl) {
+        console.log("[Player] API fallback got:", data.url);
+        setBankSources([{
+          url: data.url,
+          quality: "auto",
+          provider: data.provider || "cineveo-api",
+          type: (data.type as "mp4" | "m3u8") || "mp4",
+        }]);
+        setError(false);
+        setLoading(true);
+        attachedSourceRef.current = null; // force re-attach
+      }
+    } catch (e) {
+      console.warn("[Player] API fallback error:", e);
+    }
+  }, [tmdbId, contentType, season, episode, bankSources]);
 
   const loadVideo = useCallback(async () => {
     if (!params.id || !params.type || !tmdbId) return;
     setBankLoading(true);
     setBankSources([]);
     setNoSources(false);
+    fallbackTriedRef.current = false;
 
     // Build URL directly — no network call needed
     let url: string;
@@ -402,9 +436,17 @@ const PlayerPage = () => {
       }, { once: true });
     }
     if (!useNativeHLS) {
-      video.addEventListener("error", () => { setError(true); setLoading(false); }, { once: true });
+      video.addEventListener("error", () => {
+        // Try API fallback before showing error
+        if (!fallbackTriedRef.current) {
+          tryApiFallback();
+        } else {
+          setError(true);
+          setLoading(false);
+        }
+      }, { once: true });
     }
-  }, []);
+  }, [ccEnabled, tryApiFallback]);
 
   useEffect(() => {
     if (source) attachSource(source);
