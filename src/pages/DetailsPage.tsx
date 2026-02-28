@@ -86,17 +86,39 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     fetcher(id).then((data) => {
       if (cancelled) return;
       if (!data) {
+        // If movie fetch failed, try as series (misclassified content)
+        if (type === "movie") {
+          getSeriesDetails(id).then((seriesData) => {
+            if (cancelled) return;
+            if (seriesData && seriesData.number_of_seasons) {
+              // Redirect to correct route
+              navigate(`/serie/${slug}`, { replace: true });
+              return;
+            }
+            setDetail(null);
+            setLoading(false);
+          }).catch(() => { if (!cancelled) { setDetail(null); setLoading(false); } });
+          return;
+        }
         setDetail(null);
         setLoading(false);
         return;
       }
+      
+      // If we're on /filme/ but TMDB says it's a series, redirect
+      if (type === "movie" && (data.number_of_seasons || data.number_of_episodes)) {
+        navigate(`/serie/${slug}`, { replace: true });
+        return;
+      }
+      
       setDetail(data);
       setLoading(false);
 
-      // Check if future release
+      // Check if future release (ignore invalid dates like 0001-01-01)
       const rd = data.release_date || data.first_air_date;
       const today = new Date().toISOString().split("T")[0];
-      if (rd && rd > today) {
+      const isValidRd = rd && !rd.startsWith("0001") && new Date(rd).getFullYear() > 1800;
+      if (isValidRd && rd > today) {
         setIsFutureRelease(true);
         setHasVideo(false);
       } else {

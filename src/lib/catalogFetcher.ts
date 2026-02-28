@@ -4,6 +4,13 @@
  * Aggressive in-memory caching to avoid re-downloads.
  */
 
+/** Check if a poster is valid (not a placeholder) */
+const isRealPoster = (path: string | null | undefined): boolean => {
+  if (!path) return false;
+  if (path.includes("no-poster") || path.includes("no_poster") || path.includes("placeholder")) return false;
+  return true;
+};
+
 export interface CatalogItem {
   id: string;
   tmdb_id: number;
@@ -112,8 +119,9 @@ export async function fetchCatalog(
 }
 
 export async function fetchCatalogRow(contentType: string, limit = 20): Promise<CatalogItem[]> {
-  const { items } = await fetchCatalog(contentType, { limit, offset: 0 });
-  return items;
+  // Fetch more to compensate for filtered-out placeholders
+  const { items } = await fetchCatalog(contentType, { limit: limit + 20, offset: 0 });
+  return items.filter(item => isRealPoster(item.poster_path)).slice(0, limit);
 }
 
 /** Fetch manifest stats (lightweight, cached) */

@@ -1,7 +1,7 @@
 import { memo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Star, Calendar } from "lucide-react";
-import { TMDBMovie, posterUrl, getDisplayTitle, getYear, getMediaType } from "@/services/tmdb";
+import { TMDBMovie, posterUrl, getDisplayTitle, getYear, getMediaType, isValidDate, isValidPoster } from "@/services/tmdb";
 import { toSlug } from "@/lib/slugify";
 import { Skeleton } from "@/components/ui/skeleton";
 import ComingSoonModal from "@/components/ComingSoonModal";
@@ -19,7 +19,7 @@ const MovieCard = memo(({ movie, comingSoon }: MovieCardProps) => {
   const [showModal, setShowModal] = useState(false);
 
   const releaseDate = movie.release_date || movie.first_air_date;
-  const isFuture = comingSoon || (releaseDate && releaseDate > new Date().toISOString().split("T")[0]);
+  const isFuture = comingSoon || (isValidDate(releaseDate) && releaseDate! > new Date().toISOString().split("T")[0]);
 
   const formattedDate = releaseDate ? new Date(releaseDate + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }) : "";
 

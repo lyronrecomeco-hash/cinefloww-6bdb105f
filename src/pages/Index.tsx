@@ -36,15 +36,17 @@ const Index = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const isRealPoster = (p: string | null) => p && !p.includes("no-poster") && !p.includes("no_poster") && !p.includes("placeholder");
+    
     const mapToTMDB = (items: any[]): TMDBMovie[] =>
-      items.map((d) => ({
+      items.filter(d => isRealPoster(d.poster_path)).map((d) => ({
         id: d.tmdb_id,
         name: d.title,
         poster_path: d.poster_path,
         backdrop_path: d.backdrop_path,
         overview: "",
         vote_average: d.vote_average || 0,
-        first_air_date: d.release_date,
+        first_air_date: d.release_date && d.release_date !== "0001-01-01" ? d.release_date : undefined,
         genre_ids: [],
         media_type: (d.content_type === "movie" ? "movie" : "tv") as "movie" | "tv",
       }));
@@ -96,7 +98,7 @@ const Index = () => {
       fetchCatalogRow("series", 10).catch(() => []),
     ]).then(([movies, series]) => {
       const all = [...movies, ...series]
-        .filter(i => i.poster_path && i.backdrop_path)
+        .filter(i => isRealPoster(i.poster_path) && i.backdrop_path && i.release_date !== "0001-01-01")
         .sort((a, b) => (b.release_date || "").localeCompare(a.release_date || ""))
         .slice(0, 20);
       setRecentlyAdded(mapToTMDB(all));
