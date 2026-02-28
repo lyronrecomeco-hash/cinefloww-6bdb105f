@@ -144,7 +144,24 @@ export const getDisplayTitle = (item: TMDBMovie | TMDBMovieDetail) =>
 
 export const getYear = (item: TMDBMovie | TMDBMovieDetail) => {
   const date = (item as any).release_date || (item as any).first_air_date;
-  return date ? new Date(date).getFullYear() : "";
+  if (!date || date === "0001-01-01" || date.startsWith("0001")) return "";
+  const year = new Date(date).getFullYear();
+  return year > 1800 ? year : "";
+};
+
+/** Check if a date string is valid (not placeholder like 0001-01-01) */
+export const isValidDate = (date: string | null | undefined): boolean => {
+  if (!date) return false;
+  if (date === "0001-01-01" || date.startsWith("0001")) return false;
+  const year = new Date(date).getFullYear();
+  return year > 1800;
+};
+
+/** Check if a poster path is a real image (not a placeholder) */
+export const isValidPoster = (path: string | null | undefined): boolean => {
+  if (!path) return false;
+  if (path.includes("no-poster") || path.includes("no_poster") || path.includes("placeholder")) return false;
+  return true;
 };
 
 export const getMediaType = (item: TMDBMovie): "movie" | "tv" => {
