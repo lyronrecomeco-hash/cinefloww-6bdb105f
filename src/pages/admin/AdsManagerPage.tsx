@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Megaphone, Save, Loader2, ExternalLink, MousePointerClick, Settings, Film, Tv } from "lucide-react";
+import { Megaphone, Save, Loader2, ExternalLink, MousePointerClick, Settings, Film, Tv, Radio } from "lucide-react";
 import { toast } from "sonner";
 
 const AdsManagerPage = () => {
@@ -10,6 +10,7 @@ const AdsManagerPage = () => {
   const [totalClicks, setTotalClicks] = useState(0);
   const [movieAds, setMovieAds] = useState(1);
   const [seriesAds, setSeriesAds] = useState(2);
+  const [lynetvAds, setLynetvAds] = useState(1);
   const [adsEnabled, setAdsEnabled] = useState(true);
 
   useEffect(() => {
@@ -27,6 +28,7 @@ const AdsManagerPage = () => {
         const cfg = configData.value as any;
         setMovieAds(cfg.movie_ads ?? 1);
         setSeriesAds(cfg.series_ads ?? 2);
+        setLynetvAds(cfg.lynetv_ads ?? 1);
         setAdsEnabled(cfg.enabled !== false);
       }
       setTotalClicks(count || 0);
@@ -44,7 +46,7 @@ const AdsManagerPage = () => {
           { onConflict: "key" }
         ),
         supabase.from("site_settings").upsert(
-          { key: "ad_config", value: { movie_ads: movieAds, series_ads: seriesAds, enabled: adsEnabled } as any },
+          { key: "ad_config", value: { movie_ads: movieAds, series_ads: seriesAds, lynetv_ads: lynetvAds, enabled: adsEnabled } as any },
           { onConflict: "key" }
         ),
       ]);
@@ -183,6 +185,29 @@ const AdsManagerPage = () => {
               <span className="text-xs text-muted-foreground ml-1">anúncio(s)</span>
             </div>
           </div>
+
+          <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-3">
+            <div className="flex items-center gap-2">
+              <Radio className="w-4 h-4 text-primary" />
+              <span className="text-sm font-medium">LyneTV (libera sessão)</span>
+            </div>
+            <div className="flex items-center gap-3">
+              {[1, 2, 3].map(n => (
+                <button
+                  key={n}
+                  onClick={() => setLynetvAds(n)}
+                  className={`w-10 h-10 rounded-xl text-sm font-bold transition-all ${
+                    lynetvAds === n
+                      ? "bg-primary text-primary-foreground scale-110"
+                      : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
+                  }`}
+                >
+                  {n}
+                </button>
+              ))}
+              <span className="text-xs text-muted-foreground ml-1">anúncio(s)</span>
+            </div>
+          </div>
         </div>
 
         {/* Toggle */}
@@ -218,7 +243,8 @@ const AdsManagerPage = () => {
       <div className="p-4 rounded-2xl bg-primary/5 border border-primary/10">
         <p className="text-xs text-primary/80">
           💡 <strong>Como funciona:</strong> O modal anti-bypass usa tokens de sessão únicos. 
-          Filmes exigem {movieAds} clique(s), séries exigem {seriesAds} clique(s) que liberam todos os episódios da sessão.
+          Filmes exigem {movieAds} clique(s), séries exigem {seriesAds} clique(s) que liberam todos os episódios da sessão,
+          e LyneTV exige {lynetvAds} clique(s) que libera todos os canais da sessão.
           O sistema é impossível de burlar por refresh, DevTools ou navegação direta.
         </p>
       </div>
