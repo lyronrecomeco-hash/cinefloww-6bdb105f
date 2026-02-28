@@ -15,8 +15,8 @@ const QrxpPage = () => {
         className="absolute inset-0 w-full h-full object-cover scale-105"
         loading="eager"
       />
-      <div className="absolute inset-0 bg-background/90 backdrop-blur-md" />
-      <div className="absolute inset-0 bg-gradient-to-b from-background/30 via-background/80 to-background" />
+      <div className="absolute inset-0 bg-background/70 backdrop-blur-[2px]" />
+      <div className="absolute inset-0 bg-gradient-to-b from-background/20 via-background/60 to-background/90" />
 
       {/* Ambient glow */}
       <div className="absolute top-[-20%] left-[10%] w-[400px] h-[400px] rounded-full bg-primary/20 blur-[140px] pointer-events-none" />
