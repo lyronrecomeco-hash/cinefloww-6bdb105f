@@ -5,6 +5,7 @@ import { Play, ExternalLink, Sparkles, Lock, ShieldCheck } from "lucide-react";
 interface AdConfig {
   movie_ads: number;
   series_ads: number;
+  lynetv_ads: number;
   enabled: boolean;
 }
 
@@ -55,7 +56,8 @@ const AdGateModal = forwardRef<HTMLDivElement, AdGateModalProps>(({ onContinue, 
       if (configData?.value) {
         const cfg = (configData.value ?? {}) as unknown as Partial<AdConfig>;
         const isSeries = contentType === "tv" || contentType === "series";
-        const req = isSeries ? (cfg.series_ads || 2) : (cfg.movie_ads || 1);
+        const isLyneTV = contentTitle === "LyneTV";
+        const req = isLyneTV ? (cfg.lynetv_ads || 1) : isSeries ? (cfg.series_ads || 2) : (cfg.movie_ads || 1);
         setRequiredAds(req);
         requiredAdsRef.current = req;
         if (cfg.enabled === false) {
