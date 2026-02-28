@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { Headphones, Plus, Send, ArrowLeft, Clock, CheckCircle, MessageSquare, Paperclip, Image as ImageIcon, X, Shield, Zap, LifeBuoy, HelpCircle, BookOpen, Mail } from "lucide-react";
+import { Headphones, Plus, Send, ArrowLeft, Clock, CheckCircle, MessageSquare, Paperclip, Image as ImageIcon, X, HelpCircle, Mail } from "lucide-react";
 import { toast } from "sonner";
 
 interface Ticket {
@@ -24,7 +24,7 @@ interface TicketMessage {
 
 const STATUS_LABELS: Record<string, { label: string; icon: any; color: string }> = {
   open: { label: "Aberto", icon: Clock, color: "text-amber-400 bg-amber-500/10 border-amber-500/20" },
-  answered: { label: "Respondido", icon: MessageSquare, color: "text-blue-400 bg-blue-500/10 border-blue-500/20" },
+  answered: { label: "Respondido", icon: MessageSquare, color: "text-primary bg-primary/10 border-primary/20" },
   closed: { label: "Fechado", icon: CheckCircle, color: "text-green-400 bg-green-500/10 border-green-500/20" },
 };
 
@@ -58,7 +58,7 @@ const SupportPage = () => {
   const [attachFile, setAttachFile] = useState<File | null>(null);
   const [attachPreview, setAttachPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
-  const [showFaq, setShowFaq] = useState(false);
+  const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replyFileRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -81,7 +81,6 @@ const SupportPage = () => {
     return () => { mounted = false; subscription.unsubscribe(); };
   }, [navigate]);
 
-  // Profile name
   useEffect(() => {
     try {
       const raw = localStorage.getItem("lyneflix_active_profile");
@@ -89,7 +88,6 @@ const SupportPage = () => {
     } catch {}
   }, []);
 
-  // Fetch tickets
   const fetchTickets = useCallback(async () => {
     if (!session) return;
     const { data } = await supabase
@@ -102,7 +100,6 @@ const SupportPage = () => {
 
   useEffect(() => { if (session) fetchTickets(); }, [session, fetchTickets]);
 
-  // Fetch messages
   const fetchMessages = useCallback(async (ticketId: string) => {
     const { data } = await supabase
       .from("ticket_messages")
@@ -112,7 +109,6 @@ const SupportPage = () => {
     setMessages((data as any as TicketMessage[]) || []);
   }, []);
 
-  // Realtime
   useEffect(() => {
     if (!session) return;
     const channel = supabase
@@ -230,13 +226,13 @@ const SupportPage = () => {
         <Navbar />
         <div className="flex-1 max-w-3xl mx-auto w-full p-4 pt-20 pb-44 sm:pb-32 space-y-4">
           <button onClick={() => { setSelectedTicket(null); fetchTickets(); }} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="w-4 h-4" /> Voltar aos tickets
+            <ArrowLeft className="w-4 h-4" /> Voltar
           </button>
 
-          <div className="rounded-2xl bg-card/30 border border-white/10 p-4 sm:p-5">
+          <div className="rounded-xl bg-card/40 border border-white/10 p-4">
             <div className="flex items-center justify-between gap-3">
-              <h1 className="font-display text-lg sm:text-xl font-bold truncate">{selectedTicket.subject}</h1>
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold border ${status.color} flex items-center gap-1.5 flex-shrink-0`}>
+              <h1 className="font-display text-base sm:text-lg font-bold truncate">{selectedTicket.subject}</h1>
+              <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border ${status.color} flex items-center gap-1 flex-shrink-0`}>
                 <StatusIcon className="w-3 h-3" />
                 {status.label}
               </span>
@@ -249,11 +245,11 @@ const SupportPage = () => {
               <div key={msg.id} className={`flex ${msg.sender_type === "user" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[85%] sm:max-w-[75%] rounded-2xl px-4 py-3 ${
                   msg.sender_type === "user"
-                    ? "bg-primary/15 border border-primary/20"
+                    ? "bg-primary/10 border border-primary/15"
                     : "bg-card/50 border border-white/10"
                 }`}>
-                  <p className="text-xs font-semibold mb-1 text-muted-foreground">
-                    {msg.sender_type === "user" ? (profileName || "Você") : "⚡ Equipe Lyneflix"}
+                  <p className="text-[10px] font-semibold mb-1 text-muted-foreground">
+                    {msg.sender_type === "user" ? (profileName || "Você") : "Equipe Lyneflix"}
                   </p>
                   {msg.attachment_url && isImage(msg.attachment_url) && (
                     <a href={msg.attachment_url} target="_blank" rel="noopener noreferrer" className="block mb-2">
@@ -274,9 +270,9 @@ const SupportPage = () => {
           </div>
 
           {selectedTicket.status === "closed" && (
-            <div className="text-center py-6 text-sm text-muted-foreground rounded-2xl bg-green-500/5 border border-green-500/10">
-              <CheckCircle className="w-8 h-8 mx-auto mb-2 text-green-500/50" />
-              Este ticket foi encerrado pela equipe.
+            <div className="text-center py-6 text-sm text-muted-foreground rounded-xl bg-green-500/5 border border-green-500/10">
+              <CheckCircle className="w-6 h-6 mx-auto mb-2 text-green-500/50" />
+              Este ticket foi encerrado.
             </div>
           )}
         </div>
@@ -312,59 +308,41 @@ const SupportPage = () => {
     );
   }
 
-  // Ticket list — professional layout
+  // Ticket list
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      <div className="max-w-4xl mx-auto px-4 pt-20 sm:pt-24 pb-32">
-        {/* Hero header */}
-        <div className="relative rounded-3xl bg-gradient-to-br from-primary/20 via-primary/5 to-transparent border border-primary/10 p-6 sm:p-10 mb-8 overflow-hidden">
-          <div className="absolute top-0 right-0 w-40 h-40 bg-primary/10 rounded-full blur-3xl -mr-10 -mt-10" />
-          <div className="relative z-10">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-12 h-12 rounded-2xl bg-primary/20 border border-primary/30 flex items-center justify-center">
-                <Headphones className="w-6 h-6 text-primary" />
-              </div>
-              <div>
-                <h1 className="font-display text-2xl sm:text-3xl font-bold">Central de Suporte</h1>
-                <p className="text-sm text-muted-foreground">
-                  {profileName ? `Olá, ${profileName}! ` : ""}Como podemos ajudar?
-                </p>
-              </div>
-            </div>
+      <div className="max-w-3xl mx-auto px-4 pt-20 sm:pt-24 pb-32">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-8">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 border border-primary/15 flex items-center justify-center">
+            <Headphones className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="font-display text-xl sm:text-2xl font-bold">Suporte</h1>
+            <p className="text-xs text-muted-foreground">
+              {profileName ? `${profileName} · ` : ""}Abra um ticket e nossa equipe irá te responder.
+            </p>
           </div>
         </div>
 
-        {/* Quick features */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
-          {[
-            { icon: Zap, label: "Resposta Rápida", desc: "Em até 24h" },
-            { icon: Shield, label: "Seguro", desc: "Chat privado" },
-            { icon: Paperclip, label: "Anexos", desc: "Fotos e docs" },
-            { icon: LifeBuoy, label: "Suporte Real", desc: "Equipe dedicada" },
-          ].map(({ icon: Icon, label, desc }) => (
-            <div key={label} className="rounded-xl bg-card/30 border border-white/5 p-3 sm:p-4 text-center">
-              <Icon className="w-5 h-5 text-primary mx-auto mb-1.5" />
-              <p className="text-xs font-semibold">{label}</p>
-              <p className="text-[10px] text-muted-foreground">{desc}</p>
-            </div>
-          ))}
-        </div>
-
-        {/* FAQ section */}
-        <div className="mb-8">
-          <button onClick={() => setShowFaq(!showFaq)} className="flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors mb-3">
-            <HelpCircle className="w-4 h-4" />
+        {/* FAQ */}
+        <div className="mb-6">
+          <button onClick={() => setExpandedFaq(expandedFaq !== null ? null : 0)} className="flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors mb-3">
+            <HelpCircle className="w-3.5 h-3.5" />
             Perguntas Frequentes
-            <span className="text-xs ml-1">{showFaq ? "▲" : "▼"}</span>
           </button>
-          {showFaq && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
+          {expandedFaq !== null && (
+            <div className="space-y-1.5 animate-in fade-in slide-in-from-top-2 duration-200">
               {FAQ_ITEMS.map((faq, i) => (
-                <div key={i} className="rounded-xl bg-card/30 border border-white/5 p-3">
-                  <p className="text-xs font-semibold mb-1">{faq.q}</p>
-                  <p className="text-[11px] text-muted-foreground">{faq.a}</p>
-                </div>
+                <button
+                  key={i}
+                  onClick={() => setExpandedFaq(expandedFaq === i ? null : i)}
+                  className="w-full text-left rounded-lg bg-card/30 border border-white/5 p-3 hover:bg-card/50 transition-colors"
+                >
+                  <p className="text-xs font-semibold">{faq.q}</p>
+                  {expandedFaq === i && <p className="text-[11px] text-muted-foreground mt-1.5">{faq.a}</p>}
+                </button>
               ))}
             </div>
           )}
@@ -372,66 +350,65 @@ const SupportPage = () => {
 
         {/* Create ticket */}
         {creating ? (
-          <div className="rounded-2xl bg-card/40 border border-white/10 p-5 sm:p-6 space-y-4 animate-in fade-in duration-200 mb-6">
-            <h3 className="font-display text-base font-bold flex items-center gap-2">
+          <div className="rounded-xl bg-card/30 border border-white/10 p-4 sm:p-5 space-y-3 animate-in fade-in duration-200 mb-6">
+            <h3 className="font-display text-sm font-bold flex items-center gap-2">
               <Mail className="w-4 h-4 text-primary" /> Novo Ticket
             </h3>
-            <input type="text" value={newSubject} onChange={(e) => setNewSubject(e.target.value)} placeholder="Assunto do ticket"
-              className="w-full h-11 px-4 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50" maxLength={100} autoFocus />
-            <textarea value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Descreva seu problema em detalhes..."
-              className="w-full h-32 px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm resize-none focus:outline-none focus:border-primary/50" maxLength={1000} />
+            <input type="text" value={newSubject} onChange={(e) => setNewSubject(e.target.value)} placeholder="Assunto"
+              className="w-full h-10 px-3 rounded-lg bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50" maxLength={100} autoFocus />
+            <textarea value={newMessage} onChange={(e) => setNewMessage(e.target.value)} placeholder="Descreva seu problema..."
+              className="w-full h-28 px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm resize-none focus:outline-none focus:border-primary/50" maxLength={1000} />
             <div>
               <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*,.pdf,.doc,.docx" capture="environment" className="hidden" />
               {attachFile ? (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/5 border border-white/10">
                   {attachPreview ? <img src={attachPreview} alt="Preview" className="w-10 h-10 rounded-lg object-cover" /> : <Paperclip className="w-4 h-4 text-muted-foreground" />}
                   <span className="text-xs text-muted-foreground truncate flex-1">{attachFile.name}</span>
                   <button onClick={clearAttach} className="text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
                 </div>
               ) : (
-                <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                  <Paperclip className="w-3.5 h-3.5" /> Anexar arquivo (opcional)
+                <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                  <Paperclip className="w-3 h-3" /> Anexar arquivo
                 </button>
               )}
             </div>
             <div className="flex gap-2">
-              <button onClick={() => { setCreating(false); setNewSubject(""); setNewMessage(""); clearAttach(); }} className="flex-1 h-10 rounded-xl border border-white/10 text-sm hover:bg-white/5">Cancelar</button>
+              <button onClick={() => { setCreating(false); setNewSubject(""); setNewMessage(""); clearAttach(); }}
+                className="flex-1 h-9 rounded-lg border border-white/10 text-xs hover:bg-white/5 transition-colors">Cancelar</button>
               <button onClick={createTicket} disabled={!newSubject.trim() || !newMessage.trim() || sending || uploading}
-                className="flex-1 h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold disabled:opacity-50">
-                {sending || uploading ? "Enviando..." : "Enviar Ticket"}
+                className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-xs font-semibold disabled:opacity-50 transition-colors">
+                {sending || uploading ? "Enviando..." : "Enviar"}
               </button>
             </div>
           </div>
         ) : (
           <button onClick={() => setCreating(true)}
-            className="w-full flex items-center justify-center gap-2 h-14 rounded-2xl bg-primary/10 border border-primary/20 text-primary font-semibold text-base hover:bg-primary/20 transition-all hover:scale-[1.01] mb-6">
-            <Plus className="w-5 h-5" />
+            className="w-full flex items-center justify-center gap-2 h-11 rounded-xl bg-primary/10 border border-primary/15 text-primary font-medium text-sm hover:bg-primary/15 transition-colors mb-6">
+            <Plus className="w-4 h-4" />
             Abrir novo ticket
           </button>
         )}
 
         {/* Ticket list */}
         {tickets.length > 0 ? (
-          <div className="space-y-2">
-            <h2 className="text-sm font-bold text-muted-foreground mb-3 flex items-center gap-2">
-              <BookOpen className="w-4 h-4" /> Seus Tickets ({tickets.length})
-            </h2>
+          <div className="space-y-1.5">
+            <p className="text-xs font-semibold text-muted-foreground mb-2">Seus Tickets ({tickets.length})</p>
             {tickets.map((t) => {
               const st = STATUS_LABELS[t.status] || STATUS_LABELS.open;
               const StIcon = st.icon;
               return (
                 <button key={t.id} onClick={() => openTicket(t)}
-                  className="w-full text-left p-4 sm:p-5 rounded-2xl bg-card/30 border border-white/10 hover:bg-white/5 hover:border-white/20 transition-all group">
+                  className="w-full text-left p-3.5 rounded-xl bg-card/30 border border-white/5 hover:bg-card/50 hover:border-white/10 transition-all group">
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        {t.status === "answered" && <span className="w-2 h-2 rounded-full bg-primary animate-pulse flex-shrink-0" />}
-                        <span className="font-semibold text-sm sm:text-base truncate group-hover:text-primary transition-colors">{t.subject}</span>
+                        {t.status === "answered" && <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse flex-shrink-0" />}
+                        <span className="font-medium text-sm truncate group-hover:text-primary transition-colors">{t.subject}</span>
                       </div>
-                      <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">{formatDate(t.created_at)}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">{formatDate(t.created_at)}</p>
                     </div>
-                    <span className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border flex items-center gap-1 flex-shrink-0 ${st.color}`}>
-                      <StIcon className="w-3 h-3" />
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border flex items-center gap-1 flex-shrink-0 ${st.color}`}>
+                      <StIcon className="w-2.5 h-2.5" />
                       {st.label}
                     </span>
                   </div>
@@ -440,10 +417,10 @@ const SupportPage = () => {
             })}
           </div>
         ) : (
-          <div className="text-center py-16 rounded-2xl bg-card/20 border border-white/5">
-            <MessageSquare className="w-12 h-12 mx-auto mb-3 text-muted-foreground/20" />
-            <p className="text-base font-semibold">Nenhum ticket aberto</p>
-            <p className="text-sm text-muted-foreground mt-1">Abra um ticket e nossa equipe irá te ajudar!</p>
+          <div className="text-center py-12 rounded-xl bg-card/20 border border-white/5">
+            <MessageSquare className="w-8 h-8 mx-auto mb-2 text-muted-foreground/20" />
+            <p className="text-sm font-medium">Nenhum ticket</p>
+            <p className="text-xs text-muted-foreground mt-1">Abra um ticket para receber ajuda.</p>
           </div>
         )}
       </div>
