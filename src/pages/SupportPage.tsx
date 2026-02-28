@@ -126,13 +126,25 @@ const SupportPage = () => {
 
   const uploadFile = async (file: File): Promise<string | null> => {
     setUploading(true);
-    const ext = file.name.split(".").pop();
-    const path = `${session.user.id}/${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from("ticket-attachments").upload(path, file);
-    setUploading(false);
-    if (error) return null;
-    const { data } = supabase.storage.from("ticket-attachments").getPublicUrl(path);
-    return data.publicUrl;
+    try {
+      const ext = file.name.split(".").pop() || "bin";
+      const path = `${session.user.id}/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+      const { error } = await supabase.storage.from("ticket-attachments").upload(path, file, {
+        contentType: file.type,
+        upsert: false,
+      });
+      if (error) {
+        console.error("[Upload]", error);
+        return null;
+      }
+      const { data } = supabase.storage.from("ticket-attachments").getPublicUrl(path);
+      return data.publicUrl;
+    } catch (err) {
+      console.error("[Upload]", err);
+      return null;
+    } finally {
+      setUploading(false);
+    }
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -166,7 +178,10 @@ const SupportPage = () => {
 
     if (ticket && !error) {
       let attachUrl: string | null = null;
-      if (attachFile) attachUrl = await uploadFile(attachFile);
+      if (attachFile) {
+        attachUrl = await uploadFile(attachFile);
+        // If upload failed, still create ticket but without attachment
+      }
 
       await supabase.from("ticket_messages").insert({
         ticket_id: (ticket as any).id,
@@ -188,12 +203,18 @@ const SupportPage = () => {
     setSending(true);
 
     let attachUrl: string | null = null;
-    if (attachFile) attachUrl = await uploadFile(attachFile);
+    if (attachFile) {
+      attachUrl = await uploadFile(attachFile);
+      if (!attachUrl) {
+        setSending(false);
+        return; // upload failed, don't send
+      }
+    }
 
     await supabase.from("ticket_messages").insert({
       ticket_id: selectedTicket.id,
       sender_type: "user",
-      message: replyText.trim() || (attachUrl ? "📎 Anexo" : ""),
+      message: replyText.trim() || "📎 Anexo",
       ...(attachUrl ? { attachment_url: attachUrl } : {}),
     } as any);
     await supabase.from("support_tickets").update({ status: "open" } as any).eq("id", selectedTicket.id);
@@ -205,7 +226,7 @@ const SupportPage = () => {
 
   const formatDate = (d: string) => new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
-  const isImage = (url: string) => /\.(jpg|jpeg|png|gif|webp|avif)$/i.test(url);
+  const isImage = (url: string) => /\.(jpg|jpeg|png|gif|webp|avif|svg|bmp)/i.test(url) || url.includes("/ticket-attachments/") && /image/i.test(url);
 
   if (loading) {
     return (
