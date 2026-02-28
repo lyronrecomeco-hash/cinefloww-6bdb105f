@@ -3,7 +3,8 @@ import { useNavigate, useParams } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
-import { Radio, Search, Tv2, ArrowLeft, Loader2 } from "lucide-react";
+import { Radio, Search, Tv2, ArrowLeft, Loader2, Volume2, VolumeX, Maximize } from "lucide-react";
+import Hls from "hls.js";
 
 interface TVChannel {
   id: string;
@@ -30,10 +31,6 @@ interface EPGEntry {
   };
 }
 
-/** CineVeo TV embed base */
-const CINEVEO_TV_BASE = "https://cinetvembed.cineveo.site";
-
-
 const TVPage = () => {
   const { channelId } = useParams<{ channelId?: string }>();
   const [channels, setChannels] = useState<TVChannel[]>([]);
@@ -46,8 +43,14 @@ const TVPage = () => {
 
   // Player state
   const [playerChannel, setPlayerChannel] = useState<TVChannel | null>(null);
-  const [playerHtml, setPlayerHtml] = useState<string | null>(null);
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [streamType, setStreamType] = useState<"m3u8" | "mp4" | "iframe">("iframe");
   const [playerLoading, setPlayerLoading] = useState(false);
+  const [playerError, setPlayerError] = useState<string | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+  const [iframeHtml, setIframeHtml] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -86,31 +89,160 @@ const TVPage = () => {
     }
   }, [channelId, channels]);
 
+  // Cleanup HLS on unmount
+  useEffect(() => {
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, []);
+
+  // Attach HLS when streamUrl changes
+  useEffect(() => {
+    if (!streamUrl || streamType === "iframe") return;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Cleanup previous
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    if (streamType === "m3u8") {
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: false,
+          lowLatencyMode: true,
+          backBufferLength: 30,
+          maxBufferLength: 15,
+          maxMaxBufferLength: 30,
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 6,
+        });
+        hlsRef.current = hls;
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play().catch(() => {});
+        });
+        hls.on(Hls.Events.ERROR, (_, data) => {
+          if (data.fatal) {
+            console.error("[tv-player] HLS fatal error:", data.type);
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              // Try to recover
+              hls.startLoad();
+            } else {
+              setPlayerError("Erro ao carregar stream. Tentando via iframe...");
+              fallbackToIframe();
+            }
+          }
+        });
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        // iOS native HLS
+        video.src = streamUrl;
+        video.play().catch(() => {});
+      } else {
+        setPlayerError("HLS não suportado neste navegador");
+      }
+    } else if (streamType === "mp4") {
+      video.src = streamUrl;
+      video.play().catch(() => {});
+    }
+  }, [streamUrl, streamType]);
+
+  const fallbackToIframe = useCallback(async () => {
+    if (!playerChannel) return;
+    setStreamType("iframe");
+    setStreamUrl(null);
+    setPlayerError(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("proxy-tv", {
+        body: { url: playerChannel.stream_url },
+      });
+      if (!error && data?.html) {
+        setIframeHtml(data.html);
+      } else {
+        setIframeHtml(null);
+      }
+    } catch {
+      setIframeHtml(null);
+    }
+  }, [playerChannel]);
+
   const openPlayer = useCallback(async (channel: TVChannel) => {
     setPlayerChannel(channel);
     setPlayerLoading(true);
-    setPlayerHtml(null);
+    setPlayerError(null);
+    setStreamUrl(null);
+    setIframeHtml(null);
 
     try {
-      // Use server-side proxy to clean HTML (removes sandbox detection + ads)
-      const { data, error } = await supabase.functions.invoke("proxy-tv", {
-        body: { url: channel.stream_url },
+      // Try to extract clean m3u8 stream
+      const { data, error } = await supabase.functions.invoke("extract-tv", {
+        body: { channel_id: channel.id },
       });
 
-      if (!error && data?.html) {
-        setPlayerHtml(data.html);
+      if (!error && data?.url && data.type !== "iframe") {
+        console.log(`[tv] Got ${data.type} stream: ${data.url.substring(0, 60)}...`);
+        setStreamUrl(data.url);
+        setStreamType(data.type as "m3u8" | "mp4");
+      } else {
+        // Fallback to proxy iframe
+        console.log("[tv] No direct stream, falling back to proxy iframe");
+        const proxyResp = await supabase.functions.invoke("proxy-tv", {
+          body: { url: channel.stream_url },
+        });
+        if (proxyResp.data?.html) {
+          setIframeHtml(proxyResp.data.html);
+          setStreamType("iframe");
+        } else {
+          setStreamType("iframe");
+          setIframeHtml(null);
+        }
       }
-    } catch {
-      // fallback handled by direct iframe
+    } catch (err) {
+      console.error("[tv] Error extracting stream:", err);
+      setStreamType("iframe");
+      setIframeHtml(null);
     }
+
     setPlayerLoading(false);
   }, []);
 
   const closePlayer = useCallback(() => {
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
     setPlayerChannel(null);
-    setPlayerHtml(null);
+    setStreamUrl(null);
+    setIframeHtml(null);
+    setPlayerError(null);
     navigate("/lynetv", { replace: true });
   }, [navigate]);
+
+  const toggleMute = useCallback(() => {
+    const video = videoRef.current;
+    if (video) {
+      video.muted = !video.muted;
+      setIsMuted(video.muted);
+    }
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    const container = document.getElementById("tv-player-container");
+    if (!container) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      container.requestFullscreen?.();
+    }
+  }, []);
 
   const filtered = channels.filter((ch) => {
     const matchCat = activeCategory === 0 || ch.categories?.includes(activeCategory);
@@ -125,7 +257,7 @@ const TVPage = () => {
   // ===== PLAYER VIEW =====
   if (playerChannel) {
     return (
-      <div className="fixed inset-0 z-[100] bg-black flex flex-col">
+      <div id="tv-player-container" className="fixed inset-0 z-[100] bg-black flex flex-col">
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 bg-black/80 backdrop-blur-sm z-10 safe-top">
           <button onClick={closePlayer} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
@@ -139,19 +271,50 @@ const TVPage = () => {
                 <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-red-500"></span>
               </span>
               <span className="text-[10px] text-red-400 font-bold uppercase tracking-wider">AO VIVO</span>
+              {streamType !== "iframe" && (
+                <span className="text-[10px] text-emerald-400 font-medium ml-2">● HLS Nativo</span>
+              )}
             </div>
           </div>
+          {streamType !== "iframe" && (
+            <div className="flex items-center gap-2">
+              <button onClick={toggleMute} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
+                {isMuted ? <VolumeX className="w-4 h-4 text-white" /> : <Volume2 className="w-4 h-4 text-white" />}
+              </button>
+              <button onClick={toggleFullscreen} className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center hover:bg-white/20 transition-colors">
+                <Maximize className="w-4 h-4 text-white" />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Player */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative bg-black">
           {playerLoading ? (
-            <div className="absolute inset-0 flex items-center justify-center">
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
               <Loader2 className="w-8 h-8 text-primary animate-spin" />
+              <span className="text-xs text-white/60">Extraindo stream...</span>
             </div>
-          ) : playerHtml ? (
+          ) : playerError ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+              <span className="text-sm text-red-400">{playerError}</span>
+            </div>
+          ) : streamType !== "iframe" ? (
+            <video
+              ref={videoRef}
+              className="w-full h-full bg-black"
+              autoPlay
+              playsInline
+              muted={isMuted}
+              controls={false}
+              onClick={(e) => {
+                const v = e.currentTarget;
+                v.paused ? v.play() : v.pause();
+              }}
+            />
+          ) : iframeHtml ? (
             <iframe
-              srcDoc={playerHtml}
+              srcDoc={iframeHtml}
               className="w-full h-full border-0"
               allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
               allowFullScreen
