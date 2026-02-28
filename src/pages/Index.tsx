@@ -12,6 +12,7 @@ import {
   getPopularSeries,
   getNowPlayingMovies,
   getAiringTodaySeries,
+  discoverMovies,
   getYear,
 } from "@/services/tmdb";
 
@@ -24,6 +25,7 @@ const sortByYear = (items: TMDBMovie[]) =>
 
 const Index = () => {
   const [trending, setTrending] = useState<TMDBMovie[]>([]);
+  const [heroSlider, setHeroSlider] = useState<TMDBMovie[]>([]);
   const [nowPlaying, setNowPlaying] = useState<TMDBMovie[]>([]);
   const [popularMovies, setPopularMovies] = useState<TMDBMovie[]>([]);
   const [popularSeries, setPopularSeries] = useState<TMDBMovie[]>([]);
@@ -64,8 +66,16 @@ const Index = () => {
       race(getAiringTodaySeries(), empty),
       race(getPopularMovies(), empty),
       race(getPopularSeries(), empty),
-    ]).then(([t, np, at, pm, ps]) => {
+      race(discoverMovies(1, {
+        "primary_release_date.gte": "2026-01-01",
+        "primary_release_date.lte": "2026-12-31",
+        sort_by: "popularity.desc",
+      }), empty),
+    ]).then(([t, np, at, pm, ps, releases2026]) => {
       setTrending(t.results);
+      // Use 2026 releases for hero if available, fallback to trending
+      const heroItems = releases2026.results.filter((m) => m.backdrop_path);
+      setHeroSlider(heroItems.length >= 3 ? heroItems : t.results);
       const launches = [...np.results.slice(0, 10), ...at.results.slice(0, 10)];
       setNowPlaying(sortByYear(launches));
       setPopularMovies(sortByYear(pm.results));
@@ -86,7 +96,7 @@ const Index = () => {
       {loading ? (
         <div className="w-full aspect-[16/7] bg-muted animate-pulse" />
       ) : (
-        <HeroSlider movies={trending} />
+        <HeroSlider movies={heroSlider} />
       )}
 
       <div className="mt-4 sm:mt-6 lg:mt-8 relative z-10 pb-12 sm:pb-20 space-y-1 sm:space-y-2" style={{ contentVisibility: "auto", containIntrinsicSize: "0 500px" }}>
