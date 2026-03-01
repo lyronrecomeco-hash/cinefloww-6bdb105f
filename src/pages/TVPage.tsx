@@ -59,7 +59,7 @@ const TVPage = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [chRes, catRes] = await Promise.all([
-      supabase.from("tv_channels").select("*").eq("active", true).order("sort_order"),
+      supabase.from("tv_channels").select("*").eq("active", true).order("sort_order").limit(2000),
       supabase.from("tv_categories").select("*").order("sort_order"),
     ]);
     setChannels((chRes.data as TVChannel[]) || []);
@@ -110,8 +110,17 @@ const TVPage = () => {
         body: { embed_url: streamUrl },
       });
       if (error || !data?.url) return null;
-      const cleanUrl = getCleanStreamUrl(data.url);
-      return { url: cleanUrl, type: data.type === "mp4" ? "mp4" : "m3u8" };
+      // Clean escaped slashes and /live/ segments
+      let cleanUrl = data.url.replace(/\\\//g, "/");
+      cleanUrl = getCleanStreamUrl(cleanUrl);
+      // Ensure absolute URL
+      if (!cleanUrl.startsWith("http")) {
+        try {
+          const embedOrigin = new URL(streamUrl).origin;
+          cleanUrl = cleanUrl.startsWith("/") ? embedOrigin + cleanUrl : embedOrigin + "/" + cleanUrl;
+        } catch { /* ignore */ }
+      }
+      return { url: cleanUrl, type: data.type === "mp4" ? "mp4" as const : "m3u8" as const };
     } catch {
       return null;
     }
@@ -287,11 +296,19 @@ const TVPage = () => {
   }, []);
 
   // Filter channels
-  const filtered = useMemo(() => channels.filter((ch) => {
-    const matchCat = activeCategory === 0 || ch.categories?.includes(activeCategory);
-    const matchSearch = !search || ch.name.toLowerCase().includes(search.toLowerCase());
-    return matchCat && matchSearch;
-  }), [channels, activeCategory, search]);
+  const filtered = useMemo(() => {
+    if (activeCategory === 0) {
+      return channels.filter(ch => !search || ch.name.toLowerCase().includes(search.toLowerCase()));
+    }
+    // Match by categories array OR by category name matching the selected category
+    const selectedCatName = categories.find(c => c.id === activeCategory)?.name?.toLowerCase();
+    return channels.filter((ch) => {
+      const matchCat = ch.categories?.includes(activeCategory) || 
+        (selectedCatName && ch.category?.toLowerCase() === selectedCatName);
+      const matchSearch = !search || ch.name.toLowerCase().includes(search.toLowerCase());
+      return matchCat && matchSearch;
+    });
+  }, [channels, activeCategory, search, categories]);
 
   // Deduplicate categories by id AND name
   const uniqueCategories = useMemo(() => {
@@ -568,13 +585,18 @@ const TVPage = () => {
                                 className="w-full h-full object-contain max-h-12 sm:max-h-16 transition-transform duration-300 group-hover:scale-110"
                                 loading="lazy"
                                 onError={(e) => {
-                                  (e.target as HTMLImageElement).style.display = "none";
-                                  const fallback = (e.target as HTMLImageElement).nextElementSibling;
-                                  if (fallback) (fallback as HTMLElement).style.display = "flex";
+                                  const img = e.target as HTMLImageElement;
+                                  img.style.display = "none";
+                                  const parent = img.parentElement;
+                                  if (parent) {
+                                    const fb = parent.querySelector("[data-fallback]") as HTMLElement;
+                                    if (fb) fb.style.display = "flex";
+                                  }
                                 }}
                               />
                             ) : null}
                             <div
+                              data-fallback
                               className="items-center justify-center"
                               style={{ display: imgUrl ? "none" : "flex" }}
                             >

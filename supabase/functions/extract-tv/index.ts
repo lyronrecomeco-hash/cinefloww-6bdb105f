@@ -17,17 +17,21 @@ const CINEVEO_BASE = "https://cinetvembed.cineveo.site";
  * Extract the raw stream URL from an embed page using multiple patterns.
  * Priority: const src > file/source attributes > m3u8 patterns
  */
+function cleanUrl(raw: string): string {
+  // Remove escaped forward slashes (common in JS source: \/)
+  return raw.replace(/\\\//g, "/");
+}
+
 function extractStreamUrl(html: string, embedUrl: string): { url: string; type: "m3u8" | "mp4" } | null {
   const origin = new URL(embedUrl).origin;
 
   // 1. Primary: const src = "..." pattern (most reliable)
-  // Only match URLs that look like actual stream URLs (contain http or /)
   const srcPatterns = [
-    /const\s+src\s*=\s*"(https?:\/\/[^"]+\.m3u8[^"]*)"/,
-    /const\s+src\s*=\s*"(https?:\/\/[^"]+\.mp4[^"]*)"/,
-    /const\s+src\s*=\s*"(\/[^"]+\.m3u8[^"]*)"/,
-    /var\s+src\s*=\s*"(https?:\/\/[^"]+\.m3u8[^"]*)"/,
-    /let\s+src\s*=\s*"(https?:\/\/[^"]+\.m3u8[^"]*)"/,
+    /const\s+src\s*=\s*"(https?:[^"]+\.m3u8[^"]*)"/,
+    /const\s+src\s*=\s*"(https?:[^"]+\.mp4[^"]*)"/,
+    /const\s+src\s*=\s*"([^"]+\.m3u8[^"]*)"/,
+    /var\s+src\s*=\s*"([^"]+\.m3u8[^"]*)"/,
+    /let\s+src\s*=\s*"([^"]+\.m3u8[^"]*)"/,
     /src\s*=\s*'([^']+\.m3u8[^']*)'/,
     /src\s*=\s*"([^"]+\.m3u8[^"]*)"/,
   ];
@@ -35,10 +39,11 @@ function extractStreamUrl(html: string, embedUrl: string): { url: string; type: 
   for (const pattern of srcPatterns) {
     const match = pattern.exec(html);
     if (match?.[1]) {
-      let url = match[1];
+      let url = cleanUrl(match[1]);
       // Validate it looks like a real URL, not JS code
       if (url.length > 500 || url.includes("function") || url.includes("document.")) continue;
       if (url.startsWith("/")) url = origin + url;
+      if (!url.startsWith("http")) url = origin + "/" + url;
       const type = url.includes(".m3u8") ? "m3u8" : "mp4";
       return { url, type };
     }
@@ -55,8 +60,9 @@ function extractStreamUrl(html: string, embedUrl: string): { url: string; type: 
   for (const pattern of hlsPatterns) {
     const match = pattern.exec(html);
     if (match?.[1]) {
-      let url = match[1];
+      let url = cleanUrl(match[1]);
       if (url.startsWith("/")) url = origin + url;
+      if (!url.startsWith("http")) url = origin + "/" + url;
       return { url, type: "m3u8" };
     }
   }
@@ -71,8 +77,9 @@ function extractStreamUrl(html: string, embedUrl: string): { url: string; type: 
   for (const pattern of genericPatterns) {
     const match = pattern.exec(html);
     if (match?.[1] && !match[1].includes("logo") && !match[1].includes(".js")) {
-      let url = match[1];
+      let url = cleanUrl(match[1]);
       if (url.startsWith("/")) url = origin + url;
+      if (!url.startsWith("http")) url = origin + "/" + url;
       if (url.startsWith("http://")) url = url.replace("http://", "https://");
       const type = url.includes(".m3u8") ? "m3u8" : "mp4";
       return { url, type };
