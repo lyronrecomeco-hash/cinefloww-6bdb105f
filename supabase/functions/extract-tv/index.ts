@@ -41,7 +41,7 @@ function extractStreamUrl(html: string, embedUrl: string): { url: string; type: 
     if (match?.[1]) {
       let url = cleanUrl(match[1]);
       // Validate it looks like a real URL, not JS code
-      if (url.length > 500 || url.includes("function") || url.includes("document.")) continue;
+      if (url.length > 500 || url.includes("function") || url.includes("document.") || url.includes(");") || url.includes("\r\n") || url.includes("{")) continue;
       if (url.startsWith("/")) url = origin + url;
       if (!url.startsWith("http")) url = origin + "/" + url;
       const type = url.includes(".m3u8") ? "m3u8" : "mp4";

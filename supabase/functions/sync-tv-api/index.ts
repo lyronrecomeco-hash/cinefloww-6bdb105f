@@ -162,17 +162,15 @@ Deno.serve(async (req) => {
       seen.add(slug);
 
       const mapped = CATEGORY_MAP[ch.category];
-      // Strip /live/ segment from stream URLs
-      let cleanUrl = ch.stream_url;
-      if (cleanUrl) {
-        cleanUrl = cleanUrl.replace(/\/live\//gi, "/");
-      }
+      // Build embed URL from channel title slug (direct .m3u8 URLs don't work in browser)
+      const titleSlug = slugify(ch.title);
+      const embedUrl = `https://cinetvembed.cineveo.site/embed/${titleSlug}`;
 
       return {
         id: slug,
         name: ch.title,
         image_url: ch.poster && ch.poster !== "" ? ch.poster : null,
-        stream_url: cleanUrl,
+        stream_url: embedUrl,
         category: mapped?.name || ch.category,
         categories: mapped ? [mapped.id] : [7],
         active: true,

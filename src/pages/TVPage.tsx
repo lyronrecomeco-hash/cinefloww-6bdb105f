@@ -94,10 +94,28 @@ const TVPage = () => {
 
   const getCleanStreamUrl = (url: string) => url.replace(/\/live\//gi, "/");
 
+  /** Slugify channel name to match cineveo embed URL pattern */
+  const slugifyName = (name: string) =>
+    name.toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[\s•]+/g, "-")
+      .replace(/[^a-z0-9-]/g, "")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+
   /** Resolve the final playable URL - handles both direct and embed URLs */
   const resolveStreamUrl = useCallback(async (channel: TVChannel): Promise<{ url: string; type: "m3u8" | "mp4" | "iframe" } | null> => {
     let streamUrl = getCleanStreamUrl(channel.stream_url);
-    const isDirectStream = /\.(m3u8|mp4|ts)(\?|$)/i.test(streamUrl);
+
+    // Cineveo .m3u8 URLs from API are NOT directly accessible - convert to embed URL
+    if (streamUrl.includes("cineveo.site") && /\.m3u8(\?|$)/i.test(streamUrl)) {
+      const slug = slugifyName(channel.name);
+      streamUrl = `https://cinetvembed.cineveo.site/embed/${slug}`;
+      console.log(`[TV] Converted m3u8 to embed: ${slug}`);
+    }
+
+    // Only treat as direct stream if NOT from cineveo
+    const isDirectStream = /\.(m3u8|mp4|ts)(\?|$)/i.test(streamUrl) && !streamUrl.includes("cineveo.site");
 
     if (isDirectStream) {
       const type = streamUrl.includes(".m3u8") ? "m3u8" as const : "mp4" as const;
@@ -113,6 +131,11 @@ const TVPage = () => {
       // Clean escaped slashes and /live/ segments
       let cleanUrl = data.url.replace(/\\\//g, "/");
       cleanUrl = getCleanStreamUrl(cleanUrl);
+      // Validate it's a real URL, not JS code
+      if (cleanUrl.includes(");") || cleanUrl.includes("\r\n") || cleanUrl.includes("{")) {
+        console.warn("[TV] Extracted URL contains JS code, rejecting");
+        return null;
+      }
       // Ensure absolute URL
       if (!cleanUrl.startsWith("http")) {
         try {
