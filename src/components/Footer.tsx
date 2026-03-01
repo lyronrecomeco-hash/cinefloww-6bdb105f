@@ -97,18 +97,19 @@ const Footer = forwardRef<HTMLElement>((_, ref) => {
         </div>
 
         <p className="text-muted-foreground/60 text-[10px] sm:text-xs">
-          © 2026 LyneFlix. Todos os direitos reservados.{" "}
-          <button
-            id="lyneflix-version"
-            onClick={checkVersion}
-            disabled={checking}
-            className="ml-1 text-muted-foreground/40 hover:text-primary/60 transition-colors cursor-pointer inline-flex items-center gap-1"
-            title="Clique para verificar atualizações"
-          >
-            {CURRENT_VERSION}
-            {checking && <RefreshCw className="w-2.5 h-2.5 animate-spin" />}
-          </button>
+          © 2026 LyneFlix. Todos os direitos reservados.
         </p>
+
+        <button
+          id="lyneflix-version"
+          onClick={checkVersion}
+          disabled={checking}
+          className="text-muted-foreground/50 hover:text-primary/70 text-[11px] sm:text-xs transition-colors cursor-pointer inline-flex items-center gap-1.5 py-1 px-3 rounded-full border border-white/5 hover:border-white/10"
+          title="Clique para verificar atualizações"
+        >
+          {CURRENT_VERSION}
+          {checking && <RefreshCw className="w-3 h-3 animate-spin" />}
+        </button>
       </div>
 
       {showDnsHelp && (
