@@ -190,11 +190,16 @@ const AdGateModal = forwardRef<HTMLDivElement, AdGateModalProps>(({ onContinue, 
         </div>
 
         <h2 className="font-display text-lg sm:text-xl font-bold mb-2">
-          {completed ? "Liberado! 🎉" : "Quase lá! 🎬"}
+          {completed ? "Liberado! 🎉" : contentTitle === "LyneTV" ? "Quase lá! 📺" : "Quase lá! 🎬"}
         </h2>
         <p className="text-muted-foreground text-xs sm:text-sm leading-relaxed mb-3">
           {completed ? (
-            "Acesso liberado! Preparando player..."
+            contentTitle === "LyneTV" ? "Acesso liberado! Conectando ao canal..." : "Acesso liberado! Preparando player..."
+          ) : contentTitle === "LyneTV" ? (
+            <>
+              Para manter a <span className="text-primary font-semibold">TV LYNE</span> gratuita, abra o anúncio e volte para assistir ao vivo.
+              {requiredAds > 1 ? ` Repita ${requiredAds} vezes.` : " É só 1 clique."}
+            </>
           ) : (
             <>
               Para manter a <span className="text-primary font-semibold">LyneFlix</span> gratuita, abra o anúncio e volte para continuar.
@@ -273,7 +278,11 @@ const AdGateModal = forwardRef<HTMLDivElement, AdGateModalProps>(({ onContinue, 
         <div className="flex items-center justify-center gap-1.5 mt-4">
           <Lock className="w-3 h-3 text-muted-foreground/40" />
           <p className="text-[10px] text-muted-foreground/60">
-            {isSeries ? "Ao concluir, todos episódios da série ficam liberados nesta sessão" : "Você apoia o site ao visualizar nossos parceiros"} ✨
+            {contentTitle === "LyneTV"
+              ? "Ao concluir, todos os canais ficam liberados nesta sessão"
+              : isSeries
+                ? "Ao concluir, todos episódios da série ficam liberados nesta sessão"
+                : "Você apoia o site ao visualizar nossos parceiros"} ✨
           </p>
         </div>
       </div>
