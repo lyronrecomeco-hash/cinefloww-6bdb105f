@@ -21,10 +21,13 @@ function extractStreamUrl(html: string, embedUrl: string): { url: string; type: 
   const origin = new URL(embedUrl).origin;
 
   // 1. Primary: const src = "..." pattern (most reliable)
+  // Only match URLs that look like actual stream URLs (contain http or /)
   const srcPatterns = [
-    /const\s+src\s*=\s*"([^"]+)"/,
-    /var\s+src\s*=\s*"([^"]+)"/,
-    /let\s+src\s*=\s*"([^"]+)"/,
+    /const\s+src\s*=\s*"(https?:\/\/[^"]+\.m3u8[^"]*)"/,
+    /const\s+src\s*=\s*"(https?:\/\/[^"]+\.mp4[^"]*)"/,
+    /const\s+src\s*=\s*"(\/[^"]+\.m3u8[^"]*)"/,
+    /var\s+src\s*=\s*"(https?:\/\/[^"]+\.m3u8[^"]*)"/,
+    /let\s+src\s*=\s*"(https?:\/\/[^"]+\.m3u8[^"]*)"/,
     /src\s*=\s*'([^']+\.m3u8[^']*)'/,
     /src\s*=\s*"([^"]+\.m3u8[^"]*)"/,
   ];
@@ -33,6 +36,8 @@ function extractStreamUrl(html: string, embedUrl: string): { url: string; type: 
     const match = pattern.exec(html);
     if (match?.[1]) {
       let url = match[1];
+      // Validate it looks like a real URL, not JS code
+      if (url.length > 500 || url.includes("function") || url.includes("document.")) continue;
       if (url.startsWith("/")) url = origin + url;
       const type = url.includes(".m3u8") ? "m3u8" : "mp4";
       return { url, type };

@@ -94,50 +94,50 @@ const TVPage = () => {
 
   const getCleanStreamUrl = (url: string) => url.replace(/\/live\//gi, "/");
 
-  const startPlayback = useCallback((channel: TVChannel) => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    setPlayerLoading(true);
-    setPlayerError(false);
-    setIsPlaying(true);
-    setIsPaused(false);
-
-    hlsRef.current?.destroy();
-    hlsRef.current = null;
-
+  /** Resolve the final playable URL - handles both direct and embed URLs */
+  const resolveStreamUrl = useCallback(async (channel: TVChannel): Promise<{ url: string; type: "m3u8" | "mp4" | "iframe" } | null> => {
     let streamUrl = getCleanStreamUrl(channel.stream_url);
-    const isDirectStream = streamUrl.includes(".m3u8") || streamUrl.includes(".mp4") || streamUrl.includes(".ts");
+    const isDirectStream = /\.(m3u8|mp4|ts)(\?|$)/i.test(streamUrl);
 
-    if (!isDirectStream) {
-      supabase.functions.invoke("extract-tv", {
-        body: { embed_url: streamUrl },
-      }).then(({ data, error }) => {
-        if (error || !data?.url) {
-          setPlayerError(true);
-          setPlayerLoading(false);
-          return;
-        }
-        playStream(video, getCleanStreamUrl(data.url));
-      });
-      return;
+    if (isDirectStream) {
+      const type = streamUrl.includes(".m3u8") ? "m3u8" as const : "mp4" as const;
+      return { url: streamUrl, type };
     }
 
-    playStream(video, streamUrl);
+    // Embed URL - extract via edge function
+    try {
+      const { data, error } = await supabase.functions.invoke("extract-tv", {
+        body: { embed_url: streamUrl },
+      });
+      if (error || !data?.url) return null;
+      const cleanUrl = getCleanStreamUrl(data.url);
+      return { url: cleanUrl, type: data.type === "mp4" ? "mp4" : "m3u8" };
+    } catch {
+      return null;
+    }
   }, []);
 
   const playStream = useCallback((video: HTMLVideoElement, streamUrl: string) => {
-    if (streamUrl.includes(".m3u8") && Hls.isSupported()) {
+    // Destroy previous HLS instance
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
+
+    const isM3u8 = streamUrl.includes(".m3u8");
+
+    if (isM3u8 && Hls.isSupported()) {
       const hls = new Hls({
         lowLatencyMode: true,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 30,
+        maxBufferLength: 15,
+        maxMaxBufferLength: 60,
         startLevel: -1,
         enableWorker: true,
-        fragLoadingMaxRetry: 3,
+        fragLoadingMaxRetry: 6,
         fragLoadingRetryDelay: 1000,
-        manifestLoadingMaxRetry: 3,
-        levelLoadingMaxRetry: 3,
+        manifestLoadingMaxRetry: 4,
+        levelLoadingMaxRetry: 4,
+        fragLoadingMaxRetryTimeout: 8000,
+        manifestLoadingMaxRetryTimeout: 8000,
+        levelLoadingMaxRetryTimeout: 8000,
       });
       hlsRef.current = hls;
       hls.loadSource(streamUrl);
@@ -149,14 +149,19 @@ const TVPage = () => {
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            hls.startLoad();
+            console.warn("[TV] HLS network error, retrying...");
+            setTimeout(() => hls.startLoad(), 1500);
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            console.warn("[TV] HLS media error, recovering...");
+            hls.recoverMediaError();
           } else {
             setPlayerError(true);
             setPlayerLoading(false);
           }
         }
       });
-    } else if (streamUrl.includes(".m3u8") && video.canPlayType("application/vnd.apple.mpegurl")) {
+    } else if (isM3u8 && video.canPlayType("application/vnd.apple.mpegurl")) {
+      // iOS native HLS
       video.removeAttribute("crossOrigin");
       video.src = streamUrl;
       video.load();
@@ -164,6 +169,7 @@ const TVPage = () => {
       video.onloadedmetadata = () => setPlayerLoading(false);
       video.onerror = () => { setPlayerError(true); setPlayerLoading(false); };
     } else {
+      // MP4 or other direct
       video.removeAttribute("crossOrigin");
       video.src = streamUrl;
       video.load();
@@ -172,13 +178,37 @@ const TVPage = () => {
       video.onerror = () => { setPlayerError(true); setPlayerLoading(false); };
     }
 
+    // Safety timeout - 20s
     setTimeout(() => {
-      if (video.readyState < 2) {
+      if (video.readyState < 2 && !video.paused) {
+        console.warn("[TV] Safety timeout - stream didn't load in 20s");
         setPlayerError(true);
         setPlayerLoading(false);
       }
-    }, 15000);
+    }, 20000);
   }, []);
+
+  const startPlayback = useCallback(async (channel: TVChannel) => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    setPlayerLoading(true);
+    setPlayerError(false);
+    setIsPlaying(true);
+    setIsPaused(false);
+
+    hlsRef.current?.destroy();
+    hlsRef.current = null;
+
+    const resolved = await resolveStreamUrl(channel);
+    if (!resolved || resolved.type === "iframe") {
+      setPlayerError(true);
+      setPlayerLoading(false);
+      return;
+    }
+
+    playStream(video, resolved.url);
+  }, [resolveStreamUrl, playStream]);
 
   const handleSelectChannel = useCallback((channel: TVChannel) => {
     setSelectedChannel(channel);
@@ -191,40 +221,10 @@ const TVPage = () => {
     // If ads already completed, auto-play
     const completed = sessionStorage.getItem("ad_completed_tv_0");
     if (completed) {
-      // Small delay to let state settle
-      setTimeout(() => {
-        setAdGateCompleted(true);
-        const video = videoRef.current;
-        if (video) {
-          setPlayerLoading(true);
-          setPlayerError(false);
-          setIsPlaying(true);
-          setIsPaused(false);
-
-          hlsRef.current?.destroy();
-          hlsRef.current = null;
-
-          let streamUrl = getCleanStreamUrl(channel.stream_url);
-          const isDirectStream = streamUrl.includes(".m3u8") || streamUrl.includes(".mp4") || streamUrl.includes(".ts");
-
-          if (!isDirectStream) {
-            supabase.functions.invoke("extract-tv", {
-              body: { embed_url: streamUrl },
-            }).then(({ data, error }) => {
-              if (error || !data?.url) {
-                setPlayerError(true);
-                setPlayerLoading(false);
-                return;
-              }
-              playStream(video, getCleanStreamUrl(data.url));
-            });
-            return;
-          }
-          playStream(video, streamUrl);
-        }
-      }, 100);
+      setAdGateCompleted(true);
+      setTimeout(() => startPlayback(channel), 150);
     }
-  }, [navigate, playStream]);
+  }, [navigate, startPlayback]);
 
   // Toggle play/pause - this is where ad gate triggers
   const togglePlayPause = useCallback(() => {
@@ -293,12 +293,15 @@ const TVPage = () => {
     return matchCat && matchSearch;
   }), [channels, activeCategory, search]);
 
-  // Deduplicate categories (remove any with same id)
+  // Deduplicate categories by id AND name
   const uniqueCategories = useMemo(() => {
     const seen = new Set<number>();
+    const seenNames = new Set<string>();
     return categories.filter(c => {
-      if (seen.has(c.id)) return false;
+      const lowerName = c.name.toLowerCase();
+      if (seen.has(c.id) || seenNames.has(lowerName) || lowerName === "todos") return false;
       seen.add(c.id);
+      seenNames.add(lowerName);
       return true;
     });
   }, [categories]);
@@ -315,15 +318,14 @@ const TVPage = () => {
     return Object.entries(grouped).sort(([a], [b]) => (catOrder[a] ?? 999) - (catOrder[b] ?? 999));
   }, [filtered, categories]);
 
-  // Fallback image URL generator
+  // Fallback image
   const getChannelImage = (channel: TVChannel) => {
     if (channel.image_url && channel.image_url.trim() !== "") return channel.image_url;
-    // Generate a placeholder with channel initials
     return null;
   };
 
   const channelInitials = (name: string) => {
-    return name.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
+    return name.split(" ").slice(0, 2).map(w => w?.[0] || "").join("").toUpperCase();
   };
 
   return (
@@ -363,7 +365,7 @@ const TVPage = () => {
           </div>
         </div>
 
-        {/* ===== PLAYER AREA - Only show when channel selected ===== */}
+        {/* ===== PLAYER AREA ===== */}
         {selectedChannel && (
           <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 mb-6">
             <div
@@ -372,7 +374,6 @@ const TVPage = () => {
               onMouseMove={resetControlsTimer}
               onTouchStart={resetControlsTimer}
             >
-              {/* Video element */}
               <video
                 ref={videoRef}
                 className="w-full h-full object-contain bg-black"
@@ -382,23 +383,23 @@ const TVPage = () => {
                 onClick={togglePlayPause}
               />
 
-              {/* Not started overlay - click to play */}
+              {/* Not started overlay - smaller play button */}
               {!isPlaying && (
                 <div
                   className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-black/60 via-black/80 to-black/60 cursor-pointer"
                   onClick={togglePlayPause}
                 >
                   {selectedChannel.image_url ? (
-                    <img src={selectedChannel.image_url} alt="" className="w-16 h-16 sm:w-20 sm:h-20 object-contain mb-3 opacity-60" />
+                    <img src={selectedChannel.image_url} alt="" className="w-12 h-12 sm:w-14 sm:h-14 object-contain mb-2 opacity-60" />
                   ) : (
-                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white/10 flex items-center justify-center mb-3">
-                      <span className="text-xl font-bold text-white/60">{channelInitials(selectedChannel.name)}</span>
+                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-white/10 flex items-center justify-center mb-2">
+                      <span className="text-sm font-bold text-white/60">{channelInitials(selectedChannel.name)}</span>
                     </div>
                   )}
-                  <h3 className="text-white font-bold text-sm sm:text-lg mb-1">{selectedChannel.name}</h3>
-                  <p className="text-muted-foreground text-[10px] sm:text-xs mb-4">{selectedChannel.category}</p>
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-primary/90 flex items-center justify-center shadow-xl shadow-primary/30 hover:scale-110 transition-transform">
-                    <Play className="w-7 h-7 sm:w-9 sm:h-9 text-primary-foreground fill-current ml-1" />
+                  <h3 className="text-white font-semibold text-xs sm:text-sm mb-0.5">{selectedChannel.name}</h3>
+                  <p className="text-muted-foreground text-[9px] sm:text-[10px] mb-3">{selectedChannel.category}</p>
+                  <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-full bg-primary/90 flex items-center justify-center shadow-lg shadow-primary/30 hover:scale-105 transition-transform">
+                    <Play className="w-5 h-5 sm:w-5.5 sm:h-5.5 text-primary-foreground fill-current ml-0.5" />
                   </div>
                 </div>
               )}
@@ -409,8 +410,8 @@ const TVPage = () => {
                   className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer"
                   onClick={togglePlayPause}
                 >
-                  <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center hover:scale-110 transition-transform">
-                    <Play className="w-8 h-8 text-white fill-current ml-1" />
+                  <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center hover:scale-105 transition-transform">
+                    <Play className="w-5 h-5 text-white fill-current ml-0.5" />
                   </div>
                 </div>
               )}
@@ -418,18 +419,18 @@ const TVPage = () => {
               {/* Loading overlay */}
               {playerLoading && isPlaying && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10">
-                  <Loader2 className="w-10 h-10 text-primary animate-spin" />
-                  <p className="text-xs text-muted-foreground mt-3 animate-pulse">Conectando ao stream...</p>
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  <p className="text-[10px] text-muted-foreground mt-2 animate-pulse">Conectando ao stream...</p>
                 </div>
               )}
 
               {/* Error overlay */}
               {playerError && isPlaying && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-10">
-                  <AlertCircle className="w-10 h-10 text-destructive mb-3" />
-                  <p className="text-sm text-white font-medium mb-1">Falha ao carregar stream</p>
-                  <p className="text-xs text-muted-foreground mb-4">O canal pode estar temporariamente fora do ar</p>
-                  <button onClick={retryPlayback} className="px-6 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-all">
+                  <AlertCircle className="w-8 h-8 text-destructive mb-2" />
+                  <p className="text-xs text-white font-medium mb-0.5">Falha ao carregar stream</p>
+                  <p className="text-[10px] text-muted-foreground mb-3">O canal pode estar temporariamente fora do ar</p>
+                  <button onClick={retryPlayback} className="px-5 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 transition-all">
                     Tentar novamente
                   </button>
                 </div>
@@ -439,24 +440,24 @@ const TVPage = () => {
               {isPlaying && !playerLoading && !playerError && (
                 <div className={`absolute bottom-0 left-0 right-0 flex items-center justify-between px-3 sm:px-5 py-2.5 bg-gradient-to-t from-black/80 to-transparent z-10 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0"}`}>
                   <div className="flex items-center gap-3">
-                    <button onClick={(e) => { e.stopPropagation(); togglePlayPause(); }} className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all">
-                      {isPaused ? <Play className="w-4 h-4 text-white fill-current ml-0.5" /> : <Pause className="w-4 h-4 text-white" />}
+                    <button onClick={(e) => { e.stopPropagation(); togglePlayPause(); }} className="w-8 h-8 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all">
+                      {isPaused ? <Play className="w-3.5 h-3.5 text-white fill-current ml-0.5" /> : <Pause className="w-3.5 h-3.5 text-white" />}
                     </button>
-                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/90 backdrop-blur-sm">
-                      <span className="relative flex h-2 w-2">
+                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-red-500/90 backdrop-blur-sm">
+                      <span className="relative flex h-1.5 w-1.5">
                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+                        <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white" />
                       </span>
-                      <span className="text-[10px] font-bold text-white uppercase tracking-wider">AO VIVO</span>
+                      <span className="text-[9px] font-bold text-white uppercase tracking-wider">AO VIVO</span>
                     </div>
-                    <span className="text-sm font-medium text-white hidden sm:block">{selectedChannel?.name}</span>
+                    <span className="text-xs font-medium text-white hidden sm:block">{selectedChannel?.name}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <button onClick={(e) => { e.stopPropagation(); toggleMute(); }} className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all">
-                      {isMuted ? <VolumeX className="w-4 h-4 text-white" /> : <Volume2 className="w-4 h-4 text-white" />}
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={(e) => { e.stopPropagation(); toggleMute(); }} className="w-8 h-8 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all">
+                      {isMuted ? <VolumeX className="w-3.5 h-3.5 text-white" /> : <Volume2 className="w-3.5 h-3.5 text-white" />}
                     </button>
-                    <button onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all">
-                      {isFullscreen ? <Minimize className="w-4 h-4 text-white" /> : <Maximize className="w-4 h-4 text-white" />}
+                    <button onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} className="w-8 h-8 rounded-lg bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all">
+                      {isFullscreen ? <Minimize className="w-3.5 h-3.5 text-white" /> : <Maximize className="w-3.5 h-3.5 text-white" />}
                     </button>
                   </div>
                 </div>
@@ -481,7 +482,7 @@ const TVPage = () => {
             </div>
           </div>
 
-          {/* Category filter - no duplicate "Todos" */}
+          {/* Category filter */}
           <div className="flex gap-2 overflow-x-auto scrollbar-hide mb-5 pb-1">
             <button
               onClick={() => setActiveCategory(0)}
@@ -567,7 +568,6 @@ const TVPage = () => {
                                 className="w-full h-full object-contain max-h-12 sm:max-h-16 transition-transform duration-300 group-hover:scale-110"
                                 loading="lazy"
                                 onError={(e) => {
-                                  // Hide broken image, show fallback
                                   (e.target as HTMLImageElement).style.display = "none";
                                   const fallback = (e.target as HTMLImageElement).nextElementSibling;
                                   if (fallback) (fallback as HTMLElement).style.display = "flex";
