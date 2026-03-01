@@ -162,11 +162,17 @@ Deno.serve(async (req) => {
       seen.add(slug);
 
       const mapped = CATEGORY_MAP[ch.category];
+      // Strip /live/ segment from stream URLs
+      let cleanUrl = ch.stream_url;
+      if (cleanUrl) {
+        cleanUrl = cleanUrl.replace(/\/live\//gi, "/");
+      }
+
       return {
         id: slug,
         name: ch.title,
         image_url: ch.poster && ch.poster !== "" ? ch.poster : null,
-        stream_url: ch.stream_url,
+        stream_url: cleanUrl,
         category: mapped?.name || ch.category,
         categories: mapped ? [mapped.id] : [7],
         active: true,

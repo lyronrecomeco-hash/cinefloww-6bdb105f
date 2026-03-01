@@ -83,18 +83,10 @@ const TVPage = () => {
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
-  const openPlayer = useCallback(async (channel: TVChannel) => {
-    setPlayerChannel(channel);
-    setPlayerLoading(true);
-    setIframeHtml(null);
-    try {
-      const { data } = await supabase.functions.invoke("proxy-tv", {
-        body: { url: channel.stream_url },
-      });
-      if (data?.html) setIframeHtml(data.html);
-    } catch { /* silent */ }
-    setPlayerLoading(false);
-  }, []);
+  const openPlayer = useCallback((channel: TVChannel) => {
+    const streamUrl = channel.stream_url.replace(/\/live\//gi, "/");
+    navigate(`/player?url=${encodeURIComponent(streamUrl)}&title=${encodeURIComponent(channel.name)}&type=m3u8`);
+  }, [navigate]);
 
   const handleAdContinue = useCallback(() => {
     setShowAdGate(false);
