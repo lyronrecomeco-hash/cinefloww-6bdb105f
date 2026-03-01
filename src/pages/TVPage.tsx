@@ -3,117 +3,206 @@ import { useNavigate, useParams } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
-import { Radio, Search, Tv2, Maximize, Minimize, Loader2, Signal, ChevronRight } from "lucide-react";
+import { Radio, Search, Tv2, Loader2, Signal, ChevronRight, X, Maximize, Minimize } from "lucide-react";
 import AdGateModal from "@/components/AdGateModal";
+import Hls from "hls.js";
 
-interface TVChannel {
-  id: string;
-  name: string;
-  image_url: string | null;
-  stream_url: string;
-  category: string;
-  categories: number[];
-  active: boolean;
-}
-
-interface TVCategory {
+interface ApiChannel {
   id: number;
-  name: string;
-  sort_order: number;
+  title: string;
+  type: string;
+  poster: string;
+  category: string;
+  stream_url: string;
 }
-
-const DEFAULT_CHANNEL_ID = "bbb1";
 
 const TVPage = () => {
   const { channelId } = useParams<{ channelId?: string }>();
-  const [channels, setChannels] = useState<TVChannel[]>([]);
-  const [categories, setCategories] = useState<TVCategory[]>([]);
-  const [activeCategory, setActiveCategory] = useState(0);
-  const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
-  // Player state
-  const [playerChannel, setPlayerChannel] = useState<TVChannel | null>(null);
-  const [iframeHtml, setIframeHtml] = useState<string | null>(null);
+  const [channels, setChannels] = useState<ApiChannel[]>([]);
+  const [categoryList, setCategoryList] = useState<string[]>([]);
+  const [activeCategory, setActiveCategory] = useState("all");
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Player
+  const [playerChannel, setPlayerChannel] = useState<ApiChannel | null>(null);
   const [playerLoading, setPlayerLoading] = useState(false);
+  const [playerError, setPlayerError] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
 
-  // Ad gate state
+  // Ad gate
   const [showAdGate, setShowAdGate] = useState(false);
   const [adGateCompleted, setAdGateCompleted] = useState(false);
-  const [pendingChannel, setPendingChannel] = useState<TVChannel | null>(null);
+  const [pendingChannel, setPendingChannel] = useState<ApiChannel | null>(null);
 
   useEffect(() => {
     const completed = sessionStorage.getItem("ad_completed_lynetv_0");
     if (completed) setAdGateCompleted(true);
   }, []);
 
-  const fetchData = useCallback(async () => {
+  // Fetch channels from API via edge function
+  const fetchChannels = useCallback(async () => {
     setLoading(true);
-    const [chRes, catRes] = await Promise.all([
-      supabase.from("tv_channels").select("*").eq("active", true).order("sort_order"),
-      supabase.from("tv_categories").select("*").order("sort_order"),
-    ]);
-    setChannels((chRes.data as TVChannel[]) || []);
-    setCategories((catRes.data as TVCategory[]) || []);
+    setError(null);
+    try {
+      const { data, error: fnError } = await supabase.functions.invoke("fetch-tv-channels");
+      if (fnError) throw fnError;
+      if (data?.channels) {
+        setChannels(data.channels);
+        setCategoryList(data.categories || []);
+      }
+    } catch (err: any) {
+      console.error("[TVPage] Fetch error:", err);
+      setError("Erro ao carregar canais. Tente novamente.");
+    }
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => { fetchChannels(); }, [fetchChannels]);
 
+  // Auto-refresh every 5 min
   useEffect(() => {
-    if (channels.length === 0) return;
-    const targetId = channelId || DEFAULT_CHANNEL_ID;
-    const ch = channels.find(c => c.id === targetId);
-    if (ch && !playerChannel) {
-      if (adGateCompleted) {
-        openPlayer(ch);
-      } else {
-        setPendingChannel(ch);
-        setShowAdGate(true);
-      }
-    }
-  }, [channelId, channels, adGateCompleted]);
+    const interval = setInterval(fetchChannels, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchChannels]);
 
+  // Fullscreen listener
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", handler);
     return () => document.removeEventListener("fullscreenchange", handler);
   }, []);
 
-  const openPlayer = useCallback(async (channel: TVChannel) => {
+  // Start HLS playback
+  const startPlayback = useCallback((channel: ApiChannel) => {
     setPlayerChannel(channel);
     setPlayerLoading(true);
-    setIframeHtml(null);
-    try {
-      const { data } = await supabase.functions.invoke("proxy-tv", {
-        body: { url: channel.stream_url },
-      });
-      if (data?.html) setIframeHtml(data.html);
-    } catch { /* silent */ }
-    setPlayerLoading(false);
+    setPlayerError(false);
+
+    // Clean up previous HLS instance
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    // Wait for next render to have videoRef ready
+    setTimeout(() => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      const url = channel.stream_url;
+      video.removeAttribute("crossorigin");
+
+      if (Hls.isSupported()) {
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: true,
+          startLevel: -1,
+          abrEwmaDefaultEstimate: 5000000,
+          maxBufferLength: 10,
+          maxMaxBufferLength: 60,
+          maxBufferSize: 30 * 1000 * 1000,
+          startFragPrefetch: true,
+          testBandwidth: false,
+          progressive: true,
+          backBufferLength: 20,
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 6,
+          liveDurationInfinity: true,
+          fragLoadingTimeOut: 10000,
+          fragLoadingMaxRetry: 5,
+          manifestLoadingTimeOut: 8000,
+          manifestLoadingMaxRetry: 3,
+          xhrSetup: (xhr) => { xhr.withCredentials = false; },
+        });
+
+        hlsRef.current = hls;
+        hls.loadSource(url);
+        hls.attachMedia(video);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          setPlayerLoading(false);
+          video.play().catch(() => {});
+        });
+
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal) {
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              hls.startLoad();
+            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              hls.recoverMediaError();
+            } else {
+              setPlayerError(true);
+              setPlayerLoading(false);
+            }
+          }
+        });
+
+        hls.on(Hls.Events.FRAG_LOADED, () => {
+          setPlayerLoading(false);
+        });
+      } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+        // Safari native HLS
+        video.src = url;
+        video.addEventListener("loadedmetadata", () => {
+          setPlayerLoading(false);
+          video.play().catch(() => {});
+        }, { once: true });
+      }
+
+      video.addEventListener("error", () => {
+        setPlayerError(true);
+        setPlayerLoading(false);
+      }, { once: true });
+    }, 50);
   }, []);
 
-  const handleAdContinue = useCallback(() => {
-    setShowAdGate(false);
-    setAdGateCompleted(true);
-    if (pendingChannel) {
-      openPlayer(pendingChannel);
-      setPendingChannel(null);
-    }
-  }, [pendingChannel, openPlayer]);
-
-  const handleWatch = useCallback((channel: TVChannel) => {
+  const handleWatch = useCallback((channel: ApiChannel) => {
     if (!adGateCompleted) {
       setPendingChannel(channel);
       setShowAdGate(true);
       return;
     }
     navigate(`/tv/${channel.id}`, { replace: true });
-    openPlayer(channel);
-  }, [adGateCompleted, navigate, openPlayer]);
+    startPlayback(channel);
+  }, [adGateCompleted, navigate, startPlayback]);
+
+  const handleAdContinue = useCallback(() => {
+    setShowAdGate(false);
+    setAdGateCompleted(true);
+    if (pendingChannel) {
+      navigate(`/tv/${pendingChannel.id}`, { replace: true });
+      startPlayback(pendingChannel);
+      setPendingChannel(null);
+    }
+  }, [pendingChannel, navigate, startPlayback]);
+
+  // If route has channelId, find and play it after channels load
+  useEffect(() => {
+    if (!channelId || channels.length === 0 || playerChannel) return;
+    const ch = channels.find(c => String(c.id) === channelId);
+    if (ch) {
+      if (adGateCompleted) {
+        startPlayback(ch);
+      } else {
+        setPendingChannel(ch);
+        setShowAdGate(true);
+      }
+    }
+  }, [channelId, channels, adGateCompleted, playerChannel, startPlayback]);
+
+  const closePlayer = useCallback(() => {
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    setPlayerChannel(null);
+    setPlayerError(false);
+    navigate("/lynetv", { replace: true });
+  }, [navigate]);
 
   const toggleFullscreen = useCallback(() => {
     const el = playerContainerRef.current;
@@ -122,25 +211,34 @@ const TVPage = () => {
     else el.requestFullscreen?.();
   }, []);
 
-  // Filter channels
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    };
+  }, []);
+
+  // Filter
   const filtered = channels.filter((ch) => {
-    const matchCat = activeCategory === 0 || ch.categories?.includes(activeCategory);
-    const matchSearch = !search || ch.name.toLowerCase().includes(search.toLowerCase());
+    const matchCat = activeCategory === "all" || ch.category === activeCategory;
+    const matchSearch = !search || ch.title.toLowerCase().includes(search.toLowerCase());
     return matchCat && matchSearch;
   });
 
   // Group by category
-  const grouped = filtered.reduce<Record<string, TVChannel[]>>((acc, ch) => {
+  const grouped = filtered.reduce<Record<string, ApiChannel[]>>((acc, ch) => {
     const cat = ch.category || "Outros";
     if (!acc[cat]) acc[cat] = [];
     acc[cat].push(ch);
     return acc;
   }, {});
 
-  const catOrder = categories.reduce<Record<string, number>>((m, c) => { m[c.name] = c.sort_order; return m; }, {});
-  const sortedGroups = Object.entries(grouped).sort(([a], [b]) => (catOrder[a] ?? 999) - (catOrder[b] ?? 999));
-
-  const bbbChannels = channels.filter(c => c.categories?.includes(8) || c.category === "BBB 2026");
+  const sortedGroups = Object.entries(grouped).sort(([a], [b]) => {
+    // Prioritize "JOGOS DO DIA" at top
+    if (a === "JOGOS DO DIA") return -1;
+    if (b === "JOGOS DO DIA") return 1;
+    return a.localeCompare(b, "pt-BR");
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -157,38 +255,48 @@ const TVPage = () => {
       )}
 
       <div className="pt-20 sm:pt-24 lg:pt-28 px-0 sm:px-6 lg:px-12 pb-20">
-        {/* ===== FEATURED PLAYER ===== */}
+
+        {/* ===== PLAYER ===== */}
         {playerChannel && (
-          <div className="mb-6 sm:mb-8">
+          <div className="mb-6 sm:mb-8 px-0 sm:px-0">
             <div
               ref={playerContainerRef}
-              className="relative w-full aspect-video bg-black rounded-none sm:rounded-2xl overflow-hidden shadow-2xl shadow-black/50"
+              className="relative w-full aspect-video bg-black rounded-none sm:rounded-2xl overflow-hidden shadow-2xl shadow-black/60"
             >
-              {playerLoading ? (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-                  <Loader2 className="w-10 h-10 text-primary animate-spin" />
-                  <p className="text-xs text-muted-foreground animate-pulse">Carregando stream...</p>
+              <video
+                ref={videoRef}
+                className="w-full h-full object-contain bg-black"
+                playsInline
+                autoPlay
+              />
+
+              {/* Loading */}
+              {playerLoading && !playerError && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-20">
+                  <div className="lyneflix-spinner mb-4" />
+                  <p className="text-xs text-muted-foreground animate-pulse">Conectando ao vivo...</p>
                 </div>
-              ) : iframeHtml ? (
-                <iframe
-                  srcDoc={iframeHtml}
-                  className="w-full h-full border-0"
-                  allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-                  allowFullScreen
-                  title={playerChannel.name}
-                />
-              ) : (
-                <iframe
-                  src={playerChannel.stream_url}
-                  className="w-full h-full border-0"
-                  allow="autoplay; encrypted-media; fullscreen"
-                  title={playerChannel.name}
-                />
               )}
 
-              {/* Overlay */}
-              <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 sm:px-6 py-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none z-10">
-                <div className="flex items-center gap-3 pointer-events-auto">
+              {/* Error */}
+              {playerError && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black z-20">
+                  <div className="text-center p-6">
+                    <Radio className="w-10 h-10 text-muted-foreground/30 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground mb-3">Canal indisponível no momento</p>
+                    <button
+                      onClick={() => startPlayback(playerChannel)}
+                      className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold"
+                    >
+                      Tentar novamente
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Overlay controls */}
+              <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 sm:px-6 py-3 bg-gradient-to-b from-black/80 via-black/30 to-transparent z-10">
+                <div className="flex items-center gap-3">
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/90 backdrop-blur-sm">
                     <span className="relative flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
@@ -196,50 +304,33 @@ const TVPage = () => {
                     </span>
                     <span className="text-[10px] font-bold text-white uppercase tracking-wider">AO VIVO</span>
                   </div>
-                  <span className="text-sm font-semibold text-white drop-shadow-lg">{playerChannel.name}</span>
+                  <span className="text-sm font-semibold text-white drop-shadow-lg">{playerChannel.title}</span>
                 </div>
-                <button
-                  onClick={toggleFullscreen}
-                  className="pointer-events-auto w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all border border-white/10"
-                >
-                  {isFullscreen ? <Minimize className="w-4 h-4 text-white" /> : <Maximize className="w-4 h-4 text-white" />}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleFullscreen}
+                    className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all border border-white/10"
+                  >
+                    {isFullscreen ? <Minimize className="w-4 h-4 text-white" /> : <Maximize className="w-4 h-4 text-white" />}
+                  </button>
+                  <button
+                    onClick={closePlayer}
+                    className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all border border-white/10"
+                  >
+                    <X className="w-4 h-4 text-white" />
+                  </button>
+                </div>
               </div>
-            </div>
-          </div>
-        )}
-
-        {/* ===== BBB CAMERAS ===== */}
-        {bbbChannels.length > 0 && (
-          <div className="px-3 sm:px-0 mb-6 sm:mb-8">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-primary text-sm">📺</span>
-              <h2 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-primary">Câmeras BBB 24H</h2>
-            </div>
-            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
-              {bbbChannels.map((ch) => (
-                <button
-                  key={ch.id}
-                  onClick={() => handleWatch(ch)}
-                  className={`flex-shrink-0 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[11px] sm:text-xs font-medium border transition-all ${
-                    playerChannel?.id === ch.id
-                      ? "bg-primary text-primary-foreground border-primary shadow-lg shadow-primary/25"
-                      : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10 hover:text-foreground"
-                  }`}
-                >
-                  {ch.name.replace(/^BBB\s*-?\s*/i, "").replace(/^bbb\s*/i, "")}
-                </button>
-              ))}
             </div>
           </div>
         )}
 
         {/* ===== HEADER ===== */}
         <div className="px-3 sm:px-0">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
-              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-red-500/20 to-primary/20 flex items-center justify-center border border-white/5">
-                <Tv2 className="w-5 h-5 text-primary" />
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-red-500/20 to-primary/20 flex items-center justify-center border border-white/5">
+                <Tv2 className="w-6 h-6 text-primary" />
               </div>
               <div>
                 <h1 className="font-display text-2xl sm:text-3xl font-bold flex items-center gap-2">
@@ -249,9 +340,9 @@ const TVPage = () => {
                     <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
                   </span>
                 </h1>
-                <p className="text-[10px] sm:text-xs text-muted-foreground flex items-center gap-1.5">
+                <p className="text-[10px] sm:text-xs text-muted-foreground flex items-center gap-1.5 mt-0.5">
                   <Signal className="w-3 h-3" />
-                  {channels.length} canais ao vivo
+                  {channels.length} canais ao vivo • Atualização em tempo real
                 </p>
               </div>
             </div>
@@ -268,118 +359,130 @@ const TVPage = () => {
             </div>
           </div>
 
-          {/* Category filter */}
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide mb-6 sm:mb-8 pb-1">
+          {/* Category pills */}
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide mb-6 pb-1">
             <button
-              onClick={() => setActiveCategory(0)}
+              onClick={() => setActiveCategory("all")}
               className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all ${
-                activeCategory === 0
+                activeCategory === "all"
                   ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
                   : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
               }`}
             >
-              Todos
+              Todos ({channels.length})
             </button>
-            {categories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${
-                  activeCategory === cat.id
-                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
-                    : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
-                }`}
-              >
-                {cat.name}
-              </button>
-            ))}
+            {categoryList.map((cat) => {
+              const count = channels.filter(c => c.category === cat).length;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${
+                    activeCategory === cat
+                      ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
+                      : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
+                  }`}
+                >
+                  {cat} ({count})
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* ===== CHANNELS GRID ===== */}
+        {/* ===== CONTENT ===== */}
         {loading ? (
-          <div className="flex justify-center py-20">
+          <div className="flex flex-col items-center justify-center py-24 gap-4">
             <Loader2 className="w-10 h-10 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground animate-pulse">Carregando canais...</p>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-24 px-3 gap-4">
+            <Radio className="w-12 h-12 text-muted-foreground/20" />
+            <p className="text-sm text-muted-foreground">{error}</p>
+            <button onClick={fetchChannels} className="px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold">
+              Tentar novamente
+            </button>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground px-3">
-            <Tv2 className="w-14 h-14 mb-4 opacity-20" />
-            <p className="text-sm font-medium">Nenhum canal encontrado</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">Tente outro termo de busca</p>
+          <div className="flex flex-col items-center justify-center py-24 px-3">
+            <Tv2 className="w-14 h-14 text-muted-foreground/20 mb-4" />
+            <p className="text-sm text-muted-foreground">Nenhum canal encontrado</p>
           </div>
         ) : (
           <div className="space-y-8 sm:space-y-10 px-3 sm:px-0">
             {sortedGroups.map(([catName, catChannels]) => (
-              <div key={catName}>
+              <section key={catName}>
                 <div className="flex items-center gap-2.5 mb-4">
-                  <div className="w-1 h-6 rounded-full bg-gradient-to-b from-primary to-primary/40" />
+                  <div className="w-1 h-6 rounded-full bg-gradient-to-b from-primary to-primary/30" />
                   <h2 className="text-sm sm:text-base font-bold tracking-tight">{catName}</h2>
-                  <span className="text-[10px] text-muted-foreground/50 ml-1">({catChannels.length})</span>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground/30 ml-auto" />
+                  <span className="text-[10px] text-muted-foreground/40 ml-1">{catChannels.length}</span>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground/20 ml-auto" />
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-                  {catChannels.map((channel) => (
-                    <button
-                      key={channel.id}
-                      onClick={() => handleWatch(channel)}
-                      className={`group relative glass rounded-xl sm:rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:scale-[1.04] hover:shadow-2xl hover:shadow-primary/10 text-left border border-white/5 hover:border-primary/20 ${
-                        playerChannel?.id === channel.id ? "ring-2 ring-primary border-primary/30" : ""
-                      }`}
-                    >
-                      {/* Live badge */}
-                      <div className="absolute top-2 right-2 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/90 backdrop-blur-sm">
-                        <span className="relative flex h-1.5 w-1.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white" />
-                        </span>
-                        <span className="text-[7px] sm:text-[8px] font-bold text-white uppercase tracking-wider">LIVE</span>
-                      </div>
 
-                      {/* Now playing indicator */}
-                      {playerChannel?.id === channel.id && (
-                        <div className="absolute top-2 left-2 z-10 px-1.5 py-0.5 rounded-full bg-primary/90 backdrop-blur-sm">
-                          <span className="text-[7px] font-bold text-primary-foreground uppercase tracking-wider">▶ NOW</span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3">
+                  {catChannels.map((channel) => {
+                    const isPlaying = playerChannel?.id === channel.id;
+                    return (
+                      <button
+                        key={channel.id}
+                        onClick={() => handleWatch(channel)}
+                        className={`group relative rounded-xl sm:rounded-2xl overflow-hidden text-left transition-all duration-300 hover:scale-[1.03] hover:shadow-xl border ${
+                          isPlaying
+                            ? "ring-2 ring-primary border-primary/40 shadow-lg shadow-primary/20"
+                            : "border-white/5 hover:border-primary/20 bg-white/[0.02] hover:bg-white/[0.05]"
+                        }`}
+                      >
+                        {/* Live indicator */}
+                        <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-600/90 backdrop-blur-sm shadow-sm">
+                          <span className="relative flex h-1.5 w-1.5">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                            <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white" />
+                          </span>
+                          <span className="text-[7px] font-bold text-white uppercase tracking-widest">LIVE</span>
                         </div>
-                      )}
 
-                      {/* Channel image */}
-                      <div className="aspect-video flex items-center justify-center p-4 sm:p-5 bg-gradient-to-br from-white/[0.03] to-transparent">
-                        {channel.image_url ? (
-                          <img
-                            src={channel.image_url}
-                            alt={channel.name}
-                            className="w-full h-full object-contain max-h-14 sm:max-h-16 lg:max-h-20 transition-transform duration-300 group-hover:scale-110"
-                            loading="lazy"
-                            onError={(e) => {
-                              (e.target as HTMLImageElement).style.display = "none";
-                              (e.target as HTMLImageElement).nextElementSibling?.classList.remove("hidden");
-                            }}
-                          />
-                        ) : null}
-                        <div className={`${channel.image_url ? "hidden" : ""} flex items-center justify-center`}>
-                          <Radio className="w-7 h-7 sm:w-8 sm:h-8 text-muted-foreground/40" />
+                        {/* Now playing */}
+                        {isPlaying && (
+                          <div className="absolute top-1.5 left-1.5 z-10 px-2 py-0.5 rounded-full bg-primary backdrop-blur-sm shadow-sm">
+                            <span className="text-[7px] font-bold text-primary-foreground uppercase tracking-wider">▶ AO VIVO</span>
+                          </div>
+                        )}
+
+                        {/* Channel poster */}
+                        <div className="aspect-video flex items-center justify-center p-3 sm:p-4 bg-gradient-to-br from-white/[0.04] to-transparent">
+                          {channel.poster ? (
+                            <img
+                              src={channel.poster}
+                              alt={channel.title}
+                              className="w-full h-full object-contain max-h-12 sm:max-h-16 transition-transform duration-300 group-hover:scale-110"
+                              loading="lazy"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).style.display = "none";
+                              }}
+                            />
+                          ) : (
+                            <Radio className="w-7 h-7 text-muted-foreground/30" />
+                          )}
                         </div>
-                      </div>
 
-                      {/* Channel info */}
-                      <div className="px-2.5 sm:px-3 pb-3 pt-1">
-                        <h3 className="text-[11px] sm:text-xs font-semibold line-clamp-1 text-foreground group-hover:text-primary transition-colors">
-                          {channel.name}
-                        </h3>
-                        <p className="text-[9px] sm:text-[10px] text-muted-foreground/60 mt-0.5">{channel.category}</p>
-                      </div>
-
-                      {/* Hover overlay */}
-                      <div className="absolute inset-0 bg-gradient-to-t from-primary/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
-                      <div className="absolute bottom-10 left-0 right-0 flex justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-2 group-hover:translate-y-0">
-                        <div className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-[10px] sm:text-xs font-bold uppercase tracking-wide shadow-lg shadow-primary/30">
-                          Assistir
+                        {/* Info */}
+                        <div className="px-2.5 pb-2.5 pt-1">
+                          <h3 className="text-[10px] sm:text-[11px] font-semibold line-clamp-2 text-foreground group-hover:text-primary transition-colors leading-tight">
+                            {channel.title}
+                          </h3>
+                          <p className="text-[8px] sm:text-[9px] text-muted-foreground/50 mt-0.5 uppercase tracking-wider font-medium">
+                            {channel.category}
+                          </p>
                         </div>
-                      </div>
-                    </button>
-                  ))}
+
+                        {/* Hover play */}
+                        <div className="absolute inset-0 bg-gradient-to-t from-primary/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                      </button>
+                    );
+                  })}
                 </div>
-              </div>
+              </section>
             ))}
           </div>
         )}
