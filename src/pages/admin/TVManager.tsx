@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Tv2, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, Search, ExternalLink } from "lucide-react";
+import { Tv2, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, Search, ExternalLink, Eye } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface TVChannel {
@@ -28,7 +28,33 @@ const TVManager = () => {
   const [editChannel, setEditChannel] = useState<TVChannel | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ id: "", name: "", image_url: "", stream_url: "", category: "Variedades", sort_order: 0 });
+  const [watchingMap, setWatchingMap] = useState<Record<string, number>>({});
+  const [totalWatching, setTotalWatching] = useState(0);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
+
+  const fetchViewers = useCallback(async () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data } = await supabase
+      .from("site_visitors")
+      .select("pathname, visitor_id")
+      .gte("visited_at", fiveMinAgo)
+      .like("pathname", "/tv/%");
+    if (!data) return;
+    const map: Record<string, Set<string>> = {};
+    const allVisitors = new Set<string>();
+    for (const row of data) {
+      const channelId = row.pathname?.replace("/tv/", "").split("?")[0];
+      if (!channelId) continue;
+      if (!map[channelId]) map[channelId] = new Set();
+      map[channelId].add(row.visitor_id);
+      allVisitors.add(row.visitor_id);
+    }
+    const counts: Record<string, number> = {};
+    for (const [k, v] of Object.entries(map)) counts[k] = v.size;
+    setWatchingMap(counts);
+    setTotalWatching(allVisitors.size);
+  }, []);
 
   const fetchData = async () => {
     setLoading(true);
@@ -42,6 +68,22 @@ const TVManager = () => {
   };
 
   useEffect(() => { fetchData(); }, []);
+
+  useEffect(() => {
+    fetchViewers();
+    intervalRef.current = setInterval(fetchViewers, 15000);
+    const channel = supabase
+      .channel("tv-viewers")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "site_visitors" }, (payload: any) => {
+        const p = payload.new?.pathname;
+        if (p?.startsWith("/tv/")) fetchViewers();
+      })
+      .subscribe();
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, [fetchViewers]);
 
   const filtered = channels.filter(ch =>
     !search || ch.name.toLowerCase().includes(search.toLowerCase()) || ch.id.toLowerCase().includes(search.toLowerCase())
@@ -104,7 +146,7 @@ const TVManager = () => {
           </div>
           <div>
             <h1 className="text-xl font-bold font-display">TV Lyne</h1>
-            <p className="text-xs text-muted-foreground">{channels.length} canais • {activeCount} ativos</p>
+            <p className="text-xs text-muted-foreground">{channels.length} canais • {activeCount} ativos • <Eye className="w-3 h-3 inline" /> {totalWatching} assistindo</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -173,10 +215,15 @@ const TVManager = () => {
                         ) : (
                           <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center"><Tv2 className="w-4 h-4 text-muted-foreground" /></div>
                         )}
-                        <div>
+                        <div className="flex-1 min-w-0">
                           <p className="font-medium">{ch.name}</p>
                           <p className="text-[10px] text-muted-foreground">{ch.id}</p>
                         </div>
+                        {(watchingMap[ch.id] || 0) > 0 && (
+                          <span className="flex items-center gap-1 text-[10px] font-medium text-green-500 shrink-0">
+                            <Eye className="w-3 h-3" /> {watchingMap[ch.id]}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground">{ch.category}</td>
