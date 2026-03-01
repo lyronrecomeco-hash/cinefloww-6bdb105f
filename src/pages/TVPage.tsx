@@ -4,7 +4,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import { supabase } from "@/integrations/supabase/client";
-import { Radio, Search, Tv2, Loader2, Signal, ChevronRight, Play, Volume2, VolumeX, Maximize, Minimize, AlertCircle } from "lucide-react";
+import { Radio, Search, Tv2, Loader2, Signal, ChevronRight, Play, Pause, Volume2, VolumeX, Maximize, Minimize, AlertCircle } from "lucide-react";
 import AdGateModal from "@/components/AdGateModal";
 import Hls from "hls.js";
 
@@ -36,20 +36,22 @@ const TVPage = () => {
   // Player state
   const [selectedChannel, setSelectedChannel] = useState<TVChannel | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [playerError, setPlayerError] = useState(false);
   const [playerLoading, setPlayerLoading] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
+  const controlsTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Ad gate
   const [showAdGate, setShowAdGate] = useState(false);
   const [adGateCompleted, setAdGateCompleted] = useState(false);
 
   useEffect(() => {
-    // AdGateModal stores key as ad_completed_tv_0 (contentType=tv, tmdbId=0)
     const completed = sessionStorage.getItem("ad_completed_tv_0");
     if (completed) setAdGateCompleted(true);
   }, []);
@@ -99,28 +101,24 @@ const TVPage = () => {
     setPlayerLoading(true);
     setPlayerError(false);
     setIsPlaying(true);
+    setIsPaused(false);
 
     hlsRef.current?.destroy();
     hlsRef.current = null;
 
     let streamUrl = getCleanStreamUrl(channel.stream_url);
-
-    // If it's a CineVeo embed URL (not a direct stream), extract via edge function
     const isDirectStream = streamUrl.includes(".m3u8") || streamUrl.includes(".mp4") || streamUrl.includes(".ts");
 
     if (!isDirectStream) {
-      // It's an embed URL - use extract-tv to get direct stream
       supabase.functions.invoke("extract-tv", {
         body: { embed_url: streamUrl },
       }).then(({ data, error }) => {
         if (error || !data?.url) {
-          console.warn("[TVPage] extract-tv failed, trying embed as iframe fallback");
           setPlayerError(true);
           setPlayerLoading(false);
           return;
         }
-        const extractedUrl = getCleanStreamUrl(data.url);
-        playStream(video, extractedUrl);
+        playStream(video, getCleanStreamUrl(data.url));
       });
       return;
     }
@@ -151,7 +149,6 @@ const TVPage = () => {
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            // Try to recover
             hls.startLoad();
           } else {
             setPlayerError(true);
@@ -167,7 +164,6 @@ const TVPage = () => {
       video.onloadedmetadata = () => setPlayerLoading(false);
       video.onerror = () => { setPlayerError(true); setPlayerLoading(false); };
     } else {
-      // MP4 or other direct
       video.removeAttribute("crossOrigin");
       video.src = streamUrl;
       video.load();
@@ -176,7 +172,6 @@ const TVPage = () => {
       video.onerror = () => { setPlayerError(true); setPlayerLoading(false); };
     }
 
-    // Safety timeout - if still loading after 15s, show error
     setTimeout(() => {
       if (video.readyState < 2) {
         setPlayerError(true);
@@ -188,21 +183,75 @@ const TVPage = () => {
   const handleSelectChannel = useCallback((channel: TVChannel) => {
     setSelectedChannel(channel);
     setIsPlaying(false);
+    setIsPaused(false);
     setPlayerError(false);
     navigate(`/lynetv/${channel.id}`, { replace: true });
-
-    // Scroll to top smoothly
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [navigate]);
 
-  const handlePlay = useCallback(() => {
+    // If ads already completed, auto-play
+    const completed = sessionStorage.getItem("ad_completed_tv_0");
+    if (completed) {
+      // Small delay to let state settle
+      setTimeout(() => {
+        setAdGateCompleted(true);
+        const video = videoRef.current;
+        if (video) {
+          setPlayerLoading(true);
+          setPlayerError(false);
+          setIsPlaying(true);
+          setIsPaused(false);
+
+          hlsRef.current?.destroy();
+          hlsRef.current = null;
+
+          let streamUrl = getCleanStreamUrl(channel.stream_url);
+          const isDirectStream = streamUrl.includes(".m3u8") || streamUrl.includes(".mp4") || streamUrl.includes(".ts");
+
+          if (!isDirectStream) {
+            supabase.functions.invoke("extract-tv", {
+              body: { embed_url: streamUrl },
+            }).then(({ data, error }) => {
+              if (error || !data?.url) {
+                setPlayerError(true);
+                setPlayerLoading(false);
+                return;
+              }
+              playStream(video, getCleanStreamUrl(data.url));
+            });
+            return;
+          }
+          playStream(video, streamUrl);
+        }
+      }, 100);
+    }
+  }, [navigate, playStream]);
+
+  // Toggle play/pause - this is where ad gate triggers
+  const togglePlayPause = useCallback(() => {
+    const video = videoRef.current;
     if (!selectedChannel) return;
-    if (!adGateCompleted) {
-      setShowAdGate(true);
+
+    if (!isPlaying) {
+      // First play - check ad gate
+      if (!adGateCompleted) {
+        setShowAdGate(true);
+        return;
+      }
+      startPlayback(selectedChannel);
       return;
     }
-    startPlayback(selectedChannel);
-  }, [selectedChannel, adGateCompleted, startPlayback]);
+
+    // Already playing - toggle pause
+    if (video) {
+      if (video.paused) {
+        video.play().catch(() => {});
+        setIsPaused(false);
+      } else {
+        video.pause();
+        setIsPaused(true);
+      }
+    }
+  }, [selectedChannel, isPlaying, adGateCompleted, startPlayback]);
 
   const handleAdContinue = useCallback(() => {
     setShowAdGate(false);
@@ -227,10 +276,15 @@ const TVPage = () => {
   }, []);
 
   const retryPlayback = useCallback(() => {
-    if (selectedChannel) {
-      startPlayback(selectedChannel);
-    }
+    if (selectedChannel) startPlayback(selectedChannel);
   }, [selectedChannel, startPlayback]);
+
+  // Auto-hide controls
+  const resetControlsTimer = useCallback(() => {
+    setShowControls(true);
+    clearTimeout(controlsTimerRef.current);
+    controlsTimerRef.current = setTimeout(() => setShowControls(false), 3000);
+  }, []);
 
   // Filter channels
   const filtered = useMemo(() => channels.filter((ch) => {
@@ -238,6 +292,16 @@ const TVPage = () => {
     const matchSearch = !search || ch.name.toLowerCase().includes(search.toLowerCase());
     return matchCat && matchSearch;
   }), [channels, activeCategory, search]);
+
+  // Deduplicate categories (remove any with same id)
+  const uniqueCategories = useMemo(() => {
+    const seen = new Set<number>();
+    return categories.filter(c => {
+      if (seen.has(c.id)) return false;
+      seen.add(c.id);
+      return true;
+    });
+  }, [categories]);
 
   // Group by category
   const sortedGroups = useMemo(() => {
@@ -250,6 +314,17 @@ const TVPage = () => {
     const catOrder = categories.reduce<Record<string, number>>((m, c) => { m[c.name] = c.sort_order; return m; }, {});
     return Object.entries(grouped).sort(([a], [b]) => (catOrder[a] ?? 999) - (catOrder[b] ?? 999));
   }, [filtered, categories]);
+
+  // Fallback image URL generator
+  const getChannelImage = (channel: TVChannel) => {
+    if (channel.image_url && channel.image_url.trim() !== "") return channel.image_url;
+    // Generate a placeholder with channel initials
+    return null;
+  };
+
+  const channelInitials = (name: string) => {
+    return name.split(" ").slice(0, 2).map(w => w[0]).join("").toUpperCase();
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -266,142 +341,147 @@ const TVPage = () => {
       )}
 
       <div className="pt-16 sm:pt-20 lg:pt-24 pb-24 sm:pb-12">
-        {/* ===== PLAYER AREA ===== */}
-        <div className="w-full bg-black">
-          <div
-            ref={playerContainerRef}
-            className="relative w-full max-w-[1400px] mx-auto aspect-video"
-          >
-            {/* Video element - always mounted */}
-            <video
-              ref={videoRef}
-              className={`w-full h-full object-contain bg-black ${isPlaying ? "block" : "hidden"}`}
-              playsInline
-              autoPlay
-              muted={isMuted}
-            />
-
-            {/* Idle state - no channel selected or not playing */}
-            {(!selectedChannel || !isPlaying) && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-black via-[hsl(220,25%,8%)] to-black">
-                {selectedChannel ? (
-                  <>
-                    {/* Channel preview */}
-                    <div className="flex flex-col items-center gap-4">
-                      {selectedChannel.image_url ? (
-                        <img
-                          src={selectedChannel.image_url}
-                          alt={selectedChannel.name}
-                          className="w-20 h-20 sm:w-28 sm:h-28 object-contain"
-                        />
-                      ) : (
-                        <Radio className="w-16 h-16 text-muted-foreground/30" />
-                      )}
-                      <h2 className="text-white font-bold text-lg sm:text-2xl text-center px-4">{selectedChannel.name}</h2>
-                      <p className="text-muted-foreground text-xs sm:text-sm">{selectedChannel.category}</p>
-                      <button
-                        onClick={handlePlay}
-                        className="mt-2 flex items-center gap-2.5 px-8 py-3.5 rounded-2xl bg-primary text-primary-foreground font-bold text-sm sm:text-base hover:bg-primary/90 transition-all hover:scale-105 active:scale-95 shadow-lg shadow-primary/30"
-                      >
-                        <Play className="w-5 h-5 fill-current" />
-                        ASSISTIR AO VIVO
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center gap-3 text-center px-6">
-                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center">
-                      <Tv2 className="w-8 h-8 sm:w-10 sm:h-10 text-primary/60" />
-                    </div>
-                    <h2 className="text-white font-bold text-lg sm:text-xl">Selecione um canal</h2>
-                    <p className="text-muted-foreground text-xs sm:text-sm max-w-xs">Escolha um canal abaixo para começar a assistir ao vivo</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Loading overlay */}
-            {playerLoading && isPlaying && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10">
-                <Loader2 className="w-10 h-10 text-primary animate-spin" />
-                <p className="text-xs text-muted-foreground mt-3 animate-pulse">Conectando ao stream...</p>
-              </div>
-            )}
-
-            {/* Error overlay */}
-            {playerError && isPlaying && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-10">
-                <AlertCircle className="w-10 h-10 text-destructive mb-3" />
-                <p className="text-sm text-white font-medium mb-1">Falha ao carregar stream</p>
-                <p className="text-xs text-muted-foreground mb-4">O canal pode estar temporariamente fora do ar</p>
-                <button onClick={retryPlayback} className="px-6 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-all">
-                  Tentar novamente
-                </button>
-              </div>
-            )}
-
-            {/* Player controls overlay */}
-            {isPlaying && !playerLoading && !playerError && (
-              <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between px-3 sm:px-5 py-2.5 bg-gradient-to-t from-black/80 to-transparent z-10 opacity-0 hover:opacity-100 transition-opacity duration-300">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/90 backdrop-blur-sm">
-                    <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
-                    </span>
-                    <span className="text-[10px] font-bold text-white uppercase tracking-wider">AO VIVO</span>
-                  </div>
-                  <span className="text-sm font-medium text-white">{selectedChannel?.name}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={toggleMute} className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all">
-                    {isMuted ? <VolumeX className="w-4 h-4 text-white" /> : <Volume2 className="w-4 h-4 text-white" />}
-                  </button>
-                  <button onClick={toggleFullscreen} className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all">
-                    {isFullscreen ? <Minimize className="w-4 h-4 text-white" /> : <Maximize className="w-4 h-4 text-white" />}
-                  </button>
-                </div>
-              </div>
-            )}
+        {/* ===== HEADER ===== */}
+        <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 mb-5">
+          <div className="flex items-center gap-3 mb-1">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-500/20 to-primary/20 flex items-center justify-center border border-white/5">
+              <Tv2 className="w-5 h-5 text-primary" />
+            </div>
+            <div>
+              <h1 className="font-display text-xl sm:text-2xl font-bold flex items-center gap-2">
+                TV <span className="text-gradient">LYNE</span>
+                <span className="relative flex h-2.5 w-2.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+                </span>
+              </h1>
+              <p className="text-[10px] sm:text-xs text-muted-foreground flex items-center gap-1.5">
+                <Signal className="w-3 h-3" />
+                {channels.length} canais ao vivo • Transmissão em tempo real
+              </p>
+            </div>
           </div>
         </div>
 
-        {/* ===== CHANNEL LIST BELOW PLAYER ===== */}
-        <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 mt-6 sm:mt-8">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-5">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-500/20 to-primary/20 flex items-center justify-center border border-white/5">
-                <Tv2 className="w-5 h-5 text-primary" />
-              </div>
-              <div>
-                <h1 className="font-display text-xl sm:text-2xl font-bold flex items-center gap-2">
-                  TV <span className="text-gradient">LYNE</span>
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
-                  </span>
-                </h1>
-                <p className="text-[10px] sm:text-xs text-muted-foreground flex items-center gap-1.5">
-                  <Signal className="w-3 h-3" />
-                  {channels.length} canais ao vivo
-                </p>
-              </div>
-            </div>
+        {/* ===== PLAYER AREA - Only show when channel selected ===== */}
+        {selectedChannel && (
+          <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 mb-6">
+            <div
+              ref={playerContainerRef}
+              className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black border border-white/5"
+              onMouseMove={resetControlsTimer}
+              onTouchStart={resetControlsTimer}
+            >
+              {/* Video element */}
+              <video
+                ref={videoRef}
+                className="w-full h-full object-contain bg-black"
+                playsInline
+                autoPlay
+                muted={isMuted}
+                onClick={togglePlayPause}
+              />
 
-            <div className="relative w-full sm:w-64">
+              {/* Not started overlay - click to play */}
+              {!isPlaying && (
+                <div
+                  className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-black/60 via-black/80 to-black/60 cursor-pointer"
+                  onClick={togglePlayPause}
+                >
+                  {selectedChannel.image_url ? (
+                    <img src={selectedChannel.image_url} alt="" className="w-16 h-16 sm:w-20 sm:h-20 object-contain mb-3 opacity-60" />
+                  ) : (
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-white/10 flex items-center justify-center mb-3">
+                      <span className="text-xl font-bold text-white/60">{channelInitials(selectedChannel.name)}</span>
+                    </div>
+                  )}
+                  <h3 className="text-white font-bold text-sm sm:text-lg mb-1">{selectedChannel.name}</h3>
+                  <p className="text-muted-foreground text-[10px] sm:text-xs mb-4">{selectedChannel.category}</p>
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-primary/90 flex items-center justify-center shadow-xl shadow-primary/30 hover:scale-110 transition-transform">
+                    <Play className="w-7 h-7 sm:w-9 sm:h-9 text-primary-foreground fill-current ml-1" />
+                  </div>
+                </div>
+              )}
+
+              {/* Paused overlay */}
+              {isPlaying && isPaused && !playerLoading && !playerError && (
+                <div
+                  className="absolute inset-0 flex items-center justify-center bg-black/40 cursor-pointer"
+                  onClick={togglePlayPause}
+                >
+                  <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center hover:scale-110 transition-transform">
+                    <Play className="w-8 h-8 text-white fill-current ml-1" />
+                  </div>
+                </div>
+              )}
+
+              {/* Loading overlay */}
+              {playerLoading && isPlaying && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10">
+                  <Loader2 className="w-10 h-10 text-primary animate-spin" />
+                  <p className="text-xs text-muted-foreground mt-3 animate-pulse">Conectando ao stream...</p>
+                </div>
+              )}
+
+              {/* Error overlay */}
+              {playerError && isPlaying && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 z-10">
+                  <AlertCircle className="w-10 h-10 text-destructive mb-3" />
+                  <p className="text-sm text-white font-medium mb-1">Falha ao carregar stream</p>
+                  <p className="text-xs text-muted-foreground mb-4">O canal pode estar temporariamente fora do ar</p>
+                  <button onClick={retryPlayback} className="px-6 py-2 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-all">
+                    Tentar novamente
+                  </button>
+                </div>
+              )}
+
+              {/* Player controls */}
+              {isPlaying && !playerLoading && !playerError && (
+                <div className={`absolute bottom-0 left-0 right-0 flex items-center justify-between px-3 sm:px-5 py-2.5 bg-gradient-to-t from-black/80 to-transparent z-10 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0"}`}>
+                  <div className="flex items-center gap-3">
+                    <button onClick={(e) => { e.stopPropagation(); togglePlayPause(); }} className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all">
+                      {isPaused ? <Play className="w-4 h-4 text-white fill-current ml-0.5" /> : <Pause className="w-4 h-4 text-white" />}
+                    </button>
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/90 backdrop-blur-sm">
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+                      </span>
+                      <span className="text-[10px] font-bold text-white uppercase tracking-wider">AO VIVO</span>
+                    </div>
+                    <span className="text-sm font-medium text-white hidden sm:block">{selectedChannel?.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={(e) => { e.stopPropagation(); toggleMute(); }} className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all">
+                      {isMuted ? <VolumeX className="w-4 h-4 text-white" /> : <Volume2 className="w-4 h-4 text-white" />}
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); toggleFullscreen(); }} className="w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all">
+                      {isFullscreen ? <Minimize className="w-4 h-4 text-white" /> : <Maximize className="w-4 h-4 text-white" />}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ===== CHANNEL LIST ===== */}
+        <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8">
+          {/* Search - centered on PC */}
+          <div className="flex justify-center mb-5">
+            <div className="relative w-full sm:w-96">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
                 placeholder="Buscar canal..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full h-9 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
+                className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
               />
             </div>
           </div>
 
-          {/* Category filter */}
+          {/* Category filter - no duplicate "Todos" */}
           <div className="flex gap-2 overflow-x-auto scrollbar-hide mb-5 pb-1">
             <button
               onClick={() => setActiveCategory(0)}
@@ -413,7 +493,7 @@ const TVPage = () => {
             >
               Todos
             </button>
-            {categories.map((cat) => (
+            {uniqueCategories.map((cat) => (
               <button
                 key={cat.id}
                 onClick={() => setActiveCategory(cat.id)}
@@ -451,6 +531,7 @@ const TVPage = () => {
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3">
                     {catChannels.map((channel) => {
                       const isSelected = selectedChannel?.id === channel.id;
+                      const imgUrl = getChannelImage(channel);
                       return (
                         <button
                           key={channel.id}
@@ -479,21 +560,27 @@ const TVPage = () => {
 
                           {/* Channel image */}
                           <div className="aspect-video flex items-center justify-center p-3 sm:p-4 bg-gradient-to-br from-white/[0.03] to-transparent">
-                            {channel.image_url ? (
+                            {imgUrl ? (
                               <img
-                                src={channel.image_url}
+                                src={imgUrl}
                                 alt={channel.name}
                                 className="w-full h-full object-contain max-h-12 sm:max-h-16 transition-transform duration-300 group-hover:scale-110"
                                 loading="lazy"
                                 onError={(e) => {
+                                  // Hide broken image, show fallback
                                   (e.target as HTMLImageElement).style.display = "none";
-                                  const next = (e.target as HTMLImageElement).nextElementSibling;
-                                  if (next) next.classList.remove("hidden");
+                                  const fallback = (e.target as HTMLImageElement).nextElementSibling;
+                                  if (fallback) (fallback as HTMLElement).style.display = "flex";
                                 }}
                               />
                             ) : null}
-                            <div className={`${channel.image_url ? "hidden" : ""} flex items-center justify-center`}>
-                              <Radio className="w-6 h-6 sm:w-7 sm:h-7 text-muted-foreground/40" />
+                            <div
+                              className="items-center justify-center"
+                              style={{ display: imgUrl ? "none" : "flex" }}
+                            >
+                              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                                <span className="text-xs sm:text-sm font-bold text-primary">{channelInitials(channel.name)}</span>
+                              </div>
                             </div>
                           </div>
 
@@ -502,7 +589,10 @@ const TVPage = () => {
                             <h3 className="text-[10px] sm:text-xs font-semibold line-clamp-1 text-foreground group-hover:text-primary transition-colors">
                               {channel.name}
                             </h3>
-                            <p className="text-[8px] sm:text-[9px] text-muted-foreground/60 mt-0.5">{channel.category}</p>
+                            <div className="flex items-center justify-between mt-1">
+                              <p className="text-[8px] sm:text-[9px] text-muted-foreground/60">{channel.category}</p>
+                              <Play className="w-3 h-3 text-primary/60 group-hover:text-primary transition-colors" />
+                            </div>
                           </div>
 
                           {/* Hover overlay */}
