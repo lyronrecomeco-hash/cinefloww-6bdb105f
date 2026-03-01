@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Tv2, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, Search, ExternalLink, Eye } from "lucide-react";
+import { Tv2, Plus, Pencil, Trash2, ToggleLeft, ToggleRight, Search, ExternalLink, Eye, RefreshCw, Clock, Wifi } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface TVChannel {
@@ -20,6 +20,9 @@ interface TVCategory {
   sort_order: number;
 }
 
+const SYNC_INTERVAL = 2 * 60 * 1000; // 2 minutes
+const VIEWER_INTERVAL = 10000; // 10s
+
 const TVManager = () => {
   const [channels, setChannels] = useState<TVChannel[]>([]);
   const [categories, setCategories] = useState<TVCategory[]>([]);
@@ -30,9 +33,16 @@ const TVManager = () => {
   const [form, setForm] = useState({ id: "", name: "", image_url: "", stream_url: "", category: "Variedades", sort_order: 0 });
   const [watchingMap, setWatchingMap] = useState<Record<string, number>>({});
   const [totalWatching, setTotalWatching] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<string | null>(null);
+  const [lastSyncCount, setLastSyncCount] = useState<number | null>(null);
+  const [syncCountdown, setSyncCountdown] = useState(SYNC_INTERVAL / 1000);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
 
+  // Fetch viewers - precise by visitor_id
   const fetchViewers = useCallback(async () => {
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const { data } = await supabase
@@ -56,6 +66,7 @@ const TVManager = () => {
     setTotalWatching(allVisitors.size);
   }, []);
 
+  // Fetch channels + categories
   const fetchData = async () => {
     setLoading(true);
     const [chRes, catRes] = await Promise.all([
@@ -67,11 +78,51 @@ const TVManager = () => {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  // Fetch last sync info
+  const fetchSyncInfo = useCallback(async () => {
+    const { data } = await supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "tv_last_sync")
+      .maybeSingle();
+    if (data?.value) {
+      const v = data.value as any;
+      if (v.ts) {
+        setLastSync(new Date(v.ts).toLocaleTimeString("pt-BR"));
+        setLastSyncCount(v.channels || v.total_api || null);
+      }
+    }
+  }, []);
 
+  // Run sync via edge function
+  const runSync = useCallback(async (silent = false) => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("sync-tv-api");
+      if (error) throw error;
+      if (!silent) {
+        toast({ title: `Sync concluído: ${data?.channels_upserted || 0} canais` });
+      }
+      await Promise.all([fetchData(), fetchSyncInfo()]);
+      setSyncCountdown(SYNC_INTERVAL / 1000);
+    } catch (err: any) {
+      if (!silent) toast({ title: "Erro no sync", description: err.message, variant: "destructive" });
+    } finally {
+      setSyncing(false);
+    }
+  }, [syncing, toast, fetchSyncInfo]);
+
+  // Initial load
+  useEffect(() => {
+    fetchData();
+    fetchSyncInfo();
+  }, [fetchSyncInfo]);
+
+  // Viewer polling + realtime
   useEffect(() => {
     fetchViewers();
-    intervalRef.current = setInterval(fetchViewers, 15000);
+    intervalRef.current = setInterval(fetchViewers, VIEWER_INTERVAL);
     const channel = supabase
       .channel("tv-viewers")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "site_visitors" }, (payload: any) => {
@@ -85,9 +136,40 @@ const TVManager = () => {
     };
   }, [fetchViewers]);
 
+  // Auto-sync every 2 minutes
+  useEffect(() => {
+    syncIntervalRef.current = setInterval(() => {
+      runSync(true);
+    }, SYNC_INTERVAL);
+
+    // Countdown timer
+    setSyncCountdown(SYNC_INTERVAL / 1000);
+    countdownRef.current = setInterval(() => {
+      setSyncCountdown(prev => (prev <= 1 ? SYNC_INTERVAL / 1000 : prev - 1));
+    }, 1000);
+
+    return () => {
+      if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, [runSync]);
+
+  // Realtime channel updates
+  useEffect(() => {
+    const channel = supabase
+      .channel("tv-channels-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tv_channels" }, () => {
+        fetchData();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
   const filtered = channels.filter(ch =>
     !search || ch.name.toLowerCase().includes(search.toLowerCase()) || ch.id.toLowerCase().includes(search.toLowerCase())
   );
+
+  const activeCount = channels.filter(c => c.active).length;
 
   const toggleActive = async (ch: TVChannel) => {
     await supabase.from("tv_channels").update({ active: !ch.active }).eq("id", ch.id);
@@ -134,7 +216,11 @@ const TVManager = () => {
     fetchData();
   };
 
-  const activeCount = channels.filter(c => c.active).length;
+  const formatCountdown = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
 
   return (
     <div className="space-y-6">
@@ -146,7 +232,7 @@ const TVManager = () => {
           </div>
           <div>
             <h1 className="text-xl font-bold font-display">TV Lyne</h1>
-            <p className="text-xs text-muted-foreground">{channels.length} canais • {activeCount} ativos • <Eye className="w-3 h-3 inline" /> {totalWatching} assistindo</p>
+            <p className="text-xs text-muted-foreground">{channels.length} canais • {activeCount} ativos</p>
           </div>
         </div>
         <div className="flex gap-2">
@@ -155,9 +241,43 @@ const TVManager = () => {
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar canal..."
               className="h-9 pl-9 pr-3 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50 w-48" />
           </div>
-          <button onClick={openNew} className="h-9 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
-            <Plus className="w-4 h-4" /> Novo Canal
+          <button onClick={() => runSync(false)} disabled={syncing}
+            className="h-9 px-3 rounded-xl bg-white/5 border border-white/10 text-sm font-medium flex items-center gap-2 hover:bg-white/10 transition-colors disabled:opacity-50">
+            <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} /> Sync
           </button>
+          <button onClick={openNew} className="h-9 px-4 rounded-xl bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 transition-colors">
+            <Plus className="w-4 h-4" /> Novo
+          </button>
+        </div>
+      </div>
+
+      {/* Stats Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="glass rounded-xl border border-white/10 p-3">
+          <div className="flex items-center gap-2 text-muted-foreground text-[10px] uppercase tracking-wider mb-1">
+            <Tv2 className="w-3 h-3" /> Total Canais
+          </div>
+          <p className="text-2xl font-bold">{channels.length}</p>
+        </div>
+        <div className="glass rounded-xl border border-white/10 p-3">
+          <div className="flex items-center gap-2 text-muted-foreground text-[10px] uppercase tracking-wider mb-1">
+            <Eye className="w-3 h-3" /> Assistindo
+          </div>
+          <p className="text-2xl font-bold text-green-500">{totalWatching}</p>
+        </div>
+        <div className="glass rounded-xl border border-white/10 p-3">
+          <div className="flex items-center gap-2 text-muted-foreground text-[10px] uppercase tracking-wider mb-1">
+            <Clock className="w-3 h-3" /> Último Sync
+          </div>
+          <p className="text-sm font-bold">{lastSync || "—"}</p>
+          {lastSyncCount && <p className="text-[10px] text-muted-foreground">{lastSyncCount} canais</p>}
+        </div>
+        <div className="glass rounded-xl border border-white/10 p-3">
+          <div className="flex items-center gap-2 text-muted-foreground text-[10px] uppercase tracking-wider mb-1">
+            <Wifi className={`w-3 h-3 ${syncing ? "text-yellow-500" : "text-green-500"}`} /> Próximo Sync
+          </div>
+          <p className="text-sm font-bold">{syncing ? "Sincronizando..." : formatCountdown(syncCountdown)}</p>
+          <p className="text-[10px] text-muted-foreground">Auto cada 2 min</p>
         </div>
       </div>
 
