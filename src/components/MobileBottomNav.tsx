@@ -7,7 +7,7 @@ const navItems = [
   { label: "Início", path: "/", icon: Home },
   { label: "Filmes", path: "/filmes", icon: Clapperboard },
   { label: "Séries", path: "/series", icon: MonitorPlay },
-  { label: "Ao Vivo", path: "/tv", icon: Radio, isLive: true },
+  { label: "Ao Vivo", path: "/lynetv", icon: Radio, isLive: true },
   { label: "Support", path: "/suporte", icon: Headphones, supportBadge: true },
 ];
 

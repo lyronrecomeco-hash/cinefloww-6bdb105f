@@ -49,7 +49,8 @@ const TVPage = () => {
   const [adGateCompleted, setAdGateCompleted] = useState(false);
 
   useEffect(() => {
-    const completed = sessionStorage.getItem("ad_completed_lynetv_0");
+    // AdGateModal stores key as ad_completed_tv_0 (contentType=tv, tmdbId=0)
+    const completed = sessionStorage.getItem("ad_completed_tv_0");
     if (completed) setAdGateCompleted(true);
   }, []);
 
@@ -102,8 +103,32 @@ const TVPage = () => {
     hlsRef.current?.destroy();
     hlsRef.current = null;
 
-    const streamUrl = getCleanStreamUrl(channel.stream_url);
+    let streamUrl = getCleanStreamUrl(channel.stream_url);
 
+    // If it's a CineVeo embed URL (not a direct stream), extract via edge function
+    const isDirectStream = streamUrl.includes(".m3u8") || streamUrl.includes(".mp4") || streamUrl.includes(".ts");
+
+    if (!isDirectStream) {
+      // It's an embed URL - use extract-tv to get direct stream
+      supabase.functions.invoke("extract-tv", {
+        body: { embed_url: streamUrl },
+      }).then(({ data, error }) => {
+        if (error || !data?.url) {
+          console.warn("[TVPage] extract-tv failed, trying embed as iframe fallback");
+          setPlayerError(true);
+          setPlayerLoading(false);
+          return;
+        }
+        const extractedUrl = getCleanStreamUrl(data.url);
+        playStream(video, extractedUrl);
+      });
+      return;
+    }
+
+    playStream(video, streamUrl);
+  }, []);
+
+  const playStream = useCallback((video: HTMLVideoElement, streamUrl: string) => {
     if (streamUrl.includes(".m3u8") && Hls.isSupported()) {
       const hls = new Hls({
         lowLatencyMode: true,
@@ -111,6 +136,10 @@ const TVPage = () => {
         maxMaxBufferLength: 30,
         startLevel: -1,
         enableWorker: true,
+        fragLoadingMaxRetry: 3,
+        fragLoadingRetryDelay: 1000,
+        manifestLoadingMaxRetry: 3,
+        levelLoadingMaxRetry: 3,
       });
       hlsRef.current = hls;
       hls.loadSource(streamUrl);
@@ -121,12 +150,16 @@ const TVPage = () => {
       });
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
-          setPlayerError(true);
-          setPlayerLoading(false);
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            // Try to recover
+            hls.startLoad();
+          } else {
+            setPlayerError(true);
+            setPlayerLoading(false);
+          }
         }
       });
     } else if (streamUrl.includes(".m3u8") && video.canPlayType("application/vnd.apple.mpegurl")) {
-      // iOS native HLS
       video.removeAttribute("crossOrigin");
       video.src = streamUrl;
       video.load();
@@ -134,19 +167,29 @@ const TVPage = () => {
       video.onloadedmetadata = () => setPlayerLoading(false);
       video.onerror = () => { setPlayerError(true); setPlayerLoading(false); };
     } else {
+      // MP4 or other direct
+      video.removeAttribute("crossOrigin");
       video.src = streamUrl;
       video.load();
       video.play().catch(() => {});
       video.onloadedmetadata = () => setPlayerLoading(false);
       video.onerror = () => { setPlayerError(true); setPlayerLoading(false); };
     }
+
+    // Safety timeout - if still loading after 15s, show error
+    setTimeout(() => {
+      if (video.readyState < 2) {
+        setPlayerError(true);
+        setPlayerLoading(false);
+      }
+    }, 15000);
   }, []);
 
   const handleSelectChannel = useCallback((channel: TVChannel) => {
     setSelectedChannel(channel);
     setIsPlaying(false);
     setPlayerError(false);
-    navigate(`/tv/${channel.id}`, { replace: true });
+    navigate(`/lynetv/${channel.id}`, { replace: true });
 
     // Scroll to top smoothly
     window.scrollTo({ top: 0, behavior: "smooth" });
