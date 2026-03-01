@@ -173,6 +173,24 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Remove channels NOT from the API (old manual entries)
+    const apiIds = Array.from(seen);
+    const { data: allDbChannels } = await supabase
+      .from("tv_channels")
+      .select("id");
+    if (allDbChannels) {
+      const toDelete = allDbChannels
+        .map(c => c.id)
+        .filter(id => !apiIds.includes(id));
+      if (toDelete.length > 0) {
+        for (let i = 0; i < toDelete.length; i += 50) {
+          const batch = toDelete.slice(i, i + 50);
+          await supabase.from("tv_channels").delete().in("id", batch);
+        }
+        console.log(`[sync-tv-api] Removed ${toDelete.length} old non-API channels`);
+      }
+    }
+
     // Update last sync timestamp
     await supabase.from("site_settings").upsert(
       { key: "tv_last_sync", value: { ts: Date.now(), channels: upserted, total_api: allChannels.length } },
