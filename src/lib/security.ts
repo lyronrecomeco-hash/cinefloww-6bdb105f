@@ -29,7 +29,10 @@ const blockKeys = (e: KeyboardEvent) => {
 
 const blockContextMenu = (e: MouseEvent) => { e.preventDefault(); return false; };
 
+const isMobileDevice = () => /Android|iPhone|iPad|iPod|Mobile|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
 const detectDevTools = () => {
+  if (isMobileDevice()) return; // Never trigger on mobile
   const threshold = 160;
   const w = window.outerWidth - window.innerWidth > threshold;
   const h = window.outerHeight - window.innerHeight > threshold;
