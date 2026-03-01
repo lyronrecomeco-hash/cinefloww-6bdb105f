@@ -162,15 +162,14 @@ Deno.serve(async (req) => {
       seen.add(slug);
 
       const mapped = CATEGORY_MAP[ch.category];
-      // Build embed URL from channel title slug (direct .m3u8 URLs don't work in browser)
-      const titleSlug = slugify(ch.title);
-      const embedUrl = `https://cinetvembed.cineveo.site/embed/${titleSlug}`;
+      // Store the raw API stream_url - the client strips /live/ at runtime
+      // e.g. /live/lyneflix-vods/uVljs2d/1249.m3u8 → /lyneflix-vods/uVljs2d/1249.m3u8
 
       return {
         id: slug,
         name: ch.title,
         image_url: ch.poster && ch.poster !== "" ? ch.poster : null,
-        stream_url: embedUrl,
+        stream_url: ch.stream_url,
         category: mapped?.name || ch.category,
         categories: mapped ? [mapped.id] : [7],
         active: true,

@@ -86,10 +86,13 @@ const Index = () => {
     fetchCatalogRow("dorama", 20).then(items => setDoramas(mapToTMDB(items.filter(i => i.poster_path)))).catch(() => {});
     fetchCatalogRow("anime", 20).then(items => setAnimes(mapToTMDB(items.filter(i => i.poster_path)))).catch(() => {});
 
-    // Animes from TMDB as fallback (always fetch, catalog may be empty)
+    // Animes from TMDB (always fetch as reliable source)
     race(discoverSeries(1, { with_genres: "16", sort_by: "popularity.desc", with_original_language: "ja" }), empty)
       .then(data => {
-        setAnimes(prev => prev.length > 0 ? prev : data.results.filter(m => m.poster_path));
+        const tmdbAnimes = data.results.filter(m => m.poster_path);
+        if (tmdbAnimes.length > 0) {
+          setAnimes(tmdbAnimes);
+        }
       }).catch(() => {});
 
     // Recently added — fetch latest from all catalog types
