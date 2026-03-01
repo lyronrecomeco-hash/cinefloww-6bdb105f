@@ -1,0 +1,1 @@
+UPDATE public.site_settings SET value = jsonb_build_object('version', 519), updated_at = now() WHERE key = 'cache_version';
