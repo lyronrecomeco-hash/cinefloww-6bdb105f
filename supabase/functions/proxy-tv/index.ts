@@ -150,12 +150,16 @@ Deno.serve(async (req) => {
 
   try {
     let channelUrl: string | null = null;
+    let mode: string | null = null;
 
     if (req.method === "POST") {
       const body = await req.json();
       channelUrl = body.url;
+      mode = body.mode || null;
     } else {
-      channelUrl = new URL(req.url).searchParams.get("url");
+      const params = new URL(req.url).searchParams;
+      channelUrl = params.get("url");
+      mode = params.get("mode");
     }
 
     if (!channelUrl) {
@@ -174,7 +178,49 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Fetch as top-level browser navigation
+    // === MODE: stream — proxy m3u8/ts content with CORS headers ===
+    if (mode === "stream" || /\.(m3u8|ts)(\?|$)/i.test(channelUrl)) {
+      console.log(`[proxy-tv] Stream proxy: ${channelUrl.substring(0, 80)}`);
+      const resp = await fetch(channelUrl, {
+        headers: {
+          "User-Agent": UA,
+          "Referer": parsed.origin + "/",
+          "Accept": "*/*",
+        },
+        redirect: "follow",
+      });
+
+      if (!resp.ok) {
+        return new Response(JSON.stringify({ error: "Upstream error", status: resp.status }), {
+          status: 502,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const contentType = resp.headers.get("content-type") || "application/vnd.apple.mpegurl";
+      let body = await resp.arrayBuffer();
+
+      // For m3u8 manifests, rewrite relative URLs to absolute
+      if (channelUrl.includes(".m3u8")) {
+        const text = new TextDecoder().decode(body);
+        const baseUrl = channelUrl.replace(/[^/]*$/, "");
+        const rewritten = text.replace(/^(?!#)((?!https?:\/\/).+\.ts.*)$/gm, (match) => {
+          if (match.startsWith("/")) return parsed.origin + match;
+          return baseUrl + match;
+        });
+        body = new TextEncoder().encode(rewritten).buffer;
+      }
+
+      return new Response(body, {
+        headers: {
+          ...corsHeaders,
+          "Content-Type": contentType,
+          "Cache-Control": "no-cache",
+        },
+      });
+    }
+
+    // === MODE: html — proxy embed page (existing behavior) ===
     const resp = await fetch(channelUrl, {
       headers: {
         "User-Agent": UA,
@@ -198,32 +244,25 @@ Deno.serve(async (req) => {
 
     let html = await resp.text();
 
-    // === SERVER-SIDE CLEANUP ===
-
-    // Strip ALL anti-iframe/sandbox detection scripts
     html = stripAntiIframeScripts(html);
 
-    // Set <base href> for relative resource loading
     const basePath = parsed.pathname.includes("/") 
       ? parsed.pathname.replace(/\/[^/]*$/, "/") 
       : "/";
     const baseTag = `<base href="${parsed.origin + basePath}">`;
 
-    // CSS to hide any remaining sandbox/ad overlays
     const hideCSS = `<style>
 #sandbox_detect,[id*="sandbox"],[class*="sandbox"]{display:none!important;width:0!important;height:0!important}
 div[style*="z-index: 999"],div[style*="z-index:9999"],
 div[style*="z-index: 99999"],div[style*="z-index:99999"]{display:none!important}
 </style>`;
 
-    // Inject override script at VERY START of <head>
     if (html.includes("<head")) {
       html = html.replace(/<head[^>]*>/, "$&" + OVERRIDE_SCRIPT + hideCSS + baseTag);
     } else {
       html = "<!DOCTYPE html><html><head>" + OVERRIDE_SCRIPT + hideCSS + baseTag + "</head>" + html;
     }
 
-    // Remove X-Frame-Options meta tags
     html = html.replace(/<meta[^>]*x-frame-options[^>]*>/gi, "");
 
     return new Response(JSON.stringify({ html }), {
