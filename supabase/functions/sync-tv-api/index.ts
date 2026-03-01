@@ -1,7 +1,7 @@
 /**
  * Sync TV channels from CineVeo API (type=canais).
  * Fetches ALL pages automatically and upserts into tv_channels.
- * Supports auto-rotation with configurable refresh intervals.
+ * Dynamic category creation - no static map needed.
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -16,47 +16,21 @@ const API_BASE = "https://cinetvembed.cineveo.site/api/catalog.php";
 const USERNAME = "lyneflix-vods";
 const PASSWORD = "uVljs2d";
 
-// Category normalization
-const CATEGORY_MAP: Record<string, { id: number; name: string }> = {
-  "JOGOS DO DIA": { id: 15, name: "Jogos do Dia" },
-  "BBB - 2026": { id: 8, name: "BBB 2026" },
-  "BBB 2026": { id: 8, name: "BBB 2026" },
-  "Desenhos": { id: 2, name: "Infantil" },
-  "DESENHOS": { id: 2, name: "Infantil" },
-  "Premiere": { id: 9, name: "Premiere" },
-  "PREMIERE": { id: 9, name: "Premiere" },
-  "DAZN BR": { id: 10, name: "DAZN" },
-  "⚽ DAZN BR": { id: 10, name: "DAZN" },
-  "ESPORTES": { id: 1, name: "Esportes" },
-  "⚽ ESPORTES": { id: 1, name: "Esportes" },
-  "PARAMOUNT": { id: 11, name: "Paramount" },
-  "⚽ PARAMOUNT": { id: 11, name: "Paramount" },
-  "PAY-PER-VIEW": { id: 12, name: "Pay-Per-View" },
-  "⚽ PAY-PER-VIEW": { id: 12, name: "Pay-Per-View" },
-  "Abertos": { id: 3, name: "Abertos" },
-  "ABERTOS": { id: 3, name: "Abertos" },
-  "Filmes e Séries": { id: 4, name: "Filmes e Séries" },
-  "FILMES E SÉRIES": { id: 4, name: "Filmes e Séries" },
-  "Infantil": { id: 2, name: "Infantil" },
-  "INFANTIL": { id: 2, name: "Infantil" },
-  "Notícias": { id: 5, name: "Notícias" },
-  "NOTÍCIAS": { id: 5, name: "Notícias" },
-  "Variedades": { id: 6, name: "Variedades" },
-  "VARIEDADES": { id: 6, name: "Variedades" },
-  "Documentários": { id: 13, name: "Documentários" },
-  "DOCUMENTÁRIOS": { id: 13, name: "Documentários" },
-  "Música": { id: 14, name: "Música" },
-  "MÚSICA": { id: 14, name: "Música" },
-};
+/** Normalize category name: strip emojis/symbols, trim, title-case */
+function normalizeCategory(raw: string): string {
+  return raw
+    .replace(/[✨⚽🎬🏆]/g, "")
+    .replace(/^\s+|\s+$/g, "")
+    .trim();
+}
 
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[•\s]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+/** Generate a stable numeric ID from category name */
+function categoryHash(name: string): number {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash % 90000) + 100; // 100-90099 range
 }
 
 interface ApiChannel {
@@ -84,6 +58,7 @@ async function fetchPage(page: number): Promise<ApiResponse | null> {
   try {
     const resp = await fetch(url, {
       headers: { "Accept": "application/json" },
+      signal: AbortSignal.timeout(15000),
     });
     if (!resp.ok) return null;
     return await resp.json();
@@ -135,43 +110,48 @@ Deno.serve(async (req) => {
 
     console.log(`[sync-tv-api] Fetched ${allChannels.length} channels total`);
 
-    // Ensure categories exist
-    const seenCats = new Set<number>();
+    // Build dynamic categories from API data
+    const categoryMap = new Map<string, number>(); // normalized name → id
     for (const ch of allChannels) {
-      const mapped = CATEGORY_MAP[ch.category];
-      if (mapped && !seenCats.has(mapped.id)) {
-        seenCats.add(mapped.id);
-        await supabase.from("tv_categories").upsert(
-          { id: mapped.id, name: mapped.name, sort_order: mapped.id },
-          { onConflict: "id" }
-        );
+      const name = normalizeCategory(ch.category);
+      if (!name) continue;
+      if (!categoryMap.has(name)) {
+        categoryMap.set(name, categoryHash(name));
       }
     }
 
-    // Also ensure "Jogos do Dia" category exists
-    await supabase.from("tv_categories").upsert(
-      { id: 15, name: "Jogos do Dia", sort_order: 0 },
-      { onConflict: "id" }
-    );
+    // Upsert all categories
+    const catRows = Array.from(categoryMap.entries()).map(([name, id], idx) => ({
+      id,
+      name,
+      sort_order: idx,
+    }));
+    if (catRows.length > 0) {
+      const { error: catErr } = await supabase
+        .from("tv_categories")
+        .upsert(catRows, { onConflict: "id" });
+      if (catErr) console.error("[sync-tv-api] Category upsert error:", catErr.message);
+    }
 
-    // Transform and deduplicate
+    console.log(`[sync-tv-api] ${catRows.length} categories synced`);
+
+    // Transform and deduplicate channels
     const seen = new Set<string>();
     const dbChannels = allChannels.map((ch, idx) => {
       const slug = `api-${ch.id}`;
       if (seen.has(slug)) return null;
       seen.add(slug);
 
-      const mapped = CATEGORY_MAP[ch.category];
-      // Store the raw API stream_url - the client strips /live/ at runtime
-      // e.g. /live/lyneflix-vods/uVljs2d/1249.m3u8 → /lyneflix-vods/uVljs2d/1249.m3u8
+      const catName = normalizeCategory(ch.category);
+      const catId = categoryMap.get(catName);
 
       return {
         id: slug,
         name: ch.title,
         image_url: ch.poster && ch.poster !== "" ? ch.poster : null,
         stream_url: ch.stream_url,
-        category: mapped?.name || ch.category,
-        categories: mapped ? [mapped.id] : [7],
+        category: catName || ch.category,
+        categories: catId ? [catId] : [],
         active: true,
         sort_order: idx,
       };
@@ -193,20 +173,20 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Update last sync timestamp in site_settings
+    // Update last sync timestamp
     await supabase.from("site_settings").upsert(
-      { key: "tv_last_sync", value: { ts: Date.now(), channels: upserted } },
+      { key: "tv_last_sync", value: { ts: Date.now(), channels: upserted, total_api: allChannels.length } },
       { onConflict: "key" }
     );
 
-    console.log(`[sync-tv-api] Done: ${upserted} channels synced`);
+    console.log(`[sync-tv-api] Done: ${upserted}/${allChannels.length} channels synced`);
 
     return new Response(JSON.stringify({
       success: true,
       total_api: allChannels.length,
       channels_upserted: upserted,
       total_pages: totalPages,
-      categories_synced: seenCats.size,
+      categories_synced: catRows.length,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
