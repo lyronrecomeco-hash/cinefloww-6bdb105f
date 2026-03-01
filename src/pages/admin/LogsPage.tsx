@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Radio, Search, Loader2, RefreshCw, ChevronLeft, ChevronRight,
-  Tv2, Signal, Eye, Filter, Zap
+  Tv2, Signal, Eye, Filter, Zap, Clock, Wifi
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -25,6 +25,8 @@ interface TVCategory {
 }
 
 const PER_PAGE = 30;
+const SYNC_INTERVAL = 2 * 60 * 1000; // 2 minutes
+const VIEWER_INTERVAL = 10000; // 10s
 
 const LogsPage = () => {
   const [channels, setChannels] = useState<TVChannel[]>([]);
@@ -36,6 +38,39 @@ const LogsPage = () => {
   const [page, setPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const [lastSync, setLastSync] = useState<string | null>(null);
+  const [lastSyncChannels, setLastSyncChannels] = useState<number | null>(null);
+  const [apiTotal, setApiTotal] = useState<number | null>(null);
+  const [syncCountdown, setSyncCountdown] = useState(SYNC_INTERVAL / 1000);
+  const [watchingMap, setWatchingMap] = useState<Record<string, number>>({});
+  const [totalWatching, setTotalWatching] = useState(0);
+
+  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const countdownRef = useRef<NodeJS.Timeout | null>(null);
+  const viewerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Fetch viewers
+  const fetchViewers = useCallback(async () => {
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { data } = await supabase
+      .from("site_visitors")
+      .select("pathname, visitor_id")
+      .gte("visited_at", fiveMinAgo)
+      .like("pathname", "/tv/%");
+    if (!data) return;
+    const map: Record<string, Set<string>> = {};
+    const allVisitors = new Set<string>();
+    for (const row of data) {
+      const channelId = row.pathname?.replace("/tv/", "").split("?")[0];
+      if (!channelId) continue;
+      if (!map[channelId]) map[channelId] = new Set();
+      map[channelId].add(row.visitor_id);
+      allVisitors.add(row.visitor_id);
+    }
+    const counts: Record<string, number> = {};
+    for (const [k, v] of Object.entries(map)) counts[k] = v.size;
+    setWatchingMap(counts);
+    setTotalWatching(allVisitors.size);
+  }, []);
 
   const fetchChannels = useCallback(async () => {
     setLoading(true);
@@ -79,6 +114,8 @@ const LogsPage = () => {
       const val = syncData.value as any;
       if (val.ts) {
         setLastSync(new Date(val.ts).toLocaleString("pt-BR"));
+        setLastSyncChannels(val.channels || null);
+        setApiTotal(val.total_api || null);
       }
     }
 
@@ -87,32 +124,85 @@ const LogsPage = () => {
 
   useEffect(() => {
     fetchChannels();
-  }, [fetchChannels]);
+    fetchViewers();
+  }, [fetchChannels, fetchViewers]);
 
   // Reset page when filters change
   useEffect(() => {
     setPage(1);
   }, [activeCategory, search]);
 
-  const syncChannels = async () => {
+  // Viewer polling + realtime
+  useEffect(() => {
+    viewerIntervalRef.current = setInterval(fetchViewers, VIEWER_INTERVAL);
+    const channel = supabase
+      .channel("tvlyne-viewers")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "site_visitors" }, (payload: any) => {
+        if (payload.new?.pathname?.startsWith("/tv/")) fetchViewers();
+      })
+      .subscribe();
+    return () => {
+      if (viewerIntervalRef.current) clearInterval(viewerIntervalRef.current);
+      supabase.removeChannel(channel);
+    };
+  }, [fetchViewers]);
+
+  // Run sync
+  const runSync = useCallback(async (silent = false) => {
+    if (syncing) return;
     setSyncing(true);
     try {
-      toast.info("📡 Sincronizando canais da API CineVeo...");
+      if (!silent) toast.info("📡 Sincronizando canais da API CineVeo...");
       const { data, error } = await supabase.functions.invoke("sync-tv-api");
       if (error) throw error;
-      toast.success(`✅ ${data?.channels_upserted || 0} canais sincronizados de ${data?.total_pages || 0} páginas!`);
-      fetchChannels();
+      if (!silent) {
+        toast.success(`✅ ${data?.channels_upserted || 0} canais sincronizados (${data?.categories_synced || 0} categorias)`);
+      }
+      await fetchChannels();
+      setSyncCountdown(SYNC_INTERVAL / 1000);
     } catch (err: any) {
-      toast.error(`Erro: ${err.message}`);
+      if (!silent) toast.error(`Erro: ${err.message}`);
     } finally {
       setSyncing(false);
     }
-  };
+  }, [syncing, fetchChannels]);
+
+  // Auto-sync every 2 minutes
+  useEffect(() => {
+    syncIntervalRef.current = setInterval(() => {
+      runSync(true);
+    }, SYNC_INTERVAL);
+
+    setSyncCountdown(SYNC_INTERVAL / 1000);
+    countdownRef.current = setInterval(() => {
+      setSyncCountdown(prev => (prev <= 1 ? SYNC_INTERVAL / 1000 : prev - 1));
+    }, 1000);
+
+    return () => {
+      if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, [runSync]);
+
+  // Realtime channel changes
+  useEffect(() => {
+    const channel = supabase
+      .channel("tvlyne-channels")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tv_channels" }, () => {
+        fetchChannels();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchChannels]);
 
   const totalPages = Math.ceil(totalCount / PER_PAGE);
-
-  // Unique category names from categories table
   const catNames = categories.map(c => c.name);
+
+  const formatCountdown = (s: number) => {
+    const m = Math.floor(s / 60);
+    const sec = s % 60;
+    return `${m}:${sec.toString().padStart(2, "0")}`;
+  };
 
   return (
     <div className="space-y-5">
@@ -130,11 +220,11 @@ const LogsPage = () => {
             </span>
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            {totalCount} canais ao vivo • {lastSync ? `Última sync: ${lastSync}` : "Nunca sincronizado"}
+            {apiTotal || totalCount} canais da API • {lastSync ? `Última sync: ${lastSync}` : "Nunca sincronizado"}
           </p>
         </div>
         <button
-          onClick={syncChannels}
+          onClick={() => runSync(false)}
           disabled={syncing}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-gradient-to-r from-primary to-primary/80 text-primary-foreground hover:opacity-90 transition-all disabled:opacity-50 shadow-lg shadow-primary/20"
         >
@@ -144,18 +234,21 @@ const LogsPage = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <div className="glass rounded-xl p-4 text-center border border-white/5">
-          <p className="text-2xl font-bold text-primary tabular-nums">{totalCount}</p>
-          <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">Total Canais</p>
+          <p className="text-2xl font-bold text-primary tabular-nums">{apiTotal || totalCount}</p>
+          <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">Total API</p>
         </div>
         <div className="glass rounded-xl p-4 text-center border border-white/5">
           <p className="text-2xl font-bold text-emerald-400 tabular-nums">{categories.length}</p>
           <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">Categorias</p>
         </div>
         <div className="glass rounded-xl p-4 text-center border border-white/5">
-          <p className="text-2xl font-bold text-amber-400 tabular-nums">{totalPages}</p>
-          <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">Páginas</p>
+          <div className="flex items-center justify-center gap-1.5">
+            <Eye className="w-4 h-4 text-green-400" />
+            <p className="text-2xl font-bold text-green-400 tabular-nums">{totalWatching}</p>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">Assistindo</p>
         </div>
         <div className="glass rounded-xl p-4 text-center border border-white/5">
           <div className="flex items-center justify-center gap-1.5">
@@ -163,6 +256,13 @@ const LogsPage = () => {
             <p className="text-2xl font-bold text-red-400">AO VIVO</p>
           </div>
           <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">Status</p>
+        </div>
+        <div className="glass rounded-xl p-4 text-center border border-white/5">
+          <div className="flex items-center justify-center gap-1.5">
+            <Wifi className={`w-4 h-4 ${syncing ? "text-yellow-400" : "text-primary"}`} />
+            <p className="text-sm font-bold tabular-nums">{syncing ? "Sync..." : formatCountdown(syncCountdown)}</p>
+          </div>
+          <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">Próx. Sync</p>
         </div>
       </div>
 
@@ -243,6 +343,14 @@ const LogsPage = () => {
                   </span>
                   <span className="text-[7px] font-bold text-white uppercase tracking-wider">LIVE</span>
                 </div>
+
+                {/* Viewer count badge */}
+                {(watchingMap[ch.id] || 0) > 0 && (
+                  <div className="absolute top-2 left-2 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-green-500/90 backdrop-blur-sm">
+                    <Eye className="w-2.5 h-2.5 text-white" />
+                    <span className="text-[7px] font-bold text-white">{watchingMap[ch.id]}</span>
+                  </div>
+                )}
 
                 {ch.image_url ? (
                   <img
