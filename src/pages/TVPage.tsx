@@ -94,15 +94,26 @@ const TVPage = () => {
 
   const getCleanStreamUrl = (url: string) => url.replace(/\/live\//gi, "/");
 
-  /** Resolve the final playable URL - strips /live/ and uses direct m3u8 */
+  /** Build proxy URL for cineveo m3u8 streams (CORS bypass) */
+  const buildProxyUrl = (m3u8Url: string) => {
+    const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || "mfcnkltcdvitxczjwoer";
+    return `https://${projectId}.supabase.co/functions/v1/proxy-tv?mode=stream&url=${encodeURIComponent(m3u8Url)}`;
+  };
+
+  /** Resolve the final playable URL - strips /live/ and proxies cineveo m3u8 */
   const resolveStreamUrl = useCallback(async (channel: TVChannel): Promise<{ url: string; type: "m3u8" | "mp4" | "iframe" } | null> => {
-    // The API returns URLs like: https://cinetvembed.cineveo.site/live/lyneflix-vods/uVljs2d/1249.m3u8
-    // Just remove /live/ to get the working URL: https://cinetvembed.cineveo.site/lyneflix-vods/uVljs2d/1249.m3u8
     let streamUrl = getCleanStreamUrl(channel.stream_url);
     console.log(`[TV] Stream URL after clean: ${streamUrl}`);
 
-    const isDirectStream = /\.(m3u8|mp4|ts)(\?|$)/i.test(streamUrl);
+    // Cineveo m3u8 URLs need CORS proxy
+    if (streamUrl.includes("cineveo.site") && /\.m3u8(\?|$)/i.test(streamUrl)) {
+      const proxyUrl = buildProxyUrl(streamUrl);
+      console.log(`[TV] Using proxy for cineveo m3u8`);
+      return { url: proxyUrl, type: "m3u8" };
+    }
 
+    // Other direct streams (non-cineveo)
+    const isDirectStream = /\.(m3u8|mp4|ts)(\?|$)/i.test(streamUrl);
     if (isDirectStream) {
       const type = streamUrl.includes(".m3u8") ? "m3u8" as const : "mp4" as const;
       return { url: streamUrl, type };
@@ -122,6 +133,10 @@ const TVPage = () => {
           cleanUrl = cleanUrl.startsWith("/") ? embedOrigin + cleanUrl : embedOrigin + "/" + cleanUrl;
         } catch { /* ignore */ }
       }
+      // If extracted URL is also cineveo m3u8, proxy it
+      if (cleanUrl.includes("cineveo.site") && cleanUrl.includes(".m3u8")) {
+        return { url: buildProxyUrl(cleanUrl), type: "m3u8" };
+      }
       return { url: cleanUrl, type: data.type === "mp4" ? "mp4" as const : "m3u8" as const };
     } catch {
       return null;
@@ -136,6 +151,8 @@ const TVPage = () => {
     const isM3u8 = streamUrl.includes(".m3u8");
 
     if (isM3u8 && Hls.isSupported()) {
+      const proxyBase = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID || "mfcnkltcdvitxczjwoer"}.supabase.co/functions/v1/proxy-tv?mode=stream&url=`;
+      const needsProxy = streamUrl.includes("cineveo.site") || streamUrl.includes("proxy-tv");
       const hls = new Hls({
         lowLatencyMode: true,
         maxBufferLength: 15,
@@ -149,6 +166,14 @@ const TVPage = () => {
         fragLoadingMaxRetryTimeout: 8000,
         manifestLoadingMaxRetryTimeout: 8000,
         levelLoadingMaxRetryTimeout: 8000,
+        // Proxy cineveo segment requests through our CORS proxy
+        ...(needsProxy ? {
+          xhrSetup: (xhr: XMLHttpRequest, url: string) => {
+            if (url.includes("cineveo.site") && !url.includes("proxy-tv")) {
+              xhr.open("GET", proxyBase + encodeURIComponent(url), true);
+            }
+          }
+        } : {}),
       });
       hlsRef.current = hls;
       hls.loadSource(streamUrl);
