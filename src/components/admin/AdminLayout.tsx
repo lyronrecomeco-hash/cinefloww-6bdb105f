@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { useNavigate, useLocation, Outlet } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  LayoutDashboard, Film, Tv, Sparkles, Drama, FolderOpen, ScrollText,
+  LayoutDashboard, Film, Tv, Sparkles, Drama, FolderOpen,
   Settings, LogOut, Menu, X, ChevronRight, Database, MessageSquare, Bell, Shield, Bot, Flag, Radio, Users, Wrench, Cloud, Search, Headphones
 } from "lucide-react";
 
@@ -19,7 +19,7 @@ const menuItems = [
   { label: "Banco", path: "/admin/banco", icon: Database },
   { label: "Fontes & Vídeos", path: "/admin/fontes", icon: Wrench },
   { label: "Integrações", path: "/admin/integracoes", icon: Bot },
-  { label: "Logs", path: "/admin/logs", icon: ScrollText },
+  { label: "TVLYNE", path: "/admin/logs", icon: Radio },
   { label: "R2 CDN", path: "/admin/r2", icon: Cloud },
   { label: "Segurança", path: "/admin/seguranca", icon: Shield },
   { label: "Usuários", path: "/admin/usuarios", icon: Users },

@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { supabase } from "@/integrations/supabase/client";
-import { Radio, Search, Tv2, ArrowLeft, Volume2, VolumeX, Maximize, Minimize, Loader2 } from "lucide-react";
+import { Radio, Search, Tv2, Maximize, Minimize, Loader2, Signal, ChevronRight } from "lucide-react";
 import AdGateModal from "@/components/AdGateModal";
 
 interface TVChannel {
@@ -22,7 +22,6 @@ interface TVCategory {
   sort_order: number;
 }
 
-// Default BBB channel to auto-play on entry
 const DEFAULT_CHANNEL_ID = "bbb1";
 
 const TVPage = () => {
@@ -46,7 +45,6 @@ const TVPage = () => {
   const [adGateCompleted, setAdGateCompleted] = useState(false);
   const [pendingChannel, setPendingChannel] = useState<TVChannel | null>(null);
 
-  // Check if ad gate was already completed this session
   useEffect(() => {
     const completed = sessionStorage.getItem("ad_completed_lynetv_0");
     if (completed) setAdGateCompleted(true);
@@ -65,7 +63,6 @@ const TVPage = () => {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Auto-open player when route has channelId or default
   useEffect(() => {
     if (channels.length === 0) return;
     const targetId = channelId || DEFAULT_CHANNEL_ID;
@@ -80,7 +77,6 @@ const TVPage = () => {
     }
   }, [channelId, channels, adGateCompleted]);
 
-  // Fullscreen change listener
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
     document.addEventListener("fullscreenchange", handler);
@@ -91,16 +87,12 @@ const TVPage = () => {
     setPlayerChannel(channel);
     setPlayerLoading(true);
     setIframeHtml(null);
-
     try {
       const { data } = await supabase.functions.invoke("proxy-tv", {
         body: { url: channel.stream_url },
       });
-      if (data?.html) {
-        setIframeHtml(data.html);
-      }
-    } catch {}
-
+      if (data?.html) setIframeHtml(data.html);
+    } catch { /* silent */ }
     setPlayerLoading(false);
   }, []);
 
@@ -126,11 +118,8 @@ const TVPage = () => {
   const toggleFullscreen = useCallback(() => {
     const el = playerContainerRef.current;
     if (!el) return;
-    if (document.fullscreenElement) {
-      document.exitFullscreen();
-    } else {
-      el.requestFullscreen?.();
-    }
+    if (document.fullscreenElement) document.exitFullscreen();
+    else el.requestFullscreen?.();
   }, []);
 
   // Filter channels
@@ -140,7 +129,7 @@ const TVPage = () => {
     return matchCat && matchSearch;
   });
 
-  // Group filtered channels by category name
+  // Group by category
   const grouped = filtered.reduce<Record<string, TVChannel[]>>((acc, ch) => {
     const cat = ch.category || "Outros";
     if (!acc[cat]) acc[cat] = [];
@@ -148,18 +137,15 @@ const TVPage = () => {
     return acc;
   }, {});
 
-  // Sort category groups by the category order from DB
   const catOrder = categories.reduce<Record<string, number>>((m, c) => { m[c.name] = c.sort_order; return m; }, {});
   const sortedGroups = Object.entries(grouped).sort(([a], [b]) => (catOrder[a] ?? 999) - (catOrder[b] ?? 999));
 
-  // Get BBB cameras for the quick-switch bar
   const bbbChannels = channels.filter(c => c.categories?.includes(8) || c.category === "BBB 2026");
 
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      {/* Ad Gate Modal */}
       {showAdGate && (
         <AdGateModal
           onContinue={handleAdContinue}
@@ -171,16 +157,17 @@ const TVPage = () => {
       )}
 
       <div className="pt-20 sm:pt-24 lg:pt-28 px-0 sm:px-6 lg:px-12 pb-20">
-        {/* ===== FEATURED PLAYER (top) ===== */}
+        {/* ===== FEATURED PLAYER ===== */}
         {playerChannel && (
           <div className="mb-6 sm:mb-8">
             <div
               ref={playerContainerRef}
-              className="relative w-full aspect-video bg-black rounded-none sm:rounded-2xl overflow-hidden"
+              className="relative w-full aspect-video bg-black rounded-none sm:rounded-2xl overflow-hidden shadow-2xl shadow-black/50"
             >
               {playerLoading ? (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                  <Loader2 className="w-10 h-10 text-primary animate-spin" />
+                  <p className="text-xs text-muted-foreground animate-pulse">Carregando stream...</p>
                 </div>
               ) : iframeHtml ? (
                 <iframe
@@ -199,21 +186,21 @@ const TVPage = () => {
                 />
               )}
 
-              {/* Overlay controls */}
-              <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-3 sm:px-5 py-3 bg-gradient-to-b from-black/70 to-transparent pointer-events-none z-10">
-                <div className="flex items-center gap-2 pointer-events-auto">
-                  <div className="flex items-center gap-1.5">
+              {/* Overlay */}
+              <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 sm:px-6 py-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent pointer-events-none z-10">
+                <div className="flex items-center gap-3 pointer-events-auto">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/90 backdrop-blur-sm">
                     <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
                     </span>
-                    <span className="text-[10px] sm:text-xs text-red-400 font-bold uppercase tracking-wider">AO VIVO</span>
+                    <span className="text-[10px] font-bold text-white uppercase tracking-wider">AO VIVO</span>
                   </div>
-                  <span className="text-xs sm:text-sm font-semibold text-white ml-2">{playerChannel.name}</span>
+                  <span className="text-sm font-semibold text-white drop-shadow-lg">{playerChannel.name}</span>
                 </div>
                 <button
                   onClick={toggleFullscreen}
-                  className="pointer-events-auto w-8 h-8 rounded-lg bg-white/10 backdrop-blur-sm flex items-center justify-center hover:bg-white/20 transition-colors"
+                  className="pointer-events-auto w-9 h-9 rounded-xl bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-white/20 transition-all border border-white/10"
                 >
                   {isFullscreen ? <Minimize className="w-4 h-4 text-white" /> : <Maximize className="w-4 h-4 text-white" />}
                 </button>
@@ -222,7 +209,7 @@ const TVPage = () => {
           </div>
         )}
 
-        {/* ===== BBB CAMERAS BAR ===== */}
+        {/* ===== BBB CAMERAS ===== */}
         {bbbChannels.length > 0 && (
           <div className="px-3 sm:px-0 mb-6 sm:mb-8">
             <div className="flex items-center gap-2 mb-3">
@@ -249,32 +236,34 @@ const TVPage = () => {
 
         {/* ===== HEADER ===== */}
         <div className="px-3 sm:px-0">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6 sm:mb-8">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 sm:mb-8">
             <div className="flex items-center gap-3">
-              <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-primary/20 flex items-center justify-center">
-                <Tv2 className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-red-500/20 to-primary/20 flex items-center justify-center border border-white/5">
+                <Tv2 className="w-5 h-5 text-primary" />
               </div>
               <div>
-                <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-bold flex items-center gap-2">
+                <h1 className="font-display text-2xl sm:text-3xl font-bold flex items-center gap-2">
                   TV <span className="text-gradient">LYNE</span>
                   <span className="relative flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500"></span>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-red-500" />
                   </span>
                 </h1>
-                <p className="text-[10px] sm:text-xs text-muted-foreground">Assista seus canais favoritos online</p>
+                <p className="text-[10px] sm:text-xs text-muted-foreground flex items-center gap-1.5">
+                  <Signal className="w-3 h-3" />
+                  {channels.length} canais ao vivo
+                </p>
               </div>
             </div>
 
-            {/* Search */}
-            <div className="relative w-full sm:w-64">
+            <div className="relative w-full sm:w-72">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
                 placeholder="Buscar canal..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full h-9 sm:h-10 pl-9 pr-3 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50"
+                className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
               />
             </div>
           </div>
@@ -283,10 +272,10 @@ const TVPage = () => {
           <div className="flex gap-2 overflow-x-auto scrollbar-hide mb-6 sm:mb-8 pb-1">
             <button
               onClick={() => setActiveCategory(0)}
-              className={`flex-shrink-0 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[11px] sm:text-sm font-medium transition-all duration-300 ${
+              className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all ${
                 activeCategory === 0
                   ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
-                  : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10 hover:text-foreground"
+                  : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
               }`}
             >
               Todos
@@ -295,10 +284,10 @@ const TVPage = () => {
               <button
                 key={cat.id}
                 onClick={() => setActiveCategory(cat.id)}
-                className={`flex-shrink-0 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl text-[11px] sm:text-sm font-medium transition-all duration-300 ${
+                className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap ${
                   activeCategory === cat.id
                     ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
-                    : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10 hover:text-foreground"
+                    : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
                 }`}
               >
                 {cat.name}
@@ -307,49 +296,59 @@ const TVPage = () => {
           </div>
         </div>
 
-        {/* ===== CHANNELS BY CATEGORY ===== */}
+        {/* ===== CHANNELS GRID ===== */}
         {loading ? (
           <div className="flex justify-center py-20">
-            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <Loader2 className="w-10 h-10 animate-spin text-primary" />
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground px-3">
-            <Tv2 className="w-12 h-12 mb-4 opacity-30" />
-            <p className="text-sm">Nenhum canal encontrado</p>
+            <Tv2 className="w-14 h-14 mb-4 opacity-20" />
+            <p className="text-sm font-medium">Nenhum canal encontrado</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">Tente outro termo de busca</p>
           </div>
         ) : (
-          <div className="space-y-8 px-3 sm:px-0">
+          <div className="space-y-8 sm:space-y-10 px-3 sm:px-0">
             {sortedGroups.map(([catName, catChannels]) => (
               <div key={catName}>
-                <div className="flex items-center gap-2 mb-3">
-                  <div className="w-1 h-5 rounded-full bg-primary" />
-                  <h2 className="text-sm sm:text-base font-bold">{catName}</h2>
+                <div className="flex items-center gap-2.5 mb-4">
+                  <div className="w-1 h-6 rounded-full bg-gradient-to-b from-primary to-primary/40" />
+                  <h2 className="text-sm sm:text-base font-bold tracking-tight">{catName}</h2>
+                  <span className="text-[10px] text-muted-foreground/50 ml-1">({catChannels.length})</span>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground/30 ml-auto" />
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3 lg:gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
                   {catChannels.map((channel) => (
                     <button
                       key={channel.id}
                       onClick={() => handleWatch(channel)}
-                      className={`group relative glass glass-hover rounded-xl sm:rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:scale-[1.03] hover:shadow-xl hover:shadow-primary/10 text-left ${
-                        playerChannel?.id === channel.id ? "ring-2 ring-primary" : ""
+                      className={`group relative glass rounded-xl sm:rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:scale-[1.04] hover:shadow-2xl hover:shadow-primary/10 text-left border border-white/5 hover:border-primary/20 ${
+                        playerChannel?.id === channel.id ? "ring-2 ring-primary border-primary/30" : ""
                       }`}
                     >
-                      {/* Live indicator */}
-                      <div className="absolute top-2 right-2 z-10 flex items-center gap-1 px-1.5 sm:px-2 py-0.5 rounded-full bg-red-500/90 backdrop-blur-sm">
+                      {/* Live badge */}
+                      <div className="absolute top-2 right-2 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/90 backdrop-blur-sm">
                         <span className="relative flex h-1.5 w-1.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white"></span>
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                          <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white" />
                         </span>
-                        <span className="text-[8px] sm:text-[9px] font-bold text-white uppercase tracking-wider">AO VIVO</span>
+                        <span className="text-[7px] sm:text-[8px] font-bold text-white uppercase tracking-wider">LIVE</span>
                       </div>
 
+                      {/* Now playing indicator */}
+                      {playerChannel?.id === channel.id && (
+                        <div className="absolute top-2 left-2 z-10 px-1.5 py-0.5 rounded-full bg-primary/90 backdrop-blur-sm">
+                          <span className="text-[7px] font-bold text-primary-foreground uppercase tracking-wider">▶ NOW</span>
+                        </div>
+                      )}
+
                       {/* Channel image */}
-                      <div className="aspect-video flex items-center justify-center p-3 sm:p-4 lg:p-6 bg-gradient-to-br from-white/[0.03] to-transparent">
+                      <div className="aspect-video flex items-center justify-center p-4 sm:p-5 bg-gradient-to-br from-white/[0.03] to-transparent">
                         {channel.image_url ? (
                           <img
                             src={channel.image_url}
                             alt={channel.name}
-                            className="w-full h-full object-contain max-h-12 sm:max-h-16 lg:max-h-20 transition-transform duration-300 group-hover:scale-110"
+                            className="w-full h-full object-contain max-h-14 sm:max-h-16 lg:max-h-20 transition-transform duration-300 group-hover:scale-110"
                             loading="lazy"
                             onError={(e) => {
                               (e.target as HTMLImageElement).style.display = "none";
@@ -358,21 +357,22 @@ const TVPage = () => {
                           />
                         ) : null}
                         <div className={`${channel.image_url ? "hidden" : ""} flex items-center justify-center`}>
-                          <Radio className="w-6 h-6 sm:w-8 sm:h-8 text-muted-foreground/50" />
+                          <Radio className="w-7 h-7 sm:w-8 sm:h-8 text-muted-foreground/40" />
                         </div>
                       </div>
 
                       {/* Channel info */}
-                      <div className="px-2.5 sm:px-3 pb-2.5 sm:pb-3 pt-1">
-                        <h3 className="text-[11px] sm:text-xs lg:text-sm font-semibold line-clamp-1 text-foreground group-hover:text-primary transition-colors">
+                      <div className="px-2.5 sm:px-3 pb-3 pt-1">
+                        <h3 className="text-[11px] sm:text-xs font-semibold line-clamp-1 text-foreground group-hover:text-primary transition-colors">
                           {channel.name}
                         </h3>
-                        <p className="text-[9px] sm:text-[10px] text-muted-foreground mt-0.5">{channel.category}</p>
+                        <p className="text-[9px] sm:text-[10px] text-muted-foreground/60 mt-0.5">{channel.category}</p>
                       </div>
 
-                      {/* Hover play button */}
-                      <div className="absolute bottom-12 left-0 right-0 flex justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <div className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-[10px] sm:text-xs font-bold uppercase tracking-wide">
+                      {/* Hover overlay */}
+                      <div className="absolute inset-0 bg-gradient-to-t from-primary/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                      <div className="absolute bottom-10 left-0 right-0 flex justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-2 group-hover:translate-y-0">
+                        <div className="px-4 py-1.5 rounded-lg bg-primary text-primary-foreground text-[10px] sm:text-xs font-bold uppercase tracking-wide shadow-lg shadow-primary/30">
                           Assistir
                         </div>
                       </div>
