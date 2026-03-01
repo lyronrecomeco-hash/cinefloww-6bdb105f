@@ -24,6 +24,7 @@ export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
     "cdf.lyneflix.online/vd/",
     "cinetvembed.cineveo.site/",
     "cdn.cineveo.site/",
+    ".m3u8",
   ];
   if (directHosts.some((h) => lowerUrl.includes(h))) return rawUrl;
 
