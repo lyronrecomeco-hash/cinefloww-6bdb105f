@@ -62,7 +62,7 @@ const Footer = forwardRef<HTMLElement>((_, ref) => {
   }, [checking]);
 
   return (
-    <footer ref={ref} className="border-t border-white/5 py-8 sm:py-10 px-4 sm:px-6 lg:px-12">
+    <footer ref={ref} className="border-t border-white/5 py-8 sm:py-10 px-4 sm:px-6 lg:px-12 pb-24 md:pb-10">
       <div className="max-w-7xl mx-auto flex flex-col items-center gap-5 text-center">
         <LyneflixLogo size="sm" animate={false} />
         
