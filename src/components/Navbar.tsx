@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Search, User, LogIn, LayoutGrid } from "lucide-react";
+import { Search, User, LogIn, LayoutGrid, Radio } from "lucide-react";
 import { searchMulti, TMDBMovie, posterUrl, getDisplayTitle, getMediaType } from "@/services/tmdb";
 import { toSlug } from "@/lib/slugify";
 import { supabase } from "@/integrations/supabase/client";
@@ -175,6 +175,19 @@ const Navbar = () => {
           >
             <LayoutGrid className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
+
+          {/* Ao Vivo */}
+          <Link
+            to="/lynetv"
+            className="relative hidden md:flex w-9 h-9 sm:w-10 sm:h-10 items-center justify-center rounded-2xl bg-white/5 border border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/10 transition-colors"
+            title="TV ao Vivo"
+          >
+            <Radio className="w-4 h-4 sm:w-5 sm:h-5" />
+            <span className="absolute top-1 right-1 flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+            </span>
+          </Link>
 
           {/* CineVeo Partner Icon */}
           {cineveoPartner?.show_navbar_icon && (
