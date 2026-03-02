@@ -220,6 +220,7 @@ const TVPage = () => {
         abrEwmaDefaultEstimate: 3000000,
         xhrSetup: (xhr: XMLHttpRequest) => {
           xhr.withCredentials = false;
+          xhr.setRequestHeader("Connection", "keep-alive");
         },
       });
       hlsRef.current = hls;
@@ -627,7 +628,7 @@ const TVPage = () => {
             </div>
           </div>
           {/* Mobile: horizontal scroll single line | PC: flex-wrap */}
-          <div className="flex md:flex-wrap md:justify-center gap-2 overflow-x-auto md:overflow-visible pb-2 md:pb-0 scrollbar-hide">
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide" style={{ WebkitOverflowScrolling: "touch", scrollbarWidth: "none", msOverflowStyle: "none" }}>
             <button
               onClick={() => setActiveCategory(0)}
               className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap flex-shrink-0 ${
