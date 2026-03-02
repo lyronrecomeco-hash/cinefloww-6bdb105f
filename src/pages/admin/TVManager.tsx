@@ -20,14 +20,15 @@ interface TVCategory {
   sort_order: number;
 }
 
-const SYNC_INTERVAL = 2 * 60 * 1000; // 2 minutes
-const VIEWER_INTERVAL = 10000; // 10s
+const SYNC_INTERVAL = 2 * 60 * 1000;
+const VIEWER_INTERVAL = 10000;
 
 const TVManager = () => {
   const [channels, setChannels] = useState<TVChannel[]>([]);
   const [categories, setCategories] = useState<TVCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("Todos");
   const [editChannel, setEditChannel] = useState<TVChannel | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ id: "", name: "", image_url: "", stream_url: "", category: "Variedades", sort_order: 0 });
@@ -42,7 +43,7 @@ const TVManager = () => {
   const countdownRef = useRef<NodeJS.Timeout | null>(null);
   const { toast } = useToast();
 
-  // Fetch viewers - precise by visitor_id
+  // Fetch viewers
   const fetchViewers = useCallback(async () => {
     const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     const { data } = await supabase
@@ -66,7 +67,6 @@ const TVManager = () => {
     setTotalWatching(allVisitors.size);
   }, []);
 
-  // Fetch channels + categories
   const fetchData = async () => {
     setLoading(true);
     const [chRes, catRes] = await Promise.all([
@@ -78,7 +78,6 @@ const TVManager = () => {
     setLoading(false);
   };
 
-  // Fetch last sync info
   const fetchSyncInfo = useCallback(async () => {
     const { data } = await supabase
       .from("site_settings")
@@ -88,13 +87,13 @@ const TVManager = () => {
     if (data?.value) {
       const v = data.value as any;
       if (v.ts) {
-        setLastSync(new Date(v.ts).toLocaleTimeString("pt-BR"));
+        const d = new Date(v.ts);
+        setLastSync(d.toLocaleDateString("pt-BR") + ", " + d.toLocaleTimeString("pt-BR"));
         setLastSyncCount(v.channels || v.total_api || null);
       }
     }
   }, []);
 
-  // Run sync via edge function
   const runSync = useCallback(async (silent = false) => {
     if (syncing) return;
     setSyncing(true);
@@ -113,21 +112,15 @@ const TVManager = () => {
     }
   }, [syncing, toast, fetchSyncInfo]);
 
-  // Initial load
-  useEffect(() => {
-    fetchData();
-    fetchSyncInfo();
-  }, [fetchSyncInfo]);
+  useEffect(() => { fetchData(); fetchSyncInfo(); }, [fetchSyncInfo]);
 
-  // Viewer polling + realtime
   useEffect(() => {
     fetchViewers();
     intervalRef.current = setInterval(fetchViewers, VIEWER_INTERVAL);
     const channel = supabase
       .channel("tv-viewers")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "site_visitors" }, (payload: any) => {
-        const p = payload.new?.pathname;
-        if (p?.startsWith("/tv/")) fetchViewers();
+        if (payload.new?.pathname?.startsWith("/tv/")) fetchViewers();
       })
       .subscribe();
     return () => {
@@ -136,40 +129,35 @@ const TVManager = () => {
     };
   }, [fetchViewers]);
 
-  // Auto-sync every 2 minutes
   useEffect(() => {
-    syncIntervalRef.current = setInterval(() => {
-      runSync(true);
-    }, SYNC_INTERVAL);
-
-    // Countdown timer
+    syncIntervalRef.current = setInterval(() => runSync(true), SYNC_INTERVAL);
     setSyncCountdown(SYNC_INTERVAL / 1000);
     countdownRef.current = setInterval(() => {
       setSyncCountdown(prev => (prev <= 1 ? SYNC_INTERVAL / 1000 : prev - 1));
     }, 1000);
-
     return () => {
       if (syncIntervalRef.current) clearInterval(syncIntervalRef.current);
       if (countdownRef.current) clearInterval(countdownRef.current);
     };
   }, [runSync]);
 
-  // Realtime channel updates
   useEffect(() => {
     const channel = supabase
       .channel("tv-channels-changes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "tv_channels" }, () => {
-        fetchData();
-      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "tv_channels" }, () => fetchData())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  const filtered = channels.filter(ch =>
-    !search || ch.name.toLowerCase().includes(search.toLowerCase()) || ch.id.toLowerCase().includes(search.toLowerCase())
-  );
+  // Filter by search + category
+  const filtered = channels.filter(ch => {
+    const matchSearch = !search || ch.name.toLowerCase().includes(search.toLowerCase()) || ch.id.toLowerCase().includes(search.toLowerCase());
+    const matchCat = selectedCategory === "Todos" || ch.category === selectedCategory;
+    return matchSearch && matchCat;
+  });
 
-  const activeCount = channels.filter(c => c.active).length;
+  // Unique category names from channels
+  const channelCategories = Array.from(new Set(channels.map(c => c.category).filter(Boolean))).sort();
 
   const toggleActive = async (ch: TVChannel) => {
     await supabase.from("tv_channels").update({ active: !ch.active }).eq("id", ch.id);
@@ -231,16 +219,16 @@ const TVManager = () => {
             <Tv2 className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="text-xl font-bold font-display">TV Lyne</h1>
-            <p className="text-xs text-muted-foreground">{channels.length} canais • {activeCount} ativos</p>
+            <h1 className="text-xl font-bold font-display flex items-center gap-2">
+              TV <span className="text-primary">LYNE</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+            </h1>
+            <p className="text-xs text-muted-foreground">
+              {lastSyncCount || channels.length} canais da API • Última sync: {lastSync || "—"}
+            </p>
           </div>
         </div>
         <div className="flex gap-2">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar canal..."
-              className="h-9 pl-9 pr-3 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50 w-48" />
-          </div>
           <button onClick={() => runSync(false)} disabled={syncing}
             className="h-9 px-3 rounded-xl bg-white/5 border border-white/10 text-sm font-medium flex items-center gap-2 hover:bg-white/10 transition-colors disabled:opacity-50">
             <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} /> Sync
@@ -253,32 +241,56 @@ const TVManager = () => {
 
       {/* Stats Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="glass rounded-xl border border-white/10 p-3">
-          <div className="flex items-center gap-2 text-muted-foreground text-[10px] uppercase tracking-wider mb-1">
-            <Tv2 className="w-3 h-3" /> Total Canais
-          </div>
-          <p className="text-2xl font-bold">{channels.length}</p>
+        <div className="glass rounded-xl border border-white/10 p-4 text-center">
+          <p className="text-3xl font-bold text-primary">{lastSyncCount || channels.length}</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Total API</p>
         </div>
-        <div className="glass rounded-xl border border-white/10 p-3">
-          <div className="flex items-center gap-2 text-muted-foreground text-[10px] uppercase tracking-wider mb-1">
-            <Eye className="w-3 h-3" /> Assistindo
-          </div>
-          <p className="text-2xl font-bold text-green-500">{totalWatching}</p>
+        <div className="glass rounded-xl border border-white/10 p-4 text-center">
+          <p className="text-3xl font-bold text-primary">{channelCategories.length}</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Categorias</p>
         </div>
-        <div className="glass rounded-xl border border-white/10 p-3">
-          <div className="flex items-center gap-2 text-muted-foreground text-[10px] uppercase tracking-wider mb-1">
-            <Clock className="w-3 h-3" /> Último Sync
-          </div>
-          <p className="text-sm font-bold">{lastSync || "—"}</p>
-          {lastSyncCount && <p className="text-[10px] text-muted-foreground">{lastSyncCount} canais</p>}
+        <div className="glass rounded-xl border border-white/10 p-4 text-center">
+          <p className="text-3xl font-bold text-green-500">{totalWatching}</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Assistindo</p>
         </div>
-        <div className="glass rounded-xl border border-white/10 p-3">
-          <div className="flex items-center gap-2 text-muted-foreground text-[10px] uppercase tracking-wider mb-1">
-            <Wifi className={`w-3 h-3 ${syncing ? "text-yellow-500" : "text-green-500"}`} /> Próximo Sync
-          </div>
-          <p className="text-sm font-bold">{syncing ? "Sincronizando..." : formatCountdown(syncCountdown)}</p>
-          <p className="text-[10px] text-muted-foreground">Auto cada 2 min</p>
+        <div className="glass rounded-xl border border-white/10 p-4 text-center">
+          <p className="text-lg font-bold">{syncing ? "Sync..." : formatCountdown(syncCountdown)}</p>
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Próximo Sync</p>
         </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Buscar canal..."
+          className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none focus:border-primary/50" />
+      </div>
+
+      {/* Category Pills */}
+      <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide" style={{ WebkitOverflowScrolling: "touch" }}>
+        <button
+          onClick={() => setSelectedCategory("Todos")}
+          className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+            selectedCategory === "Todos"
+              ? "bg-primary text-primary-foreground border-primary"
+              : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
+          }`}
+        >
+          ✅ Todos
+        </button>
+        {channelCategories.map(cat => (
+          <button
+            key={cat}
+            onClick={() => setSelectedCategory(cat)}
+            className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors whitespace-nowrap ${
+              selectedCategory === cat
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-white/5 border-white/10 text-muted-foreground hover:bg-white/10"
+            }`}
+          >
+            {cat}
+          </button>
+        ))}
       </div>
 
       {/* Form Modal */}
@@ -292,7 +304,7 @@ const TVManager = () => {
               <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                 placeholder="Nome do canal" className="w-full h-10 px-3 rounded-xl bg-white/5 border border-white/10 text-sm" />
               <input value={form.stream_url} onChange={e => setForm(f => ({ ...f, stream_url: e.target.value }))}
-                placeholder="URL do stream (embed)" className="w-full h-10 px-3 rounded-xl bg-white/5 border border-white/10 text-sm" />
+                placeholder="URL do stream" className="w-full h-10 px-3 rounded-xl bg-white/5 border border-white/10 text-sm" />
               <input value={form.image_url} onChange={e => setForm(f => ({ ...f, image_url: e.target.value }))}
                 placeholder="URL da imagem (opcional)" className="w-full h-10 px-3 rounded-xl bg-white/5 border border-white/10 text-sm" />
               <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
@@ -310,67 +322,59 @@ const TVManager = () => {
         </div>
       )}
 
-      {/* Table */}
+      {/* Channel Cards Grid */}
       {loading ? (
         <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
       ) : (
-        <div className="glass rounded-2xl overflow-hidden border border-white/10">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10 text-muted-foreground text-xs">
-                  <th className="text-left px-4 py-3">Canal</th>
-                  <th className="text-left px-4 py-3 hidden sm:table-cell">Categoria</th>
-                  <th className="text-center px-4 py-3">Status</th>
-                  <th className="text-right px-4 py-3">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(ch => (
-                  <tr key={ch.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        {ch.image_url ? (
-                          <img src={ch.image_url} alt={ch.name} className="w-8 h-8 object-contain rounded-lg bg-white/5 p-1" />
-                        ) : (
-                          <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center"><Tv2 className="w-4 h-4 text-muted-foreground" /></div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium">{ch.name}</p>
-                          <p className="text-[10px] text-muted-foreground">{ch.id}</p>
-                        </div>
-                        {(watchingMap[ch.id] || 0) > 0 && (
-                          <span className="flex items-center gap-1 text-[10px] font-medium text-green-500 shrink-0">
-                            <Eye className="w-3 h-3" /> {watchingMap[ch.id]}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 hidden sm:table-cell text-muted-foreground">{ch.category}</td>
-                    <td className="px-4 py-3 text-center">
-                      <button onClick={() => toggleActive(ch)} className="inline-flex items-center gap-1">
-                        {ch.active ? <ToggleRight className="w-5 h-5 text-green-500" /> : <ToggleLeft className="w-5 h-5 text-muted-foreground" />}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => window.open(`/tv/${ch.id}`, "_blank")} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors" title="Assistir">
-                          <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
-                        </button>
-                        <button onClick={() => openEdit(ch)} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors" title="Editar">
-                          <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
-                        </button>
-                        <button onClick={() => deleteChannel(ch.id)} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors" title="Excluir">
-                          <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map(ch => (
+            <div key={ch.id} className="glass rounded-2xl border border-white/10 overflow-hidden group hover:border-white/20 transition-colors">
+              {/* Image Area */}
+              <div className="relative aspect-video bg-black/40 flex items-center justify-center">
+                {ch.image_url ? (
+                  <img src={ch.image_url} alt={ch.name} className="max-w-[50%] max-h-[50%] object-contain" />
+                ) : (
+                  <Tv2 className="w-10 h-10 text-muted-foreground/30" />
+                )}
+                {/* LIVE badge */}
+                {(watchingMap[ch.id] || 0) > 0 && (
+                  <span className="absolute top-3 right-3 flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold">
+                    🔴 LIVE
+                  </span>
+                )}
+                {!ch.active && (
+                  <span className="absolute top-3 left-3 px-2 py-0.5 rounded-full bg-yellow-600/80 text-white text-[10px] font-bold">
+                    INATIVO
+                  </span>
+                )}
+                {/* Hover Actions */}
+                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <button onClick={() => window.open(`/tv/${ch.id}`, "_blank")} className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors" title="Assistir">
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => openEdit(ch)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors" title="Editar">
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => toggleActive(ch)} className="p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors" title="Ativar/Desativar">
+                    {ch.active ? <ToggleRight className="w-4 h-4 text-green-400" /> : <ToggleLeft className="w-4 h-4 text-yellow-400" />}
+                  </button>
+                  <button onClick={() => deleteChannel(ch.id)} className="p-2 rounded-full bg-white/10 hover:bg-destructive/60 transition-colors" title="Excluir">
+                    <Trash2 className="w-4 h-4 text-destructive" />
+                  </button>
+                </div>
+              </div>
+              {/* Info */}
+              <div className="p-3">
+                <p className="font-medium text-sm truncate">{ch.name}</p>
+                <p className="text-[10px] text-muted-foreground uppercase">{ch.category}</p>
+              </div>
+            </div>
+          ))}
         </div>
+      )}
+
+      {filtered.length === 0 && !loading && (
+        <p className="text-center text-muted-foreground py-10 text-sm">Nenhum canal encontrado.</p>
       )}
     </div>
   );
