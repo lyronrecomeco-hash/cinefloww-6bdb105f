@@ -273,7 +273,7 @@ Deno.serve(async (req) => {
 
     // Update last sync timestamp
     await supabase.from("site_settings").upsert(
-      { key: "tv_last_sync", value: { ts: Date.now(), channels: upserted, total_api: allChannels.length, active_validated: validChannels.length } },
+      { key: "tv_last_sync", value: { ts: Date.now(), channels: upserted, total_api: allChannels.length, active_validated: activeCount } },
       { onConflict: "key" }
     );
 
