@@ -528,7 +528,14 @@ const TVPage = () => {
                 muted={isMuted}
                 onClick={togglePlayPause}
               />
-              {/* Logo cover removed per user request */}
+              {/* Watermark mask — covers source logo at bottom-left, above video but below controls */}
+              {isPlaying && !playerError && (
+                <div
+                  className="absolute bottom-0 left-0 z-[5] pointer-events-none"
+                  style={{ width: "180px", height: "44px", background: "#000" }}
+                  aria-hidden="true"
+                />
+              )}
 
               {/* Not started overlay */}
               {!isPlaying && (
