@@ -24,6 +24,38 @@ interface TVCategory {
   sort_order: number;
 }
 
+/** Slugify channel name for clean URLs (no API IDs exposed) */
+function channelSlug(name: string, id: string): string {
+  const slug = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .substring(0, 60);
+  // append short hash of id for uniqueness
+  const hash = id.split("").reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0);
+  return `${slug}-${Math.abs(hash % 9999)}`;
+}
+
+/** XOR obfuscation for stream URL (client-side only, not security — just anti-sniff) */
+function obfuscateUrl(url: string): string {
+  const key = 0x5A;
+  return btoa(url.split("").map(c => String.fromCharCode(c.charCodeAt(0) ^ key)).join(""));
+}
+function deobfuscateUrl(encoded: string): string {
+  const key = 0x5A;
+  try {
+    return atob(encoded).split("").map(c => String.fromCharCode(c.charCodeAt(0) ^ key)).join("");
+  } catch { return ""; }
+}
+
+/** Visible items limit for initial render */
+const INITIAL_VISIBLE = 60;
+const LOAD_MORE_STEP = 60;
+
 const TVPage = () => {
   const { channelId } = useParams<{ channelId?: string }>();
   const [channels, setChannels] = useState<TVChannel[]>([]);
@@ -31,7 +63,9 @@ const TVPage = () => {
   const [activeCategory, setActiveCategory] = useState(0);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
   const navigate = useNavigate();
+  const listEndRef = useRef<HTMLDivElement>(null);
 
   // Player state
   const [selectedChannel, setSelectedChannel] = useState<TVChannel | null>(null);
@@ -51,6 +85,9 @@ const TVPage = () => {
   const [showAdGate, setShowAdGate] = useState(false);
   const [adGateCompleted, setAdGateCompleted] = useState(false);
 
+  // Obfuscated channel map: slug -> obfuscated stream_url (never expose raw URLs in DOM/state)
+  const channelStreamMap = useRef<Map<string, string>>(new Map());
+
   useEffect(() => {
     const completed = sessionStorage.getItem("ad_completed_tv_0");
     if (completed) setAdGateCompleted(true);
@@ -59,10 +96,21 @@ const TVPage = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [chRes, catRes] = await Promise.all([
-      supabase.from("tv_channels").select("*").eq("active", true).order("sort_order").limit(2000),
+      supabase.from("tv_channels").select("id,name,image_url,stream_url,category,categories,active").eq("active", true).order("sort_order").limit(2000),
       supabase.from("tv_categories").select("*").order("sort_order"),
     ]);
-    setChannels((chRes.data as TVChannel[]) || []);
+    const rawChannels = (chRes.data as TVChannel[]) || [];
+    
+    // Obfuscate stream URLs immediately — raw URLs never stay in state
+    const map = new Map<string, string>();
+    const cleanChannels = rawChannels.map(ch => {
+      const cleanUrl = ch.stream_url.replace(/\/live\//gi, "/");
+      map.set(ch.id, obfuscateUrl(cleanUrl));
+      return { ...ch, stream_url: "protected" }; // strip raw URL from state
+    });
+    channelStreamMap.current = map;
+    
+    setChannels(cleanChannels);
     setCategories((catRes.data as TVCategory[]) || []);
     setLoading(false);
   }, []);
@@ -72,7 +120,8 @@ const TVPage = () => {
   // Auto-select channel from URL
   useEffect(() => {
     if (channels.length === 0 || !channelId) return;
-    const ch = channels.find(c => c.id === channelId);
+    // Match by slug or id
+    const ch = channels.find(c => c.id === channelId || channelSlug(c.name, c.id) === channelId);
     if (ch && !selectedChannel) {
       setSelectedChannel(ch);
     }
@@ -87,12 +136,34 @@ const TVPage = () => {
 
   // Cleanup HLS on unmount
   useEffect(() => {
-    return () => {
-      hlsRef.current?.destroy();
-    };
+    return () => { hlsRef.current?.destroy(); };
   }, []);
 
-  const getCleanStreamUrl = (url: string) => url.replace(/\/live\//gi, "/");
+  // Infinite scroll — load more channels when scrolling near bottom
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount(prev => prev + LOAD_MORE_STEP);
+        }
+      },
+      { rootMargin: "400px" }
+    );
+    if (listEndRef.current) observer.observe(listEndRef.current);
+    return () => observer.disconnect();
+  }, [loading]);
+
+  // Reset visible count when filter changes
+  useEffect(() => {
+    setVisibleCount(INITIAL_VISIBLE);
+  }, [activeCategory, search]);
+
+  /** Get real stream URL from obfuscated store */
+  const getRealStreamUrl = useCallback((channelId: string): string => {
+    const obf = channelStreamMap.current.get(channelId);
+    if (!obf) return "";
+    return deobfuscateUrl(obf);
+  }, []);
 
   /** Build proxy URL for cineveo m3u8 streams (CORS bypass) */
   const buildProxyUrl = (m3u8Url: string) => {
@@ -100,32 +171,30 @@ const TVPage = () => {
     return `https://${projectId}.supabase.co/functions/v1/proxy-tv?mode=stream&url=${encodeURIComponent(m3u8Url)}`;
   };
 
-  /** Resolve the final playable URL - strips /live/ and proxies cineveo m3u8 */
+  /** Resolve the final playable URL */
   const resolveStreamUrl = useCallback(async (channel: TVChannel): Promise<{ url: string; type: "m3u8" | "mp4" | "iframe" } | null> => {
-    let streamUrl = getCleanStreamUrl(channel.stream_url);
-    console.log(`[TV] Stream URL after clean: ${streamUrl}`);
+    const streamUrl = getRealStreamUrl(channel.id);
+    if (!streamUrl) return null;
 
     // Cineveo m3u8 URLs need CORS proxy
     if (streamUrl.includes("cineveo.site") && /\.m3u8(\?|$)/i.test(streamUrl)) {
-      const proxyUrl = buildProxyUrl(streamUrl);
-      console.log(`[TV] Using proxy for cineveo m3u8`);
-      return { url: proxyUrl, type: "m3u8" };
+      return { url: buildProxyUrl(streamUrl), type: "m3u8" };
     }
 
-    // Other direct streams (non-cineveo)
+    // Other direct streams
     const isDirectStream = /\.(m3u8|mp4|ts)(\?|$)/i.test(streamUrl);
     if (isDirectStream) {
       const type = streamUrl.includes(".m3u8") ? "m3u8" as const : "mp4" as const;
       return { url: streamUrl, type };
     }
 
-    // Embed URL fallback - extract via edge function
+    // Embed URL fallback
     try {
       const { data, error } = await supabase.functions.invoke("extract-tv", {
         body: { embed_url: streamUrl },
       });
       if (error || !data?.url) return null;
-      let cleanUrl = getCleanStreamUrl(data.url.replace(/\\\//g, "/"));
+      let cleanUrl = data.url.replace(/\\\//g, "/").replace(/\/live\//gi, "/");
       if (cleanUrl.includes(");") || cleanUrl.includes("\r\n") || cleanUrl.includes("{")) return null;
       if (!cleanUrl.startsWith("http")) {
         try {
@@ -133,7 +202,6 @@ const TVPage = () => {
           cleanUrl = cleanUrl.startsWith("/") ? embedOrigin + cleanUrl : embedOrigin + "/" + cleanUrl;
         } catch { /* ignore */ }
       }
-      // If extracted URL is also cineveo m3u8, proxy it
       if (cleanUrl.includes("cineveo.site") && cleanUrl.includes(".m3u8")) {
         return { url: buildProxyUrl(cleanUrl), type: "m3u8" };
       }
@@ -141,10 +209,9 @@ const TVPage = () => {
     } catch {
       return null;
     }
-  }, []);
+  }, [getRealStreamUrl]);
 
   const playStream = useCallback((video: HTMLVideoElement, streamUrl: string) => {
-    // Destroy previous HLS instance
     hlsRef.current?.destroy();
     hlsRef.current = null;
 
@@ -166,7 +233,6 @@ const TVPage = () => {
         fragLoadingMaxRetryTimeout: 8000,
         manifestLoadingMaxRetryTimeout: 8000,
         levelLoadingMaxRetryTimeout: 8000,
-        // Proxy cineveo segment requests through our CORS proxy
         ...(needsProxy ? {
           xhrSetup: (xhr: XMLHttpRequest, url: string) => {
             if (url.includes("cineveo.site") && !url.includes("proxy-tv")) {
@@ -185,10 +251,8 @@ const TVPage = () => {
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            console.warn("[TV] HLS network error, retrying...");
             setTimeout(() => hls.startLoad(), 1500);
           } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            console.warn("[TV] HLS media error, recovering...");
             hls.recoverMediaError();
           } else {
             setPlayerError(true);
@@ -197,7 +261,6 @@ const TVPage = () => {
         }
       });
     } else if (isM3u8 && video.canPlayType("application/vnd.apple.mpegurl")) {
-      // iOS native HLS
       video.removeAttribute("crossOrigin");
       video.src = streamUrl;
       video.load();
@@ -205,7 +268,6 @@ const TVPage = () => {
       video.onloadedmetadata = () => setPlayerLoading(false);
       video.onerror = () => { setPlayerError(true); setPlayerLoading(false); };
     } else {
-      // MP4 or other direct
       video.removeAttribute("crossOrigin");
       video.src = streamUrl;
       video.load();
@@ -214,10 +276,8 @@ const TVPage = () => {
       video.onerror = () => { setPlayerError(true); setPlayerLoading(false); };
     }
 
-    // Safety timeout - 20s
     setTimeout(() => {
       if (video.readyState < 2 && !video.paused) {
-        console.warn("[TV] Safety timeout - stream didn't load in 20s");
         setPlayerError(true);
         setPlayerLoading(false);
       }
@@ -251,10 +311,10 @@ const TVPage = () => {
     setIsPlaying(false);
     setIsPaused(false);
     setPlayerError(false);
-    navigate(`/lynetv/${channel.id}`, { replace: true });
+    // Use channel name slug instead of API id
+    navigate(`/lynetv/${channelSlug(channel.name, channel.id)}`, { replace: true });
     window.scrollTo({ top: 0, behavior: "smooth" });
 
-    // If ads already completed, auto-play
     const completed = sessionStorage.getItem("ad_completed_tv_0");
     if (completed) {
       setAdGateCompleted(true);
@@ -262,13 +322,11 @@ const TVPage = () => {
     }
   }, [navigate, startPlayback]);
 
-  // Toggle play/pause - this is where ad gate triggers
   const togglePlayPause = useCallback(() => {
     const video = videoRef.current;
     if (!selectedChannel) return;
 
     if (!isPlaying) {
-      // First play - check ad gate
       if (!adGateCompleted) {
         setShowAdGate(true);
         return;
@@ -277,7 +335,6 @@ const TVPage = () => {
       return;
     }
 
-    // Already playing - toggle pause
     if (video) {
       if (video.paused) {
         video.play().catch(() => {});
@@ -292,9 +349,7 @@ const TVPage = () => {
   const handleAdContinue = useCallback(() => {
     setShowAdGate(false);
     setAdGateCompleted(true);
-    if (selectedChannel) {
-      startPlayback(selectedChannel);
-    }
+    if (selectedChannel) startPlayback(selectedChannel);
   }, [selectedChannel, startPlayback]);
 
   const toggleMute = useCallback(() => {
@@ -315,7 +370,6 @@ const TVPage = () => {
     if (selectedChannel) startPlayback(selectedChannel);
   }, [selectedChannel, startPlayback]);
 
-  // Auto-hide controls
   const resetControlsTimer = useCallback(() => {
     setShowControls(true);
     clearTimeout(controlsTimerRef.current);
@@ -324,20 +378,20 @@ const TVPage = () => {
 
   // Filter channels
   const filtered = useMemo(() => {
+    const searchLower = search.toLowerCase();
     if (activeCategory === 0) {
-      return channels.filter(ch => !search || ch.name.toLowerCase().includes(search.toLowerCase()));
+      return channels.filter(ch => !search || ch.name.toLowerCase().includes(searchLower));
     }
-    // Match by categories array OR by category name matching the selected category
     const selectedCatName = categories.find(c => c.id === activeCategory)?.name?.toLowerCase();
     return channels.filter((ch) => {
-      const matchCat = ch.categories?.includes(activeCategory) || 
+      const matchCat = ch.categories?.includes(activeCategory) ||
         (selectedCatName && ch.category?.toLowerCase() === selectedCatName);
-      const matchSearch = !search || ch.name.toLowerCase().includes(search.toLowerCase());
+      const matchSearch = !search || ch.name.toLowerCase().includes(searchLower);
       return matchCat && matchSearch;
     });
   }, [channels, activeCategory, search, categories]);
 
-  // Deduplicate categories by id AND name
+  // Deduplicate categories
   const uniqueCategories = useMemo(() => {
     const seen = new Set<number>();
     const seenNames = new Set<string>();
@@ -350,9 +404,10 @@ const TVPage = () => {
     });
   }, [categories]);
 
-  // Group by category
+  // Group by category — only take visibleCount items
   const sortedGroups = useMemo(() => {
-    const grouped = filtered.reduce<Record<string, TVChannel[]>>((acc, ch) => {
+    const limited = filtered.slice(0, visibleCount);
+    const grouped = limited.reduce<Record<string, TVChannel[]>>((acc, ch) => {
       const cat = ch.category || "Outros";
       if (!acc[cat]) acc[cat] = [];
       acc[cat].push(ch);
@@ -360,17 +415,13 @@ const TVPage = () => {
     }, {});
     const catOrder = categories.reduce<Record<string, number>>((m, c) => { m[c.name] = c.sort_order; return m; }, {});
     return Object.entries(grouped).sort(([a], [b]) => (catOrder[a] ?? 999) - (catOrder[b] ?? 999));
-  }, [filtered, categories]);
-
-  // Fallback image
-  const getChannelImage = (channel: TVChannel) => {
-    if (channel.image_url && channel.image_url.trim() !== "") return channel.image_url;
-    return null;
-  };
+  }, [filtered, categories, visibleCount]);
 
   const channelInitials = (name: string) => {
     return name.split(" ").slice(0, 2).map(w => w?.[0] || "").join("").toUpperCase();
   };
+
+  const hasMore = visibleCount < filtered.length;
 
   return (
     <div className="min-h-screen bg-background">
@@ -427,7 +478,7 @@ const TVPage = () => {
                 onClick={togglePlayPause}
               />
 
-              {/* Not started overlay - smaller play button */}
+              {/* Not started overlay */}
               {!isPlaying && (
                 <div
                   className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-black/60 via-black/80 to-black/60 cursor-pointer"
@@ -512,7 +563,7 @@ const TVPage = () => {
 
         {/* ===== CHANNEL LIST ===== */}
         <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8">
-          {/* Search - centered on PC */}
+          {/* Search */}
           <div className="flex justify-center mb-5">
             <div className="relative w-full sm:w-96">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -576,23 +627,20 @@ const TVPage = () => {
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3">
                     {catChannels.map((channel) => {
                       const isSelected = selectedChannel?.id === channel.id;
-                      const imgUrl = getChannelImage(channel);
+                      const imgUrl = channel.image_url && channel.image_url.trim() !== "" ? channel.image_url : null;
                       return (
                         <button
                           key={channel.id}
                           onClick={() => handleSelectChannel(channel)}
-                          className={`group relative glass rounded-xl overflow-hidden cursor-pointer transition-all duration-300 hover:scale-[1.03] hover:shadow-xl text-left border ${
+                          className={`group relative glass rounded-xl overflow-hidden cursor-pointer transition-all duration-200 hover:scale-[1.03] hover:shadow-xl text-left border ${
                             isSelected
                               ? "ring-2 ring-primary border-primary/40 shadow-lg shadow-primary/10"
                               : "border-white/5 hover:border-primary/20"
                           }`}
                         >
-                          {/* Live badge */}
-                          <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/90 backdrop-blur-sm">
-                            <span className="relative flex h-1.5 w-1.5">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-white" />
-                            </span>
+                          {/* Static live dot — NO animate-ping (perf killer on 700+ cards) */}
+                          <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-red-500/90">
+                            <span className="inline-flex rounded-full h-1.5 w-1.5 bg-white" />
                             <span className="text-[7px] font-bold text-white uppercase tracking-wider">LIVE</span>
                           </div>
 
@@ -609,8 +657,9 @@ const TVPage = () => {
                               <img
                                 src={imgUrl}
                                 alt={channel.name}
-                                className="w-full h-full object-contain max-h-12 sm:max-h-16 transition-transform duration-300 group-hover:scale-110"
+                                className="w-full h-full object-contain max-h-12 sm:max-h-16 transition-transform duration-200 group-hover:scale-110"
                                 loading="lazy"
+                                decoding="async"
                                 onError={(e) => {
                                   const img = e.target as HTMLImageElement;
                                   img.style.display = "none";
@@ -645,13 +694,20 @@ const TVPage = () => {
                           </div>
 
                           {/* Hover overlay */}
-                          <div className="absolute inset-0 bg-gradient-to-t from-primary/15 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-primary/15 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none" />
                         </button>
                       );
                     })}
                   </div>
                 </div>
               ))}
+
+              {/* Infinite scroll sentinel */}
+              {hasMore && (
+                <div ref={listEndRef} className="flex justify-center py-8">
+                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                </div>
+              )}
             </div>
           )}
         </div>
