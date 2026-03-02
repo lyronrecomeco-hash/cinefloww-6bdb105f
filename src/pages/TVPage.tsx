@@ -143,30 +143,21 @@ const TVPage = () => {
     return deobfuscateUrl(obf);
   }, []);
 
-  /** Build proxy URL for cineveo m3u8 streams (CORS bypass) */
-  const buildProxyUrl = (m3u8Url: string) => {
-    const projectId = import.meta.env.VITE_SUPABASE_PROJECT_ID || "mfcnkltcdvitxczjwoer";
-    return `https://${projectId}.supabase.co/functions/v1/proxy-tv?mode=stream&url=${encodeURIComponent(m3u8Url)}`;
-  };
+  /* Proxy removed — use direct m3u8 URLs */
 
-  /** Resolve the final playable URL */
+  /** Resolve the final playable URL — direct m3u8 without proxy */
   const resolveStreamUrl = useCallback(async (channel: TVChannel): Promise<{ url: string; type: "m3u8" | "mp4" | "iframe" } | null> => {
     const streamUrl = getRealStreamUrl(channel.id);
     if (!streamUrl) return null;
 
-    // Cineveo m3u8 URLs need CORS proxy
-    if (streamUrl.includes("cineveo.site") && /\.m3u8(\?|$)/i.test(streamUrl)) {
-      return { url: buildProxyUrl(streamUrl), type: "m3u8" };
-    }
-
-    // Other direct streams
+    // Direct m3u8/mp4 streams
     const isDirectStream = /\.(m3u8|mp4|ts)(\?|$)/i.test(streamUrl);
     if (isDirectStream) {
       const type = streamUrl.includes(".m3u8") ? "m3u8" as const : "mp4" as const;
       return { url: streamUrl, type };
     }
 
-    // Embed URL fallback
+    // Embed URL fallback via extract-tv
     try {
       const { data, error } = await supabase.functions.invoke("extract-tv", {
         body: { embed_url: streamUrl },
@@ -180,9 +171,6 @@ const TVPage = () => {
           cleanUrl = cleanUrl.startsWith("/") ? embedOrigin + cleanUrl : embedOrigin + "/" + cleanUrl;
         } catch { /* ignore */ }
       }
-      if (cleanUrl.includes("cineveo.site") && cleanUrl.includes(".m3u8")) {
-        return { url: buildProxyUrl(cleanUrl), type: "m3u8" };
-      }
       return { url: cleanUrl, type: data.type === "mp4" ? "mp4" as const : "m3u8" as const };
     } catch {
       return null;
@@ -192,12 +180,12 @@ const TVPage = () => {
   const playStream = useCallback((video: HTMLVideoElement, streamUrl: string) => {
     hlsRef.current?.destroy();
     hlsRef.current = null;
+    // Remove crossOrigin for cineveo direct streams to avoid CORS issues
+    video.removeAttribute("crossOrigin");
 
     const isM3u8 = streamUrl.includes(".m3u8");
 
     if (isM3u8 && Hls.isSupported()) {
-      const proxyBase = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID || "mfcnkltcdvitxczjwoer"}.supabase.co/functions/v1/proxy-tv?mode=stream&url=`;
-      const needsProxy = streamUrl.includes("cineveo.site") || streamUrl.includes("proxy-tv");
       const hls = new Hls({
         // === Live stream optimizations ===
         lowLatencyMode: false,
@@ -230,13 +218,9 @@ const TVPage = () => {
         progressive: true,
         testBandwidth: false,
         abrEwmaDefaultEstimate: 3000000,
-        ...(needsProxy ? {
-          xhrSetup: (xhr: XMLHttpRequest, url: string) => {
-            if (url.includes("cineveo.site") && !url.includes("proxy-tv")) {
-              xhr.open("GET", proxyBase + encodeURIComponent(url), true);
-            }
-          }
-        } : {}),
+        xhrSetup: (xhr: XMLHttpRequest) => {
+          xhr.withCredentials = false;
+        },
       });
       hlsRef.current = hls;
       hls.loadSource(streamUrl);
@@ -543,13 +527,7 @@ const TVPage = () => {
                 muted={isMuted}
                 onClick={togglePlayPause}
               />
-              {/* Watermark cover — hides bottom-left provider logo (redecanaistv etc) */}
-              {isPlaying && !playerLoading && !playerError && (
-                <>
-                  <div className="absolute bottom-0 left-0 w-[220px] h-[60px] bg-black z-[15] pointer-events-none" />
-                  <div className="absolute bottom-[60px] left-0 w-[220px] h-[20px] bg-gradient-to-t from-black to-transparent z-[15] pointer-events-none" />
-                </>
-              )}
+              {/* Logo cover removed per user request */}
 
               {/* Not started overlay */}
               {!isPlaying && (
@@ -635,7 +613,7 @@ const TVPage = () => {
         )}
 
         {/* ===== SEARCH + CATEGORIES (below player, above channels) ===== */}
-        <div className="mx-auto px-4 sm:px-6 mb-5">
+        <div className="mx-auto px-4 sm:px-6 mb-5 max-w-5xl">
           <div className="flex justify-center mb-3">
             <div className="relative w-full sm:w-96">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -648,10 +626,11 @@ const TVPage = () => {
               />
             </div>
           </div>
-          <div className="flex flex-wrap justify-center gap-2">
+          {/* Mobile: horizontal scroll single line | PC: flex-wrap */}
+          <div className="flex md:flex-wrap md:justify-center gap-2 overflow-x-auto md:overflow-visible pb-2 md:pb-0 scrollbar-hide">
             <button
               onClick={() => setActiveCategory(0)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap flex-shrink-0 ${
                 activeCategory === 0
                   ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
                   : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
@@ -663,7 +642,7 @@ const TVPage = () => {
               <button
                 key={cat.id}
                 onClick={() => setActiveCategory(cat.id)}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap flex-shrink-0 ${
                   activeCategory === cat.id
                     ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
                     : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
