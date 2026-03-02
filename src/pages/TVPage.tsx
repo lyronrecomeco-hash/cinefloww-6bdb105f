@@ -256,11 +256,18 @@ const TVPage = () => {
         video.play().catch(() => {});
         setPlayerLoading(false);
       });
+      let networkRetries = 0;
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            console.warn("[TV] HLS network error, retrying...");
-            setTimeout(() => hls.startLoad(), 800);
+            networkRetries++;
+            if (networkRetries < 15) {
+              console.warn(`[TV] HLS network error #${networkRetries}, retrying...`);
+              setTimeout(() => hls.startLoad(), 500 + networkRetries * 300);
+            } else {
+              setPlayerError(true);
+              setPlayerLoading(false);
+            }
           } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
             console.warn("[TV] HLS media error, recovering...");
             hls.recoverMediaError();
@@ -268,13 +275,31 @@ const TVPage = () => {
             setPlayerError(true);
             setPlayerLoading(false);
           }
-        } else if (data.details === "bufferStalledError") {
+        } else if (data.details === "bufferStalledError" || data.details === "bufferNudgeOnStall") {
           const v = videoRef.current;
           if (v && !v.paused) {
-            v.currentTime = v.currentTime + 0.1;
+            v.currentTime = Math.max(v.currentTime + 0.2, v.buffered.length > 0 ? v.buffered.end(v.buffered.length - 1) - 1 : v.currentTime + 0.2);
           }
         }
       });
+
+      // Periodic liveness: if video stalls for 5s, nudge or reload
+      const livenessInterval = setInterval(() => {
+        const v = videoRef.current;
+        if (!v || v.paused || v.ended) return;
+        if (v.readyState < 3 && !v.seeking) {
+          // Try jumping to live edge
+          if (v.buffered.length > 0) {
+            v.currentTime = v.buffered.end(v.buffered.length - 1) - 0.5;
+          } else {
+            hls.startLoad();
+          }
+        }
+      }, 5000);
+
+      // Store cleanup ref
+      const origDestroy = hls.destroy.bind(hls);
+      hls.destroy = () => { clearInterval(livenessInterval); origDestroy(); };
     } else if (isM3u8 && video.canPlayType("application/vnd.apple.mpegurl")) {
       video.removeAttribute("crossOrigin");
       video.src = streamUrl;
@@ -454,7 +479,7 @@ const TVPage = () => {
 
       <div className="pt-16 sm:pt-20 lg:pt-24 pb-24 sm:pb-12">
         {/* ===== HEADER ===== */}
-        <div className="mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 mb-4">
+        <div className="mx-auto px-4 sm:px-6 mb-4">
           <div className="flex flex-col items-center text-center gap-1 mb-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-500/20 to-primary/20 flex items-center justify-center border border-white/5">
@@ -475,8 +500,8 @@ const TVPage = () => {
           </div>
 
           {/* Search — right-aligned */}
-          <div className="flex justify-end mb-3">
-            <div className="relative w-full sm:w-72">
+          <div className="flex justify-center mb-3">
+            <div className="relative w-full sm:w-80">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
@@ -518,7 +543,7 @@ const TVPage = () => {
 
         {/* ===== PLAYER AREA ===== */}
         {selectedChannel && (
-          <div className="mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 mb-6 max-w-5xl">
+          <div className="mx-auto px-4 sm:px-6 mb-6 max-w-5xl">
             <div
               ref={playerContainerRef}
               className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black border border-white/5"
@@ -533,9 +558,12 @@ const TVPage = () => {
                 muted={isMuted}
                 onClick={togglePlayPause}
               />
-              {/* Watermark cover — hides bottom-left provider logo */}
+              {/* Watermark cover — hides bottom-left provider logo (redecanaistv etc) */}
               {isPlaying && !playerLoading && !playerError && (
-                <div className="absolute bottom-10 left-0 w-32 h-14 bg-black z-[5] pointer-events-none" />
+                <>
+                  <div className="absolute bottom-0 left-0 w-[220px] h-[60px] bg-black z-[15] pointer-events-none" />
+                  <div className="absolute bottom-[60px] left-0 w-[220px] h-[20px] bg-gradient-to-t from-black to-transparent z-[15] pointer-events-none" />
+                </>
               )}
 
               {/* Not started overlay */}
@@ -622,7 +650,7 @@ const TVPage = () => {
         )}
 
         {/* ===== CHANNEL LIST ===== */}
-        <div className="mx-auto px-4 sm:px-6 lg:px-10 xl:px-16">
+        <div className="mx-auto px-4 sm:px-6">
           {/* Channels grid */}
           {loading ? (
             <div className="flex justify-center py-16">
