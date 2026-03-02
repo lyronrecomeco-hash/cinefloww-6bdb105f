@@ -221,18 +221,26 @@ const TVPage = () => {
       const proxyBase = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID || "mfcnkltcdvitxczjwoer"}.supabase.co/functions/v1/proxy-tv?mode=stream&url=`;
       const needsProxy = streamUrl.includes("cineveo.site") || streamUrl.includes("proxy-tv");
       const hls = new Hls({
-        lowLatencyMode: true,
-        maxBufferLength: 15,
-        maxMaxBufferLength: 60,
+        lowLatencyMode: false,
+        liveSyncDurationCount: 4,
+        liveMaxLatencyDurationCount: 8,
+        liveDurationInfinity: true,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 120,
+        maxBufferSize: 60 * 1000 * 1000,
+        maxBufferHole: 0.5,
         startLevel: -1,
         enableWorker: true,
-        fragLoadingMaxRetry: 6,
-        fragLoadingRetryDelay: 1000,
-        manifestLoadingMaxRetry: 4,
-        levelLoadingMaxRetry: 4,
-        fragLoadingMaxRetryTimeout: 8000,
-        manifestLoadingMaxRetryTimeout: 8000,
-        levelLoadingMaxRetryTimeout: 8000,
+        backBufferLength: 30,
+        fragLoadingMaxRetry: 10,
+        fragLoadingRetryDelay: 500,
+        fragLoadingMaxRetryTimeout: 12000,
+        manifestLoadingMaxRetry: 6,
+        manifestLoadingRetryDelay: 500,
+        manifestLoadingMaxRetryTimeout: 12000,
+        levelLoadingMaxRetry: 6,
+        levelLoadingRetryDelay: 500,
+        levelLoadingMaxRetryTimeout: 12000,
         ...(needsProxy ? {
           xhrSetup: (xhr: XMLHttpRequest, url: string) => {
             if (url.includes("cineveo.site") && !url.includes("proxy-tv")) {
@@ -251,12 +259,19 @@ const TVPage = () => {
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            setTimeout(() => hls.startLoad(), 1500);
+            console.warn("[TV] HLS network error, retrying...");
+            setTimeout(() => hls.startLoad(), 800);
           } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            console.warn("[TV] HLS media error, recovering...");
             hls.recoverMediaError();
           } else {
             setPlayerError(true);
             setPlayerLoading(false);
+          }
+        } else if (data.details === "bufferStalledError") {
+          const v = videoRef.current;
+          if (v && !v.paused) {
+            v.currentTime = v.currentTime + 0.1;
           }
         }
       });
@@ -439,12 +454,12 @@ const TVPage = () => {
 
       <div className="pt-16 sm:pt-20 lg:pt-24 pb-24 sm:pb-12">
         {/* ===== HEADER ===== */}
-        <div className="mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 mb-5">
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-500/20 to-primary/20 flex items-center justify-center border border-white/5">
-              <Tv2 className="w-5 h-5 text-primary" />
-            </div>
-            <div>
+        <div className="mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 mb-4">
+          <div className="flex flex-col items-center text-center gap-1 mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-500/20 to-primary/20 flex items-center justify-center border border-white/5">
+                <Tv2 className="w-5 h-5 text-primary" />
+              </div>
               <h1 className="font-display text-xl sm:text-2xl font-bold flex items-center gap-2">
                 TV <span className="text-gradient">LYNE</span>
                 <span className="relative flex h-2.5 w-2.5">
@@ -452,17 +467,58 @@ const TVPage = () => {
                   <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
                 </span>
               </h1>
-              <p className="text-[10px] sm:text-xs text-muted-foreground flex items-center gap-1.5">
-                <Signal className="w-3 h-3" />
-                {channels.length} canais ao vivo • Transmissão em tempo real
-              </p>
             </div>
+            <p className="text-[10px] sm:text-xs text-muted-foreground flex items-center gap-1.5">
+              <Signal className="w-3 h-3" />
+              {channels.length} canais ao vivo • Transmissão em tempo real
+            </p>
+          </div>
+
+          {/* Search — right-aligned */}
+          <div className="flex justify-end mb-3">
+            <div className="relative w-full sm:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Buscar canal..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full h-9 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
+              />
+            </div>
+          </div>
+
+          {/* Category filter */}
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+            <button
+              onClick={() => setActiveCategory(0)}
+              className={`flex-shrink-0 px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
+                activeCategory === 0
+                  ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
+                  : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
+              }`}
+            >
+              Todos
+            </button>
+            {uniqueCategories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => setActiveCategory(cat.id)}
+                className={`flex-shrink-0 px-4 py-2 rounded-xl text-[13px] font-medium transition-all whitespace-nowrap ${
+                  activeCategory === cat.id
+                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
+                    : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
+                }`}
+              >
+                {cat.name}
+              </button>
+            ))}
           </div>
         </div>
 
         {/* ===== PLAYER AREA ===== */}
         {selectedChannel && (
-          <div className="mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 mb-6">
+          <div className="mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 mb-6 max-w-5xl">
             <div
               ref={playerContainerRef}
               className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black border border-white/5"
@@ -477,6 +533,10 @@ const TVPage = () => {
                 muted={isMuted}
                 onClick={togglePlayPause}
               />
+              {/* Watermark cover — hides bottom-left provider logo */}
+              {isPlaying && !playerLoading && !playerError && (
+                <div className="absolute bottom-10 left-0 w-32 h-14 bg-black z-[5] pointer-events-none" />
+              )}
 
               {/* Not started overlay */}
               {!isPlaying && (
@@ -563,47 +623,6 @@ const TVPage = () => {
 
         {/* ===== CHANNEL LIST ===== */}
         <div className="mx-auto px-4 sm:px-6 lg:px-10 xl:px-16">
-          {/* Search */}
-          <div className="flex justify-center mb-5">
-            <div className="relative w-full sm:w-96">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Buscar canal..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
-              />
-            </div>
-          </div>
-
-          {/* Category filter */}
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide mb-5 pb-1">
-            <button
-              onClick={() => setActiveCategory(0)}
-              className={`flex-shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all ${
-                activeCategory === 0
-                  ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
-                  : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
-              }`}
-            >
-              Todos
-            </button>
-            {uniqueCategories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`flex-shrink-0 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all whitespace-nowrap ${
-                  activeCategory === cat.id
-                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
-                    : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
-                }`}
-              >
-                {cat.name}
-              </button>
-            ))}
-          </div>
-
           {/* Channels grid */}
           {loading ? (
             <div className="flex justify-center py-16">
