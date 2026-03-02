@@ -168,16 +168,15 @@ Deno.serve(async (req) => {
 
     console.log(`[sync-tv-api] Fetched ${allChannels.length} channels total`);
 
-    // Step 3: Filter only active channels if we have validation data
-    let validChannels = allChannels;
-    if (activeStreamIds.size > 0) {
-      validChannels = allChannels.filter(ch => activeStreamIds.has(ch.id));
-      console.log(`[sync-tv-api] ${validChannels.length}/${allChannels.length} channels are active`);
-    }
+    // Step 3: Log active count but keep ALL channels
+    const activeCount = activeStreamIds.size > 0
+      ? allChannels.filter(ch => activeStreamIds.has(ch.id)).length
+      : allChannels.length;
+    console.log(`[sync-tv-api] ${activeCount}/${allChannels.length} channels are active`);
 
-    // Build dynamic categories from API data
+    // Build dynamic categories from ALL API data
     const categoryMap = new Map<string, number>();
-    for (const ch of validChannels) {
+    for (const ch of allChannels) {
       const name = normalizeCategory(ch.category);
       if (!name) continue;
       if (!categoryMap.has(name)) {
@@ -200,9 +199,9 @@ Deno.serve(async (req) => {
 
     console.log(`[sync-tv-api] ${catRows.length} categories synced`);
 
-    // Transform and deduplicate channels
+    // Transform and deduplicate ALL channels (set active based on live stream validation)
     const seen = new Set<string>();
-    const dbChannels = validChannels.map((ch, idx) => {
+    const dbChannels = allChannels.map((ch, idx) => {
       const slug = `api-${ch.id}`;
       if (seen.has(slug)) return null;
       seen.add(slug);
@@ -214,6 +213,9 @@ Deno.serve(async (req) => {
       const rawStreamUrl = ch.stream_url || `https://cinetvembed.cineveo.site/${USERNAME}/${PASSWORD}/${ch.id}.m3u8`;
       const finalStreamUrl = cleanStreamUrl(rawStreamUrl);
 
+      // Set active based on live stream validation (if available)
+      const isActive = activeStreamIds.size > 0 ? activeStreamIds.has(ch.id) : true;
+
       return {
         id: slug,
         name: ch.title,
@@ -221,7 +223,7 @@ Deno.serve(async (req) => {
         stream_url: finalStreamUrl,
         category: catName || ch.category,
         categories: catId ? [catId] : [],
-        active: true,
+        active: isActive,
         sort_order: idx,
       };
     }).filter(Boolean);
@@ -275,12 +277,12 @@ Deno.serve(async (req) => {
       { onConflict: "key" }
     );
 
-    console.log(`[sync-tv-api] Done: ${upserted}/${validChannels.length} channels synced`);
+    console.log(`[sync-tv-api] Done: ${upserted}/${allChannels.length} channels synced (${activeCount} active)`);
 
     return new Response(JSON.stringify({
       success: true,
       total_api: allChannels.length,
-      active_validated: validChannels.length,
+      active_validated: activeCount,
       channels_upserted: upserted,
       total_pages: totalPages,
       categories_synced: catRows.length,

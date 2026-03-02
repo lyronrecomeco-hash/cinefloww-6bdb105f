@@ -86,7 +86,6 @@ const LogsPage = () => {
     let query = supabase
       .from("tv_channels")
       .select("*", { count: "exact" })
-      .eq("active", true)
       .order("sort_order");
 
     if (activeCategory !== "all") {
