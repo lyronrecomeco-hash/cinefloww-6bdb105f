@@ -187,34 +187,34 @@ const TVPage = () => {
 
     if (isM3u8 && Hls.isSupported()) {
       const hls = new Hls({
-        // === Live stream optimizations ===
+        // === Live stream — high tolerance for stale manifests ===
         lowLatencyMode: false,
-        liveSyncDurationCount: 3,
-        liveMaxLatencyDurationCount: 10,
+        liveSyncDurationCount: 6,
+        liveMaxLatencyDurationCount: 20,
         liveDurationInfinity: true,
-        liveBackBufferLength: 30,
+        liveBackBufferLength: 60,
         // === Buffer: generous to avoid stalls ===
         maxBufferLength: 60,
         maxMaxBufferLength: 600,
         maxBufferSize: 120 * 1000 * 1000,
-        maxBufferHole: 1.0,
+        maxBufferHole: 1.5,
         // === Recovery: aggressive ===
         startLevel: -1,
         enableWorker: true,
-        backBufferLength: 30,
-        fragLoadingMaxRetry: 20,
-        fragLoadingRetryDelay: 500,
-        fragLoadingMaxRetryTimeout: 30000,
-        manifestLoadingMaxRetry: 10,
-        manifestLoadingRetryDelay: 500,
-        manifestLoadingMaxRetryTimeout: 30000,
-        levelLoadingMaxRetry: 10,
-        levelLoadingRetryDelay: 500,
-        levelLoadingMaxRetryTimeout: 30000,
+        backBufferLength: 60,
+        fragLoadingMaxRetry: 25,
+        fragLoadingRetryDelay: 800,
+        fragLoadingMaxRetryTimeout: 45000,
+        manifestLoadingMaxRetry: 15,
+        manifestLoadingRetryDelay: 800,
+        manifestLoadingMaxRetryTimeout: 45000,
+        levelLoadingMaxRetry: 15,
+        levelLoadingRetryDelay: 800,
+        levelLoadingMaxRetryTimeout: 45000,
         // === Nudge & error tolerance ===
-        nudgeMaxRetry: 10,
-        nudgeOffset: 0.2,
-        highBufferWatchdogPeriod: 2,
+        nudgeMaxRetry: 15,
+        nudgeOffset: 0.3,
+        highBufferWatchdogPeriod: 3,
         progressive: true,
         testBandwidth: false,
         abrEwmaDefaultEstimate: 3000000,
@@ -233,30 +233,47 @@ const TVPage = () => {
 
       let networkRetries = 0;
       let mediaRecoveryAttempts = 0;
+      let lastFragTime = Date.now();
+      let isRefreshingUrl = false;
+
+      // Silent re-fetch of stream URL when token/manifest goes stale
+      const silentRefreshStream = async () => {
+        if (isRefreshingUrl || !selectedChannel) return;
+        isRefreshingUrl = true;
+        console.info("[TV] Silent stream URL refresh triggered");
+        try {
+          const resolved = await resolveStreamUrl(selectedChannel);
+          if (resolved && resolved.url && resolved.type !== "iframe" && hlsRef.current === hls) {
+            hls.loadSource(resolved.url);
+            hls.startLoad();
+            networkRetries = 0;
+            lastFragTime = Date.now();
+            console.info("[TV] Stream URL refreshed successfully");
+          }
+        } catch { /* silent */ }
+        finally { isRefreshingUrl = false; }
+      };
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        // Non-fatal errors: handle buffer stalls silently
         if (!data.fatal) {
           if (data.details === "bufferStalledError" || data.details === "bufferNudgeOnStall") {
             const v = videoRef.current;
             if (v && !v.paused && v.buffered.length > 0) {
               const liveEdge = v.buffered.end(v.buffered.length - 1);
-              if (liveEdge - v.currentTime > 1) {
-                v.currentTime = liveEdge - 0.5;
-              }
+              if (liveEdge - v.currentTime > 1) v.currentTime = liveEdge - 0.5;
             }
           }
           return;
         }
 
-        // Fatal errors
         if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
           networkRetries++;
-          if (networkRetries <= 25) {
+          if (networkRetries <= 8) {
             console.warn(`[TV] HLS network error #${networkRetries}, retrying...`);
-            setTimeout(() => {
-              try { hls.startLoad(); } catch {}
-            }, Math.min(500 + networkRetries * 200, 5000));
+            setTimeout(() => { try { hls.startLoad(); } catch {} }, Math.min(500 + networkRetries * 300, 5000));
+          } else if (networkRetries <= 14) {
+            console.warn(`[TV] HLS network error #${networkRetries}, refreshing stream URL...`);
+            silentRefreshStream();
           } else {
             setPlayerError(true);
             setPlayerLoading(false);
@@ -264,22 +281,15 @@ const TVPage = () => {
         } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
           mediaRecoveryAttempts++;
           console.warn(`[TV] HLS media error #${mediaRecoveryAttempts}, recovering...`);
-          if (mediaRecoveryAttempts <= 5) {
-            hls.recoverMediaError();
-          } else if (mediaRecoveryAttempts <= 8) {
-            // Swap codec and recover
-            hls.swapAudioCodec();
-            hls.recoverMediaError();
-          } else {
-            // Last resort: full reload
+          if (mediaRecoveryAttempts <= 5) hls.recoverMediaError();
+          else if (mediaRecoveryAttempts <= 8) { hls.swapAudioCodec(); hls.recoverMediaError(); }
+          else {
             hls.destroy();
             const newHls = new Hls(hls.config);
             hlsRef.current = newHls;
             newHls.loadSource(streamUrl);
             newHls.attachMedia(video);
-            newHls.on(Hls.Events.MANIFEST_PARSED, () => {
-              video.play().catch(() => {});
-            });
+            newHls.on(Hls.Events.MANIFEST_PARSED, () => { video.play().catch(() => {}); });
           }
         } else {
           setPlayerError(true);
@@ -287,26 +297,24 @@ const TVPage = () => {
         }
       });
 
-      // Reset network retry counter on successful fragment load
       hls.on(Hls.Events.FRAG_LOADED, () => {
         networkRetries = 0;
+        lastFragTime = Date.now();
         if (playerLoading) setPlayerLoading(false);
       });
 
-      // Periodic liveness check: every 3s, if stalled jump to live edge
+      // Liveness: detect stale stream (>5s no frags) and auto-refresh URL at >8s
       const livenessInterval = setInterval(() => {
         const v = videoRef.current;
         if (!v || v.paused || v.ended) return;
-        // If video is waiting and not seeking, try to recover
-        if (v.readyState < 3 && !v.seeking) {
+        const staleS = (Date.now() - lastFragTime) / 1000;
+        if (staleS > 5 && v.readyState < 3 && !v.seeking) {
           if (v.buffered.length > 0) {
             const liveEdge = v.buffered.end(v.buffered.length - 1);
-            if (liveEdge > v.currentTime + 1) {
-              v.currentTime = liveEdge - 0.3;
-            }
-          } else {
-            try { hls.startLoad(); } catch {}
+            if (liveEdge > v.currentTime + 1) v.currentTime = liveEdge - 0.3;
           }
+          if (staleS > 8) silentRefreshStream();
+          else { try { hls.startLoad(); } catch {} }
         }
       }, 3000);
 
@@ -335,7 +343,7 @@ const TVPage = () => {
         setPlayerLoading(false);
       }
     }, 30000);
-  }, []);
+  }, [selectedChannel, resolveStreamUrl]);
 
   const startPlayback = useCallback(async (channel: TVChannel) => {
     const video = videoRef.current;
