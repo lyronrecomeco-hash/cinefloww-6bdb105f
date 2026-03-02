@@ -27,6 +27,7 @@ const AuthPage = lazy(() => import("./pages/AuthPage"));
 const ProfileSelector = lazy(() => import("./pages/ProfileSelector"));
 const ImportListPage = lazy(() => import("./pages/ImportListPage"));
 const TVPage = lazy(() => import("./pages/TVPage"));
+const TVDownloadPage = lazy(() => import("./pages/TVDownloadPage"));
 
 // Admin (lazy loaded)
 const AdminLogin = lazy(() => import("./pages/AdminLogin"));
@@ -98,6 +99,7 @@ const App = () => (
             <Route path="/player/:type/:id" element={<PlayerPage />} />
             <Route path="/lynetv" element={<TVPage />} />
             <Route path="/lynetv/:channelId" element={<TVPage />} />
+            <Route path="/download" element={<TVDownloadPage />} />
             <Route path="/dmca" element={<DmcaPage />} />
             <Route path="/termos" element={<TermsPage />} />
             <Route path="/dados" element={<DadosPage />} />
