@@ -233,35 +233,14 @@ const LogsPage = () => {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <div className="glass rounded-xl p-4 text-center border border-white/5">
-          <p className="text-2xl font-bold text-primary tabular-nums">{apiTotal || totalCount}</p>
+          <p className="text-3xl font-bold text-primary tabular-nums">{apiTotal || totalCount}</p>
           <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">Total API</p>
         </div>
         <div className="glass rounded-xl p-4 text-center border border-white/5">
-          <p className="text-2xl font-bold text-emerald-400 tabular-nums">{categories.length}</p>
+          <p className="text-3xl font-bold text-primary tabular-nums">{categories.length}</p>
           <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">Categorias</p>
-        </div>
-        <div className="glass rounded-xl p-4 text-center border border-white/5">
-          <div className="flex items-center justify-center gap-1.5">
-            <Eye className="w-4 h-4 text-green-400" />
-            <p className="text-2xl font-bold text-green-400 tabular-nums">{totalWatching}</p>
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">Assistindo</p>
-        </div>
-        <div className="glass rounded-xl p-4 text-center border border-white/5">
-          <div className="flex items-center justify-center gap-1.5">
-            <Signal className="w-4 h-4 text-red-400" />
-            <p className="text-2xl font-bold text-red-400">AO VIVO</p>
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">Status</p>
-        </div>
-        <div className="glass rounded-xl p-4 text-center border border-white/5">
-          <div className="flex items-center justify-center gap-1.5">
-            <Wifi className={`w-4 h-4 ${syncing ? "text-yellow-400" : "text-primary"}`} />
-            <p className="text-sm font-bold tabular-nums">{syncing ? "Sync..." : formatCountdown(syncCountdown)}</p>
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-1 uppercase tracking-wider">Próx. Sync</p>
         </div>
       </div>
 
@@ -326,7 +305,7 @@ const LogsPage = () => {
           <p className="text-muted-foreground/60 text-xs mt-1">Clique em "Sincronizar API" para importar os canais</p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {channels.map((ch) => (
             <div
               key={ch.id}
