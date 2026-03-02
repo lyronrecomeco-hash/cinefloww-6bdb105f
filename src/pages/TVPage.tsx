@@ -439,7 +439,7 @@ const TVPage = () => {
 
       <div className="pt-16 sm:pt-20 lg:pt-24 pb-24 sm:pb-12">
         {/* ===== HEADER ===== */}
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-8 lg:px-12 mb-5">
+        <div className="mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 mb-5">
           <div className="flex items-center gap-3 mb-1">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-500/20 to-primary/20 flex items-center justify-center border border-white/5">
               <Tv2 className="w-5 h-5 text-primary" />
@@ -462,7 +462,7 @@ const TVPage = () => {
 
         {/* ===== PLAYER AREA ===== */}
         {selectedChannel && (
-          <div className="max-w-[1400px] mx-auto px-4 sm:px-8 lg:px-12 mb-6">
+          <div className="mx-auto px-4 sm:px-6 lg:px-10 xl:px-16 mb-6">
             <div
               ref={playerContainerRef}
               className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black border border-white/5"
@@ -562,7 +562,7 @@ const TVPage = () => {
         )}
 
         {/* ===== CHANNEL LIST ===== */}
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-8 lg:px-12">
+        <div className="mx-auto px-4 sm:px-6 lg:px-10 xl:px-16">
           {/* Search */}
           <div className="flex justify-center mb-5">
             <div className="relative w-full sm:w-96">
@@ -624,7 +624,7 @@ const TVPage = () => {
                     <span className="text-[10px] text-muted-foreground/50 bg-white/5 px-1.5 py-0.5 rounded-md">{catChannels.length}</span>
                     <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/30 ml-auto" />
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
                     {catChannels.map((channel) => {
                       const isSelected = selectedChannel?.id === channel.id;
                       const imgUrl = channel.image_url && channel.image_url.trim() !== "" ? channel.image_url : null;
