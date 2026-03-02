@@ -4,7 +4,7 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import MobileBottomNav from "@/components/MobileBottomNav";
 import { supabase } from "@/integrations/supabase/client";
-import { Radio, Search, Tv2, Loader2, Signal, ChevronRight, Play, Pause, Volume2, VolumeX, Maximize, Minimize, AlertCircle } from "lucide-react";
+import { Radio, Search, Tv2, Loader2, ChevronRight, Play, Pause, Volume2, VolumeX, Maximize, Minimize, AlertCircle } from "lucide-react";
 import AdGateModal from "@/components/AdGateModal";
 import Hls from "hls.js";
 
@@ -53,8 +53,8 @@ function deobfuscateUrl(encoded: string): string {
 }
 
 /** Visible items limit for initial render */
-const INITIAL_VISIBLE = 60;
-const LOAD_MORE_STEP = 60;
+const INITIAL_VISIBLE = 120;
+const LOAD_MORE_STEP = 120;
 
 const TVPage = () => {
   const { channelId } = useParams<{ channelId?: string }>();
@@ -221,26 +221,37 @@ const TVPage = () => {
       const proxyBase = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID || "mfcnkltcdvitxczjwoer"}.supabase.co/functions/v1/proxy-tv?mode=stream&url=`;
       const needsProxy = streamUrl.includes("cineveo.site") || streamUrl.includes("proxy-tv");
       const hls = new Hls({
+        // === Live stream optimizations ===
         lowLatencyMode: false,
-        liveSyncDurationCount: 4,
-        liveMaxLatencyDurationCount: 8,
+        liveSyncDurationCount: 3,
+        liveMaxLatencyDurationCount: 10,
         liveDurationInfinity: true,
-        maxBufferLength: 30,
-        maxMaxBufferLength: 120,
-        maxBufferSize: 60 * 1000 * 1000,
-        maxBufferHole: 0.5,
+        liveBackBufferLength: 30,
+        // === Buffer: generous to avoid stalls ===
+        maxBufferLength: 60,
+        maxMaxBufferLength: 600,
+        maxBufferSize: 120 * 1000 * 1000,
+        maxBufferHole: 1.0,
+        // === Recovery: aggressive ===
         startLevel: -1,
         enableWorker: true,
         backBufferLength: 30,
-        fragLoadingMaxRetry: 10,
+        fragLoadingMaxRetry: 20,
         fragLoadingRetryDelay: 500,
-        fragLoadingMaxRetryTimeout: 12000,
-        manifestLoadingMaxRetry: 6,
+        fragLoadingMaxRetryTimeout: 30000,
+        manifestLoadingMaxRetry: 10,
         manifestLoadingRetryDelay: 500,
-        manifestLoadingMaxRetryTimeout: 12000,
-        levelLoadingMaxRetry: 6,
+        manifestLoadingMaxRetryTimeout: 30000,
+        levelLoadingMaxRetry: 10,
         levelLoadingRetryDelay: 500,
-        levelLoadingMaxRetryTimeout: 12000,
+        levelLoadingMaxRetryTimeout: 30000,
+        // === Nudge & error tolerance ===
+        nudgeMaxRetry: 10,
+        nudgeOffset: 0.2,
+        highBufferWatchdogPeriod: 2,
+        progressive: true,
+        testBandwidth: false,
+        abrEwmaDefaultEstimate: 3000000,
         ...(needsProxy ? {
           xhrSetup: (xhr: XMLHttpRequest, url: string) => {
             if (url.includes("cineveo.site") && !url.includes("proxy-tv")) {
@@ -256,48 +267,86 @@ const TVPage = () => {
         video.play().catch(() => {});
         setPlayerLoading(false);
       });
+
       let networkRetries = 0;
+      let mediaRecoveryAttempts = 0;
+
       hls.on(Hls.Events.ERROR, (_event, data) => {
-        if (data.fatal) {
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            networkRetries++;
-            if (networkRetries < 15) {
-              console.warn(`[TV] HLS network error #${networkRetries}, retrying...`);
-              setTimeout(() => hls.startLoad(), 500 + networkRetries * 300);
-            } else {
-              setPlayerError(true);
-              setPlayerLoading(false);
+        // Non-fatal errors: handle buffer stalls silently
+        if (!data.fatal) {
+          if (data.details === "bufferStalledError" || data.details === "bufferNudgeOnStall") {
+            const v = videoRef.current;
+            if (v && !v.paused && v.buffered.length > 0) {
+              const liveEdge = v.buffered.end(v.buffered.length - 1);
+              if (liveEdge - v.currentTime > 1) {
+                v.currentTime = liveEdge - 0.5;
+              }
             }
-          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            console.warn("[TV] HLS media error, recovering...");
-            hls.recoverMediaError();
+          }
+          return;
+        }
+
+        // Fatal errors
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          networkRetries++;
+          if (networkRetries <= 25) {
+            console.warn(`[TV] HLS network error #${networkRetries}, retrying...`);
+            setTimeout(() => {
+              try { hls.startLoad(); } catch {}
+            }, Math.min(500 + networkRetries * 200, 5000));
           } else {
             setPlayerError(true);
             setPlayerLoading(false);
           }
-        } else if (data.details === "bufferStalledError" || data.details === "bufferNudgeOnStall") {
-          const v = videoRef.current;
-          if (v && !v.paused) {
-            v.currentTime = Math.max(v.currentTime + 0.2, v.buffered.length > 0 ? v.buffered.end(v.buffered.length - 1) - 1 : v.currentTime + 0.2);
+        } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          mediaRecoveryAttempts++;
+          console.warn(`[TV] HLS media error #${mediaRecoveryAttempts}, recovering...`);
+          if (mediaRecoveryAttempts <= 5) {
+            hls.recoverMediaError();
+          } else if (mediaRecoveryAttempts <= 8) {
+            // Swap codec and recover
+            hls.swapAudioCodec();
+            hls.recoverMediaError();
+          } else {
+            // Last resort: full reload
+            hls.destroy();
+            const newHls = new Hls(hls.config);
+            hlsRef.current = newHls;
+            newHls.loadSource(streamUrl);
+            newHls.attachMedia(video);
+            newHls.on(Hls.Events.MANIFEST_PARSED, () => {
+              video.play().catch(() => {});
+            });
           }
+        } else {
+          setPlayerError(true);
+          setPlayerLoading(false);
         }
       });
 
-      // Periodic liveness: if video stalls for 5s, nudge or reload
+      // Reset network retry counter on successful fragment load
+      hls.on(Hls.Events.FRAG_LOADED, () => {
+        networkRetries = 0;
+        if (playerLoading) setPlayerLoading(false);
+      });
+
+      // Periodic liveness check: every 3s, if stalled jump to live edge
       const livenessInterval = setInterval(() => {
         const v = videoRef.current;
         if (!v || v.paused || v.ended) return;
+        // If video is waiting and not seeking, try to recover
         if (v.readyState < 3 && !v.seeking) {
-          // Try jumping to live edge
           if (v.buffered.length > 0) {
-            v.currentTime = v.buffered.end(v.buffered.length - 1) - 0.5;
+            const liveEdge = v.buffered.end(v.buffered.length - 1);
+            if (liveEdge > v.currentTime + 1) {
+              v.currentTime = liveEdge - 0.3;
+            }
           } else {
-            hls.startLoad();
+            try { hls.startLoad(); } catch {}
           }
         }
-      }, 5000);
+      }, 3000);
 
-      // Store cleanup ref
       const origDestroy = hls.destroy.bind(hls);
       hls.destroy = () => { clearInterval(livenessInterval); origDestroy(); };
     } else if (isM3u8 && video.canPlayType("application/vnd.apple.mpegurl")) {
@@ -316,12 +365,13 @@ const TVPage = () => {
       video.onerror = () => { setPlayerError(true); setPlayerLoading(false); };
     }
 
+    // Timeout: only show error after 30s of no playback
     setTimeout(() => {
       if (video.readyState < 2 && !video.paused) {
         setPlayerError(true);
         setPlayerLoading(false);
       }
-    }, 20000);
+    }, 30000);
   }, []);
 
   const startPlayback = useCallback(async (channel: TVChannel) => {
@@ -479,8 +529,8 @@ const TVPage = () => {
 
       <div className="pt-16 sm:pt-20 lg:pt-24 pb-24 sm:pb-12">
         {/* ===== HEADER ===== */}
-        <div className="mx-auto px-4 sm:px-6 mb-4">
-          <div className="flex flex-col items-center text-center gap-1 mb-4">
+        <div className="mx-auto px-4 sm:px-6 mb-5">
+          <div className="flex flex-col items-center text-center gap-1 mb-5">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-500/20 to-primary/20 flex items-center justify-center border border-white/5">
                 <Tv2 className="w-5 h-5 text-primary" />
@@ -493,31 +543,30 @@ const TVPage = () => {
                 </span>
               </h1>
             </div>
-            <p className="text-[10px] sm:text-xs text-muted-foreground flex items-center gap-1.5">
-              <Signal className="w-3 h-3" />
-              {channels.length} canais ao vivo • Transmissão em tempo real
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+              {channels.length} canais totalmente grátis pra você assistir
             </p>
           </div>
 
-          {/* Search — right-aligned */}
-          <div className="flex justify-center mb-3">
-            <div className="relative w-full sm:w-80">
+          {/* Search — centered */}
+          <div className="flex justify-center mb-4">
+            <div className="relative w-full sm:w-96">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 type="text"
                 placeholder="Buscar canal..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full h-9 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
+                className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
               />
             </div>
           </div>
 
-          {/* Category filter */}
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1">
+          {/* Category filter — below search */}
+          <div className="flex flex-wrap justify-center gap-2 pb-1">
             <button
               onClick={() => setActiveCategory(0)}
-              className={`flex-shrink-0 px-4 py-2 rounded-xl text-[13px] font-medium transition-all ${
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
                 activeCategory === 0
                   ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
                   : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
@@ -529,7 +578,7 @@ const TVPage = () => {
               <button
                 key={cat.id}
                 onClick={() => setActiveCategory(cat.id)}
-                className={`flex-shrink-0 px-4 py-2 rounded-xl text-[13px] font-medium transition-all whitespace-nowrap ${
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
                   activeCategory === cat.id
                     ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
                     : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
