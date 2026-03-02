@@ -439,7 +439,7 @@ const TVPage = () => {
 
       <div className="pt-16 sm:pt-20 lg:pt-24 pb-24 sm:pb-12">
         {/* ===== HEADER ===== */}
-        <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 mb-5">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-8 lg:px-12 mb-5">
           <div className="flex items-center gap-3 mb-1">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-500/20 to-primary/20 flex items-center justify-center border border-white/5">
               <Tv2 className="w-5 h-5 text-primary" />
@@ -462,7 +462,7 @@ const TVPage = () => {
 
         {/* ===== PLAYER AREA ===== */}
         {selectedChannel && (
-          <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8 mb-6">
+          <div className="max-w-[1400px] mx-auto px-4 sm:px-8 lg:px-12 mb-6">
             <div
               ref={playerContainerRef}
               className="relative w-full aspect-video rounded-2xl overflow-hidden bg-black border border-white/5"
@@ -562,7 +562,7 @@ const TVPage = () => {
         )}
 
         {/* ===== CHANNEL LIST ===== */}
-        <div className="max-w-[1400px] mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-8 lg:px-12">
           {/* Search */}
           <div className="flex justify-center mb-5">
             <div className="relative w-full sm:w-96">
@@ -624,7 +624,7 @@ const TVPage = () => {
                     <span className="text-[10px] text-muted-foreground/50 bg-white/5 px-1.5 py-0.5 rounded-md">{catChannels.length}</span>
                     <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/30 ml-auto" />
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
                     {catChannels.map((channel) => {
                       const isSelected = selectedChannel?.id === channel.id;
                       const imgUrl = channel.image_url && channel.image_url.trim() !== "" ? channel.image_url : null;
@@ -652,12 +652,12 @@ const TVPage = () => {
                           )}
 
                           {/* Channel image */}
-                          <div className="aspect-video flex items-center justify-center p-3 sm:p-4 bg-gradient-to-br from-white/[0.03] to-transparent">
+                          <div className="aspect-video flex items-center justify-center p-4 sm:p-5 bg-gradient-to-br from-white/[0.03] to-transparent">
                             {imgUrl ? (
                               <img
                                 src={imgUrl}
                                 alt={channel.name}
-                                className="w-full h-full object-contain max-h-12 sm:max-h-16 transition-transform duration-200 group-hover:scale-110"
+                                className="w-full h-full object-contain max-h-16 sm:max-h-20 transition-transform duration-200 group-hover:scale-110"
                                 loading="lazy"
                                 decoding="async"
                                 onError={(e) => {
@@ -676,20 +676,20 @@ const TVPage = () => {
                               className="items-center justify-center"
                               style={{ display: imgUrl ? "none" : "flex" }}
                             >
-                              <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-                                <span className="text-xs sm:text-sm font-bold text-primary">{channelInitials(channel.name)}</span>
+                              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+                                <span className="text-sm sm:text-base font-bold text-primary">{channelInitials(channel.name)}</span>
                               </div>
                             </div>
                           </div>
 
                           {/* Channel info */}
-                          <div className="px-2 sm:px-2.5 pb-2.5 pt-0.5">
-                            <h3 className="text-[10px] sm:text-xs font-semibold line-clamp-1 text-foreground group-hover:text-primary transition-colors">
+                          <div className="px-2.5 sm:px-3 pb-3 pt-1">
+                            <h3 className="text-xs sm:text-sm font-semibold line-clamp-1 text-foreground group-hover:text-primary transition-colors">
                               {channel.name}
                             </h3>
                             <div className="flex items-center justify-between mt-1">
-                              <p className="text-[8px] sm:text-[9px] text-muted-foreground/60">{channel.category}</p>
-                              <Play className="w-3 h-3 text-primary/60 group-hover:text-primary transition-colors" />
+                              <p className="text-[9px] sm:text-[10px] text-muted-foreground/60">{channel.category}</p>
+                              <Play className="w-3.5 h-3.5 text-primary/60 group-hover:text-primary transition-colors" />
                             </div>
                           </div>
 
