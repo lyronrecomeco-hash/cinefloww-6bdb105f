@@ -24,6 +24,11 @@ function normalizeCategory(raw: string): string {
     .trim();
 }
 
+/** Remove /live/ segment from stream URLs — fixes broken channels */
+function cleanStreamUrl(url: string): string {
+  return url.replace(/\/live\//gi, "/");
+}
+
 /** Generate a stable numeric ID from category name */
 function categoryHash(name: string): number {
   let hash = 0;
@@ -149,7 +154,7 @@ Deno.serve(async (req) => {
         id: slug,
         name: ch.title,
         image_url: ch.poster && ch.poster !== "" ? ch.poster : null,
-        stream_url: ch.stream_url,
+        stream_url: cleanStreamUrl(ch.stream_url),
         category: catName || ch.category,
         categories: catId ? [catId] : [],
         active: true,
@@ -175,13 +180,23 @@ Deno.serve(async (req) => {
 
     // Remove channels NOT from the API (old manual entries)
     const apiIds = Array.from(seen);
-    const { data: allDbChannels } = await supabase
-      .from("tv_channels")
-      .select("id");
-    if (allDbChannels) {
-      const toDelete = allDbChannels
-        .map(c => c.id)
-        .filter(id => !apiIds.includes(id));
+    // Fetch ALL existing channel IDs (handle >1000 rows)
+    let allDbIds: string[] = [];
+    let offset = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data: batch } = await supabase
+        .from("tv_channels")
+        .select("id")
+        .range(offset, offset + PAGE - 1);
+      if (!batch || batch.length === 0) break;
+      allDbIds.push(...batch.map(c => c.id));
+      if (batch.length < PAGE) break;
+      offset += PAGE;
+    }
+    if (allDbIds.length > 0) {
+      const apiIdSet = new Set(apiIds);
+      const toDelete = allDbIds.filter(id => !apiIdSet.has(id));
       if (toDelete.length > 0) {
         for (let i = 0; i < toDelete.length; i += 50) {
           const batch = toDelete.slice(i, i + 50);
