@@ -92,7 +92,7 @@ const TVPage = () => {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const [chRes, catRes] = await Promise.all([
-      supabase.from("tv_channels").select("id,name,image_url,stream_url,category,categories,active").eq("active", true).order("sort_order").limit(2000),
+      supabase.from("tv_channels").select("id,name,image_url,stream_url,category,categories,active").order("sort_order").limit(2000),
       supabase.from("tv_categories").select("*").order("sort_order"),
     ]);
     const rawChannels = (chRes.data as TVChannel[]) || [];
