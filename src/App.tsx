@@ -99,8 +99,8 @@ const App = () => (
             <Route path="/player/:type/:id" element={<PlayerPage />} />
             <Route path="/lynetv" element={<TVPage />} />
             <Route path="/lynetv/:channelId" element={<TVPage />} />
-            <Route path="/download" element={<TVDownloadPage />} />
-            <Route path="/download/:channelId" element={<TVDownloadPage />} />
+            {/* <Route path="/download" element={<TVDownloadPage />} /> */}
+            {/* <Route path="/download/:channelId" element={<TVDownloadPage />} /> */}
             <Route path="/dmca" element={<DmcaPage />} />
             <Route path="/termos" element={<TermsPage />} />
             <Route path="/dados" element={<DadosPage />} />
