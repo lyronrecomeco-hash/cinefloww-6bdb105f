@@ -53,8 +53,6 @@ function deobfuscateUrl(encoded: string): string {
 }
 
 /** Visible items limit for initial render */
-const INITIAL_VISIBLE = 120;
-const LOAD_MORE_STEP = 120;
 
 const TVPage = () => {
   const { channelId } = useParams<{ channelId?: string }>();
@@ -63,9 +61,7 @@ const TVPage = () => {
   const [activeCategory, setActiveCategory] = useState(0);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE);
   const navigate = useNavigate();
-  const listEndRef = useRef<HTMLDivElement>(null);
 
   // Player state
   const [selectedChannel, setSelectedChannel] = useState<TVChannel | null>(null);
@@ -139,24 +135,6 @@ const TVPage = () => {
     return () => { hlsRef.current?.destroy(); };
   }, []);
 
-  // Infinite scroll — load more channels when scrolling near bottom
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setVisibleCount(prev => prev + LOAD_MORE_STEP);
-        }
-      },
-      { rootMargin: "400px" }
-    );
-    if (listEndRef.current) observer.observe(listEndRef.current);
-    return () => observer.disconnect();
-  }, [loading]);
-
-  // Reset visible count when filter changes
-  useEffect(() => {
-    setVisibleCount(INITIAL_VISIBLE);
-  }, [activeCategory, search]);
 
   /** Get real stream URL from obfuscated store */
   const getRealStreamUrl = useCallback((channelId: string): string => {
@@ -494,10 +472,9 @@ const TVPage = () => {
     });
   }, [categories]);
 
-  // Group by category — only take visibleCount items
+  // Group by category — show ALL filtered channels
   const sortedGroups = useMemo(() => {
-    const limited = filtered.slice(0, visibleCount);
-    const grouped = limited.reduce<Record<string, TVChannel[]>>((acc, ch) => {
+    const grouped = filtered.reduce<Record<string, TVChannel[]>>((acc, ch) => {
       const cat = ch.category || "Outros";
       if (!acc[cat]) acc[cat] = [];
       acc[cat].push(ch);
@@ -505,13 +482,13 @@ const TVPage = () => {
     }, {});
     const catOrder = categories.reduce<Record<string, number>>((m, c) => { m[c.name] = c.sort_order; return m; }, {});
     return Object.entries(grouped).sort(([a], [b]) => (catOrder[a] ?? 999) - (catOrder[b] ?? 999));
-  }, [filtered, categories, visibleCount]);
+  }, [filtered, categories]);
 
   const channelInitials = (name: string) => {
     return name.split(" ").slice(0, 2).map(w => w?.[0] || "").join("").toUpperCase();
   };
 
-  const hasMore = visibleCount < filtered.length;
+  
 
   return (
     <div className="min-h-screen bg-background">
@@ -528,9 +505,9 @@ const TVPage = () => {
       )}
 
       <div className="pt-16 sm:pt-20 lg:pt-24 pb-24 sm:pb-12">
-        {/* ===== HEADER ===== */}
-        <div className="mx-auto px-4 sm:px-6 mb-5">
-          <div className="flex flex-col items-center text-center gap-1 mb-5">
+        {/* ===== HEADER (title + description only) ===== */}
+        <div className="mx-auto px-4 sm:px-6 mb-4">
+          <div className="flex flex-col items-center text-center gap-1">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-red-500/20 to-primary/20 flex items-center justify-center border border-white/5">
                 <Tv2 className="w-5 h-5 text-primary" />
@@ -546,47 +523,6 @@ const TVPage = () => {
             <p className="text-xs sm:text-sm text-muted-foreground mt-1">
               {channels.length} canais totalmente grátis pra você assistir
             </p>
-          </div>
-
-          {/* Search — centered */}
-          <div className="flex justify-center mb-4">
-            <div className="relative w-full sm:w-96">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                type="text"
-                placeholder="Buscar canal..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
-              />
-            </div>
-          </div>
-
-          {/* Category filter — below search */}
-          <div className="flex flex-wrap justify-center gap-2 pb-1">
-            <button
-              onClick={() => setActiveCategory(0)}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
-                activeCategory === 0
-                  ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
-                  : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
-              }`}
-            >
-              Todos
-            </button>
-            {uniqueCategories.map((cat) => (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(cat.id)}
-                className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
-                  activeCategory === cat.id
-                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
-                    : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
-                }`}
-              >
-                {cat.name}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -698,6 +634,47 @@ const TVPage = () => {
           </div>
         )}
 
+        {/* ===== SEARCH + CATEGORIES (below player, above channels) ===== */}
+        <div className="mx-auto px-4 sm:px-6 mb-5">
+          <div className="flex justify-center mb-3">
+            <div className="relative w-full sm:w-96">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Buscar canal..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full h-10 pl-10 pr-4 rounded-xl bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20 transition-all"
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap justify-center gap-2">
+            <button
+              onClick={() => setActiveCategory(0)}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${
+                activeCategory === 0
+                  ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
+                  : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
+              }`}
+            >
+              Todos
+            </button>
+            {uniqueCategories.map((cat) => (
+              <button
+                key={cat.id}
+                onClick={() => setActiveCategory(cat.id)}
+                className={`px-4 py-2 rounded-full text-sm font-medium transition-all whitespace-nowrap ${
+                  activeCategory === cat.id
+                    ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25"
+                    : "bg-white/5 border border-white/10 text-muted-foreground hover:bg-white/10"
+                }`}
+              >
+                {cat.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* ===== CHANNEL LIST ===== */}
         <div className="mx-auto px-4 sm:px-6">
           {/* Channels grid */}
@@ -798,12 +775,6 @@ const TVPage = () => {
                 </div>
               ))}
 
-              {/* Infinite scroll sentinel */}
-              {hasMore && (
-                <div ref={listEndRef} className="flex justify-center py-8">
-                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                </div>
-              )}
             </div>
           )}
         </div>
