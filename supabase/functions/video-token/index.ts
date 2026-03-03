@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
       const rangeHeader = req.headers.get("Range");
       if (rangeHeader) fetchHeaders["Range"] = rangeHeader;
 
-      const mediaResp = await fetch(realUrl, { headers: fetchHeaders });
+      const mediaResp = await fetch(realUrl, { headers: fetchHeaders, redirect: "follow" });
       if (!mediaResp.ok && mediaResp.status !== 206) {
         return new Response("Upstream error", { status: 502, headers: corsHeaders });
       }
