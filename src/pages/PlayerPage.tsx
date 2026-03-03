@@ -4,7 +4,7 @@ import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
 import { fromSlug } from "@/lib/slugify";
 import { toSlug } from "@/lib/slugify";
-// secureVideoUrl not needed for CineVeo direct links
+import { getSignedVideoUrl } from "@/lib/videoUrl";
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Settings, AlertTriangle,
