@@ -22,8 +22,6 @@ export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
   // CineVeo MP4 direct links work fine without crossOrigin (player removes it for MP4)
   const directHosts = [
     "cdf.lyneflix.online/vd/",
-    "cinetvembed.cineveo.site/",
-    "cdn.cineveo.site/",
     ".m3u8",
   ];
   if (directHosts.some((h) => lowerUrl.includes(h))) return rawUrl;

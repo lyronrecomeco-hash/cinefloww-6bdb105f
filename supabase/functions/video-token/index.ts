@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cf-fp",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cf-fp, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
 // HMAC-SHA256 signing using Web Crypto API
@@ -190,8 +190,10 @@ Deno.serve(async (req) => {
       }
 
       const fetchHeaders: Record<string, string> = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Referer": new URL(realUrl).origin + "/",
+        "Connection": "keep-alive",
+        "Accept": "*/*",
       };
 
       // For HLS manifests, proxy and rewrite segment URLs
@@ -222,7 +224,7 @@ Deno.serve(async (req) => {
       const rangeHeader = req.headers.get("Range");
       if (rangeHeader) fetchHeaders["Range"] = rangeHeader;
 
-      const mediaResp = await fetch(realUrl, { headers: fetchHeaders });
+      const mediaResp = await fetch(realUrl, { headers: fetchHeaders, redirect: "follow" });
       if (!mediaResp.ok && mediaResp.status !== 206) {
         return new Response("Upstream error", { status: 502, headers: corsHeaders });
       }

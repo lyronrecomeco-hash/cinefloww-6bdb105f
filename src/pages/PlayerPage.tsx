@@ -4,7 +4,7 @@ import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
 import { fromSlug } from "@/lib/slugify";
 import { toSlug } from "@/lib/slugify";
-// secureVideoUrl not needed for CineVeo direct links
+import { getSignedVideoUrl } from "@/lib/videoUrl";
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Settings, AlertTriangle,
@@ -185,22 +185,35 @@ const PlayerPage = () => {
     setNoSources(false);
     fallbackTriedRef.current = false;
 
-    // Build URL directly — no network call needed
-    let url: string;
+    // Build CineVeo URL
+    let rawUrl: string;
     if (params.type === "movie") {
-      url = `${CINEVEO_BASE}/movie/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}.mp4`;
+      rawUrl = `${CINEVEO_BASE}/movie/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}.mp4`;
     } else {
       const s = season || 1;
       const e = episode || 1;
-      url = `${CINEVEO_BASE}/series/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}/${s}/${e}.mp4`;
+      rawUrl = `${CINEVEO_BASE}/series/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}/${s}/${e}.mp4`;
     }
 
-    setBankSources([{
-      url,
-      quality: "auto",
-      provider: "cineveo-direct",
-      type: "mp4",
-    }]);
+    // Sign through video-token proxy for proper headers (UA, Referer)
+    try {
+      const signedUrl = await getSignedVideoUrl(rawUrl);
+      const isProxied = signedUrl.includes("video-token");
+      setBankSources([{
+        url: signedUrl,
+        quality: "auto",
+        provider: isProxied ? "cineveo-proxied" : "cineveo-direct",
+        type: "mp4",
+      }]);
+    } catch {
+      // Fallback to raw URL if signing fails
+      setBankSources([{
+        url: rawUrl,
+        quality: "auto",
+        provider: "cineveo-direct",
+        type: "mp4",
+      }]);
+    }
     setBankLoading(false);
   }, [params.id, params.type, season, episode, tmdbId]);
 
