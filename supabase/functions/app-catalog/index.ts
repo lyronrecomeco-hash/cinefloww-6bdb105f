@@ -1,14 +1,15 @@
 /**
  * app-catalog: Public API for the Android app to consume the same catalog as the website.
  * No HMAC, no bot detection — lightweight and fast.
- * 
+ *
  * Endpoints (via `action` field):
  *   "home"       → Returns all home sections (trending, popular, recently added, doramas, animes)
  *   "movies"     → Paginated movies from TMDB (same as site /filmes)
  *   "series"     → Paginated series from TMDB (same as site /series)
- *   "doramas"    → Paginated doramas from catalog Storage
- *   "animes"     → Paginated animes from catalog Storage + TMDB fallback
+ *   "doramas"    → Paginated doramas from CineVeo API
+ *   "animes"     → Paginated animes from TMDB discover
  *   "detail"     → Full detail for a title (TMDB + CineVeo episodes)
+ *   "season"     → Season episodes (TMDB metadata + CineVeo stream URLs)
  *   "search"     → Search by title
  */
 
@@ -66,7 +67,6 @@ async function getNowPlaying() {
     ...(movies?.results?.slice(0, 10) || []).map((m: any) => ({ ...m, media_type: "movie" })),
     ...(series?.results?.slice(0, 10) || []).map((s: any) => ({ ...s, media_type: "tv" })),
   ].filter((m: any) => m.poster_path);
-  // Sort by year desc
   combined.sort((a: any, b: any) => {
     const ya = (a.release_date || a.first_air_date || "").substring(0, 4);
     const yb = (b.release_date || b.first_air_date || "").substring(0, 4);
@@ -75,13 +75,14 @@ async function getNowPlaying() {
   return combined;
 }
 
-async function getAnimesTMDB() {
+async function getAnimesTMDB(page = 1) {
   const data = await tmdbFetch("/discover/tv", {
+    page: String(page),
     with_genres: "16",
     sort_by: "popularity.desc",
     with_original_language: "ja",
   });
-  return data?.results?.filter((m: any) => m.poster_path) || [];
+  return { results: data?.results?.filter((m: any) => m.poster_path) || [], total_pages: data?.total_pages || 1 };
 }
 
 async function getReleases2026() {
@@ -132,25 +133,58 @@ async function fetchCatalogRow(type: string, limit = 20): Promise<any[]> {
 }
 
 // ========== CineVeo helpers ==========
+async function fetchCineVeoPage(type: string, page: number): Promise<{ items: any[]; totalPages: number }> {
+  try {
+    const url = `${CINEVEO_API}?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=${type}&page=${page}`;
+    const res = await fetch(url, {
+      headers: { "User-Agent": CINEVEO_UA, Accept: "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return { items: [], totalPages: 0 };
+    const payload = await res.json();
+    const items = Array.isArray(payload?.data) ? payload.data : [];
+    const totalPages = payload?.pagination?.total_pages || 1;
+    return { items, totalPages };
+  } catch {
+    return { items: [], totalPages: 0 };
+  }
+}
+
+// Fetch doramas from CineVeo (type=dorama)
+async function getCineVeoDoramas(page = 1): Promise<{ items: any[]; total_pages: number }> {
+  const { items, totalPages } = await fetchCineVeoPage("dorama", page);
+  const mapped = items
+    .filter((i: any) => i.poster && !i.poster.includes("no-poster"))
+    .map((i: any) => ({
+      id: i.tmdb_id || i.id,
+      tmdb_id: Number(i.tmdb_id) || 0,
+      title: i.title || "",
+      poster_path: i.poster?.startsWith("/") ? i.poster : (i.poster?.includes("image.tmdb.org") ? i.poster.split("image.tmdb.org/t/p/")[1]?.replace(/^w\d+/, "") : i.poster),
+      backdrop_path: i.backdrop || null,
+      vote_average: Number(i.rating) || 0,
+      release_date: i.year ? `${i.year}-01-01` : "",
+      media_type: "tv",
+      content_type: "dorama",
+    }));
+  return { items: mapped, total_pages: totalPages };
+}
+
+// Search CineVeo for a specific series by tmdb_id
 async function getCineVeoSeriesDetail(tmdbId: number): Promise<any | null> {
   try {
     for (let page = 1; page <= 80; page++) {
-      const url = `${CINEVEO_API}?username=${CINEVEO_USER}&password=${CINEVEO_PASS}&type=series&page=${page}`;
-      const res = await fetch(url, {
-        headers: { "User-Agent": CINEVEO_UA, Accept: "application/json" },
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) continue;
-      const payload = await res.json();
-      const items = Array.isArray(payload?.data) ? payload.data : [];
-      
+      const { items, totalPages } = await fetchCineVeoPage("series", page);
       for (const item of items) {
-        if (Number(item.tmdb_id) === tmdbId) {
-          return item;
-        }
+        if (Number(item.tmdb_id) === tmdbId) return item;
       }
-      
-      const totalPages = payload?.pagination?.total_pages || 1;
+      if (page >= totalPages) break;
+    }
+    // Also search in movies (some series are classified as movies in CineVeo)
+    for (let page = 1; page <= 80; page++) {
+      const { items, totalPages } = await fetchCineVeoPage("movies", page);
+      for (const item of items) {
+        if (Number(item.tmdb_id) === tmdbId) return item;
+      }
       if (page >= totalPages) break;
     }
   } catch (e) {
@@ -169,7 +203,7 @@ function checkRate(ip: string): boolean {
     return true;
   }
   entry.count++;
-  return entry.count <= 120; // 120 req/min
+  return entry.count <= 120;
 }
 
 // ========== Main handler ==========
@@ -188,27 +222,33 @@ Deno.serve(async (req) => {
     const { action, data = {} } = body;
 
     switch (action) {
-      // ====== HOME ======
+      // ====== HOME (matches website Index.tsx exactly) ======
       case "home": {
-        const [trending, nowPlaying, popularMovies, popularSeries, releases, doramas, animes, recentMovies, recentSeries] = await Promise.all([
+        const [trending, nowPlaying, popularMovies, popularSeries, releases, animes, recentMovies, recentSeries] = await Promise.all([
           getTrending().catch(() => []),
           getNowPlaying().catch(() => []),
           getPopularMovies().then(d => d.results).catch(() => []),
           getPopularSeries().then(d => d.results).catch(() => []),
           getReleases2026().catch(() => []),
-          fetchCatalogRow("dorama", 20).catch(() => []),
-          getAnimesTMDB().catch(() => []),
+          getAnimesTMDB().then(d => d.results).catch(() => []),
           fetchCatalogRow("movie", 10).catch(() => []),
           fetchCatalogRow("series", 10).catch(() => []),
         ]);
 
-        // Recently added (merged + sorted by date)
+        // Doramas from CineVeo (separate to not block main fetches)
+        let doramas: any[] = [];
+        try {
+          const cv = await getCineVeoDoramas(1);
+          doramas = cv.items.slice(0, 20);
+        } catch { /* ignore */ }
+
+        // Recently added from Storage catalog
         const recentlyAdded = [...recentMovies, ...recentSeries]
           .filter((i: any) => i.poster_path && i.backdrop_path && i.release_date !== "0001-01-01")
           .sort((a: any, b: any) => (b.release_date || "").localeCompare(a.release_date || ""))
           .slice(0, 20);
 
-        // Hero slider
+        // Hero slider: 2026 releases or trending
         const heroSlider = releases.length >= 3 ? releases : trending;
 
         return json({
@@ -224,7 +264,7 @@ Deno.serve(async (req) => {
         });
       }
 
-      // ====== MOVIES (paginated, same as site) ======
+      // ====== MOVIES (paginated via TMDB, same as site /filmes) ======
       case "movies": {
         const page = data.page || 1;
         const genreId = data.genre_id || undefined;
@@ -232,24 +272,23 @@ Deno.serve(async (req) => {
 
         let result;
         if (year) {
-          const params: Record<string, string> = { sort_by: "popularity.desc" };
+          const params: Record<string, string> = { sort_by: "popularity.desc", page: String(page) };
           if (genreId) params.with_genres = String(genreId);
           params["primary_release_date.gte"] = `${year}-01-01`;
           params["primary_release_date.lte"] = `${year}-12-31`;
-          const d = await tmdbFetch("/discover/movie", { page: String(page), ...params });
+          const d = await tmdbFetch("/discover/movie", params);
           result = { results: d?.results?.filter((m: any) => m.poster_path) || [], total_pages: d?.total_pages || 1 };
         } else {
           result = await getPopularMovies(page, genreId);
         }
 
-        return json({
-          items: result.results,
-          page,
-          total_pages: Math.min(result.total_pages, 500),
-        });
+        // Add media_type to each item
+        const items = result.results.map((m: any) => ({ ...m, media_type: "movie" }));
+
+        return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
       }
 
-      // ====== SERIES (paginated, same as site) ======
+      // ====== SERIES (paginated via TMDB, same as site /series) ======
       case "series": {
         const page = data.page || 1;
         const genreId = data.genre_id || undefined;
@@ -257,67 +296,41 @@ Deno.serve(async (req) => {
 
         let result;
         if (year) {
-          const params: Record<string, string> = { sort_by: "popularity.desc" };
+          const params: Record<string, string> = { sort_by: "popularity.desc", page: String(page) };
           if (genreId) params.with_genres = String(genreId);
           params["first_air_date.gte"] = `${year}-01-01`;
           params["first_air_date.lte"] = `${year}-12-31`;
-          const d = await tmdbFetch("/discover/tv", { page: String(page), ...params });
+          const d = await tmdbFetch("/discover/tv", params);
           result = { results: d?.results?.filter((m: any) => m.poster_path) || [], total_pages: d?.total_pages || 1 };
         } else {
           result = await getPopularSeries(page, genreId);
         }
 
-        return json({
-          items: result.results,
-          page,
-          total_pages: Math.min(result.total_pages, 500),
-        });
+        // Add media_type to each item
+        const items = result.results.map((m: any) => ({ ...m, media_type: "tv" }));
+
+        return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
       }
 
-      // ====== DORAMAS (from Storage catalog) ======
+      // ====== DORAMAS (from CineVeo API directly) ======
       case "doramas": {
         const page = data.page || 1;
-        const limit = data.limit || 42;
-        const offset = (page - 1) * limit;
-
-        const catalogPage = Math.floor(offset / 100) + 1;
-        const pageData = await fetchCatalogPage("dorama", catalogPage);
-        const items = (pageData.items || []).filter((i: any) =>
-          i.poster_path && !i.poster_path.includes("no-poster")
-        );
-        const total = pageData.total || 0;
-
-        return json({
-          items: items.slice(offset % 100, (offset % 100) + limit),
-          page,
-          total,
-          total_pages: Math.ceil(total / limit),
-        });
+        const result = await getCineVeoDoramas(page);
+        return json({ items: result.items, page, total_pages: result.total_pages });
       }
 
-      // ====== ANIMES (TMDB discover + catalog fallback) ======
+      // ====== ANIMES (TMDB discover, same as site) ======
       case "animes": {
         const page = data.page || 1;
-        const tmdbData = await tmdbFetch("/discover/tv", {
-          page: String(page),
-          with_genres: "16",
-          sort_by: "popularity.desc",
-          with_original_language: "ja",
-        });
-
-        const items = tmdbData?.results?.filter((m: any) => m.poster_path) || [];
-
-        return json({
-          items,
-          page,
-          total_pages: Math.min(tmdbData?.total_pages || 1, 500),
-        });
+        const result = await getAnimesTMDB(page);
+        const items = result.results.map((m: any) => ({ ...m, media_type: "tv" }));
+        return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
       }
 
       // ====== DETAIL (TMDB + CineVeo for series episodes) ======
       case "detail": {
         const tmdbId = data.tmdb_id;
-        const type = data.type || "movie"; // "movie" or "series"
+        const type = data.type || "movie";
         if (!tmdbId) return json({ error: "tmdb_id required" }, 400);
 
         const isSeries = type === "series" || type === "tv";
@@ -327,7 +340,6 @@ Deno.serve(async (req) => {
 
         if (!tmdbDetail) return json({ error: "Not found on TMDB" }, 404);
 
-        // For series, also fetch CineVeo data for episodes/seasons_count
         let cineveoData: any = null;
         let episodes: any[] = [];
         let seasonsCount = tmdbDetail.number_of_seasons || 0;
@@ -356,28 +368,18 @@ Deno.serve(async (req) => {
           imdb_id: tmdbDetail.imdb_id || tmdbDetail.external_ids?.imdb_id || null,
           tagline: tmdbDetail.tagline || "",
           type: isSeries ? "series" : "movie",
-          // Series-specific
           number_of_seasons: seasonsCount,
           number_of_episodes: tmdbDetail.number_of_episodes || 0,
           cineveo_episodes: episodes,
-          // Credits
           cast: (tmdbDetail.credits?.cast || []).slice(0, 15).map((c: any) => ({
-            name: c.name,
-            character: c.character,
-            profile_path: c.profile_path,
+            name: c.name, character: c.character, profile_path: c.profile_path,
           })),
-          // Similar
           similar: (tmdbDetail.similar?.results || []).slice(0, 10).map((s: any) => ({
-            id: s.id,
-            title: s.title || s.name,
-            poster_path: s.poster_path,
-            vote_average: s.vote_average,
-            media_type: s.title ? "movie" : "tv",
+            id: s.id, title: s.title || s.name, poster_path: s.poster_path,
+            vote_average: s.vote_average, media_type: s.title ? "movie" : "tv",
           })),
-          // Videos/trailers
           trailers: (tmdbDetail.videos?.results || [])
-            .filter((v: any) => v.site === "YouTube")
-            .slice(0, 3)
+            .filter((v: any) => v.site === "YouTube").slice(0, 3)
             .map((v: any) => ({ key: v.key, name: v.name, type: v.type })),
         });
       }
