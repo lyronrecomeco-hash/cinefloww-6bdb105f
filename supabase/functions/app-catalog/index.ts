@@ -347,7 +347,7 @@ Deno.serve(async (req) => {
       case "animes": {
         const page = data.page || 1;
         const result = await getAnimesTMDB(page);
-        const items = result.results.map((m: any) => ({ ...m, media_type: "tv" }));
+        const items = normalizeItems(result.results, "tv");
         return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
       }
 
