@@ -22,7 +22,8 @@ object SupabaseAuth {
 
     private const val TAG = "SupabaseAuth"
     private const val SUPABASE_URL = "https://mfcnkltcdvitxczjwoer.supabase.co"
-    private const val ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mY25rbHRjZHZpdHhjemp3b2VyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyMzExOTgsImV4cCI6MjA4NjgwNzE5OH0.g8R1h217oI-y7zeBsvN7kfE9aPMlQZEEEbRCQLAEbXA"
+    private const val ANON_KEY =
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mY25rbHRjZHZpdHhjemp3b2VyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyMzExOTgsImV4cCI6MjA4NjgwNzE5OH0.g8R1h217oI-y7zeBsvN7kfE9aPMlQZEEEbRCQLAEbXA"
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
     private val gson = Gson()
 
@@ -114,12 +115,13 @@ object SupabaseAuth {
                     }
                     if (accessToken != null && accessToken.isNotBlank()) {
                         saveTokens(json)
-                        AuthResult(
-                            success = true,
-                            userId = json.getAsJsonObject("user")?.get("id")?.asString
-                        )
+                        // Criar perfil padrão automaticamente
+                        val userId = json.getAsJsonObject("user")?.get("id")?.asString
+                        if (userId != null) {
+                            createDefaultProfile(name, accessToken, userId)
+                        }
+                        AuthResult(success = true, userId = userId)
                     } else {
-                        // E-mail precisa de confirmação
                         AuthResult(
                             success = true,
                             needsConfirmation = true,
@@ -221,12 +223,16 @@ object SupabaseAuth {
         val userId = currentUserId ?: return@withContext null
         val token = getToken() ?: return@withContext null
         try {
+            val existing = getProfiles()
+            val isFirst = existing.isEmpty()
+
             val body = gson.toJson(
                 mapOf(
                     "user_id" to userId,
                     "name" to name,
                     "avatar_index" to avatarIndex,
-                    "is_kids" to isKids
+                    "is_kids" to isKids,
+                    "is_default" to isFirst
                 )
             )
             val request = okhttp3.Request.Builder()
@@ -272,6 +278,32 @@ object SupabaseAuth {
     }
 
     // ── Internos ─────────────────────────────────────────────────────────────
+
+    private suspend fun createDefaultProfile(name: String, token: String, userId: String) {
+        try {
+            val body = gson.toJson(
+                mapOf(
+                    "user_id" to userId,
+                    "name" to name,
+                    "avatar_index" to 0,
+                    "is_kids" to false,
+                    "is_default" to true
+                )
+            )
+            val request = okhttp3.Request.Builder()
+                .url("$SUPABASE_URL/rest/v1/user_profiles")
+                .post(body.toRequestBody(JSON_TYPE))
+                .addHeader("apikey", ANON_KEY)
+                .addHeader("Authorization", "Bearer $token")
+                .addHeader("Content-Type", "application/json")
+                .addHeader("Prefer", "return=representation")
+                .build()
+            SafeHttpClient.instance.newCall(request).execute()
+            Log.i(TAG, "Perfil padrão criado para $name")
+        } catch (e: Exception) {
+            Log.w(TAG, "Erro ao criar perfil padrão: ${e.message}")
+        }
+    }
 
     private fun saveTokens(json: com.google.gson.JsonObject) {
         val accessToken = json.get("access_token")?.asString
