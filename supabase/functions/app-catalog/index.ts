@@ -193,6 +193,32 @@ async function getCineVeoSeriesDetail(tmdbId: number): Promise<any | null> {
   return null;
 }
 
+// ========== Normalize items for Android compatibility ==========
+function normalizeItem(item: any, fallbackMediaType?: string): any {
+  const normalized = { ...item };
+  // Ensure 'title' exists (TMDB TV shows use 'name')
+  if (!normalized.title && normalized.name) {
+    normalized.title = normalized.name;
+  }
+  // Ensure 'release_date' exists (TMDB TV shows use 'first_air_date')
+  if (!normalized.release_date && normalized.first_air_date) {
+    normalized.release_date = normalized.first_air_date;
+  }
+  // Ensure numeric 'id' (catalog items have string IDs like "ct-241372")
+  if (typeof normalized.id === "string" && normalized.tmdb_id) {
+    normalized.id = Number(normalized.tmdb_id) || 0;
+  }
+  // Ensure media_type
+  if (!normalized.media_type && fallbackMediaType) {
+    normalized.media_type = fallbackMediaType;
+  }
+  return normalized;
+}
+
+function normalizeItems(items: any[], fallbackMediaType?: string): any[] {
+  return items.map(i => normalizeItem(i, fallbackMediaType));
+}
+
 // ========== Rate limiting ==========
 const rateMap = new Map<string, { count: number; resetAt: number }>();
 function checkRate(ip: string): boolean {
@@ -252,14 +278,14 @@ Deno.serve(async (req) => {
         const heroSlider = releases.length >= 3 ? releases : trending;
 
         return json({
-          hero_slider: heroSlider.slice(0, 8),
+          hero_slider: normalizeItems(heroSlider.slice(0, 8), "movie"),
           sections: [
-            { id: "em_alta", title: "Em Alta", items: nowPlaying.slice(0, 20) },
-            { id: "ultimos_adicionados", title: "Últimos Adicionados", items: recentlyAdded },
-            { id: "filmes_populares", title: "Filmes Populares", items: popularMovies.slice(0, 20) },
-            { id: "series_populares", title: "Séries Populares", items: popularSeries.slice(0, 20) },
-            { id: "doramas", title: "Doramas", items: doramas },
-            { id: "animes", title: "Animes", items: animes.slice(0, 20) },
+            { id: "em_alta", title: "Em Alta", items: normalizeItems(nowPlaying.slice(0, 20)) },
+            { id: "ultimos_adicionados", title: "Últimos Adicionados", items: normalizeItems(recentlyAdded) },
+            { id: "filmes_populares", title: "Filmes Populares", items: normalizeItems(popularMovies.slice(0, 20), "movie") },
+            { id: "series_populares", title: "Séries Populares", items: normalizeItems(popularSeries.slice(0, 20), "tv") },
+            { id: "doramas", title: "Doramas", items: normalizeItems(doramas, "tv") },
+            { id: "animes", title: "Animes", items: normalizeItems(animes.slice(0, 20), "tv") },
           ],
         });
       }
@@ -282,8 +308,7 @@ Deno.serve(async (req) => {
           result = await getPopularMovies(page, genreId);
         }
 
-        // Add media_type to each item
-        const items = result.results.map((m: any) => ({ ...m, media_type: "movie" }));
+        const items = normalizeItems(result.results, "movie");
 
         return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
       }
@@ -306,8 +331,7 @@ Deno.serve(async (req) => {
           result = await getPopularSeries(page, genreId);
         }
 
-        // Add media_type to each item
-        const items = result.results.map((m: any) => ({ ...m, media_type: "tv" }));
+        const items = normalizeItems(result.results, "tv");
 
         return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
       }
@@ -316,14 +340,14 @@ Deno.serve(async (req) => {
       case "doramas": {
         const page = data.page || 1;
         const result = await getCineVeoDoramas(page);
-        return json({ items: result.items, page, total_pages: result.total_pages });
+        return json({ items: normalizeItems(result.items, "tv"), page, total_pages: result.total_pages });
       }
 
       // ====== ANIMES (TMDB discover, same as site) ======
       case "animes": {
         const page = data.page || 1;
         const result = await getAnimesTMDB(page);
-        const items = result.results.map((m: any) => ({ ...m, media_type: "tv" }));
+        const items = normalizeItems(result.results, "tv");
         return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
       }
 
@@ -430,7 +454,7 @@ Deno.serve(async (req) => {
         const query = data.query;
         if (!query || query.length < 2) return json({ error: "query min 2 chars" }, 400);
         const results = await searchTMDB(query);
-        return json({ results: results.slice(0, 30) });
+        return json({ results: normalizeItems(results.slice(0, 30)) });
       }
 
       default:
