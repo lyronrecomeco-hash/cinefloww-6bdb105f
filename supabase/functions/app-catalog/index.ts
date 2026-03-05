@@ -308,8 +308,7 @@ Deno.serve(async (req) => {
           result = await getPopularMovies(page, genreId);
         }
 
-        // Add media_type to each item
-        const items = result.results.map((m: any) => ({ ...m, media_type: "movie" }));
+        const items = normalizeItems(result.results, "movie");
 
         return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
       }
