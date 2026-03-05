@@ -278,14 +278,14 @@ Deno.serve(async (req) => {
         const heroSlider = releases.length >= 3 ? releases : trending;
 
         return json({
-          hero_slider: heroSlider.slice(0, 8),
+          hero_slider: normalizeItems(heroSlider.slice(0, 8), "movie"),
           sections: [
-            { id: "em_alta", title: "Em Alta", items: nowPlaying.slice(0, 20) },
-            { id: "ultimos_adicionados", title: "Últimos Adicionados", items: recentlyAdded },
-            { id: "filmes_populares", title: "Filmes Populares", items: popularMovies.slice(0, 20) },
-            { id: "series_populares", title: "Séries Populares", items: popularSeries.slice(0, 20) },
-            { id: "doramas", title: "Doramas", items: doramas },
-            { id: "animes", title: "Animes", items: animes.slice(0, 20) },
+            { id: "em_alta", title: "Em Alta", items: normalizeItems(nowPlaying.slice(0, 20)) },
+            { id: "ultimos_adicionados", title: "Últimos Adicionados", items: normalizeItems(recentlyAdded) },
+            { id: "filmes_populares", title: "Filmes Populares", items: normalizeItems(popularMovies.slice(0, 20), "movie") },
+            { id: "series_populares", title: "Séries Populares", items: normalizeItems(popularSeries.slice(0, 20), "tv") },
+            { id: "doramas", title: "Doramas", items: normalizeItems(doramas, "tv") },
+            { id: "animes", title: "Animes", items: normalizeItems(animes.slice(0, 20), "tv") },
           ],
         });
       }
