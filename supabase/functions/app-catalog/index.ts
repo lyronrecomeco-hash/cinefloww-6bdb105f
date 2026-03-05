@@ -193,6 +193,32 @@ async function getCineVeoSeriesDetail(tmdbId: number): Promise<any | null> {
   return null;
 }
 
+// ========== Normalize items for Android compatibility ==========
+function normalizeItem(item: any, fallbackMediaType?: string): any {
+  const normalized = { ...item };
+  // Ensure 'title' exists (TMDB TV shows use 'name')
+  if (!normalized.title && normalized.name) {
+    normalized.title = normalized.name;
+  }
+  // Ensure 'release_date' exists (TMDB TV shows use 'first_air_date')
+  if (!normalized.release_date && normalized.first_air_date) {
+    normalized.release_date = normalized.first_air_date;
+  }
+  // Ensure numeric 'id' (catalog items have string IDs like "ct-241372")
+  if (typeof normalized.id === "string" && normalized.tmdb_id) {
+    normalized.id = Number(normalized.tmdb_id) || 0;
+  }
+  // Ensure media_type
+  if (!normalized.media_type && fallbackMediaType) {
+    normalized.media_type = fallbackMediaType;
+  }
+  return normalized;
+}
+
+function normalizeItems(items: any[], fallbackMediaType?: string): any[] {
+  return items.map(i => normalizeItem(i, fallbackMediaType));
+}
+
 // ========== Rate limiting ==========
 const rateMap = new Map<string, { count: number; resetAt: number }>();
 function checkRate(ip: string): boolean {
