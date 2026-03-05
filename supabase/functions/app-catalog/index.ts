@@ -340,7 +340,7 @@ Deno.serve(async (req) => {
       case "doramas": {
         const page = data.page || 1;
         const result = await getCineVeoDoramas(page);
-        return json({ items: result.items, page, total_pages: result.total_pages });
+        return json({ items: normalizeItems(result.items, "tv"), page, total_pages: result.total_pages });
       }
 
       // ====== ANIMES (TMDB discover, same as site) ======
