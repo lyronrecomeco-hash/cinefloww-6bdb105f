@@ -454,7 +454,7 @@ Deno.serve(async (req) => {
         const query = data.query;
         if (!query || query.length < 2) return json({ error: "query min 2 chars" }, 400);
         const results = await searchTMDB(query);
-        return json({ results: results.slice(0, 30) });
+        return json({ results: normalizeItems(results.slice(0, 30)) });
       }
 
       default:
