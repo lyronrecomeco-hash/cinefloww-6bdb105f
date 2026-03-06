@@ -193,26 +193,29 @@ async function getCineVeoSeriesDetail(tmdbId: number): Promise<any | null> {
   return null;
 }
 
-// ========== Normalize items for Android compatibility ==========
+// ========== Normalize + strip items for Android compatibility ==========
+// Only send fields the Android parser needs — prevents Gson crashes from
+// unexpected arrays (genre_ids, origin_country) or null primitives.
 function normalizeItem(item: any, fallbackMediaType?: string): any {
-  const normalized = { ...item };
-  // Ensure 'title' exists (TMDB TV shows use 'name')
-  if (!normalized.title && normalized.name) {
-    normalized.title = normalized.name;
-  }
-  // Ensure 'release_date' exists (TMDB TV shows use 'first_air_date')
-  if (!normalized.release_date && normalized.first_air_date) {
-    normalized.release_date = normalized.first_air_date;
-  }
-  // Ensure numeric 'id' (catalog items have string IDs like "ct-241372")
-  if (typeof normalized.id === "string" && normalized.tmdb_id) {
-    normalized.id = Number(normalized.tmdb_id) || 0;
-  }
-  // Ensure media_type
-  if (!normalized.media_type && fallbackMediaType) {
-    normalized.media_type = fallbackMediaType;
-  }
-  return normalized;
+  const title = item.title || item.name || "";
+  const releaseDate = item.release_date || item.first_air_date || "";
+  const mediaType = item.media_type || fallbackMediaType || "";
+  let id = item.id;
+  if (typeof id === "string" && item.tmdb_id) id = Number(item.tmdb_id) || 0;
+  if (typeof id === "string") id = parseInt(id, 10) || 0;
+
+  return {
+    id: typeof id === "number" ? id : 0,
+    tmdb_id: Number(item.tmdb_id || item.id) || 0,
+    title,
+    poster_path: item.poster_path || null,
+    backdrop_path: item.backdrop_path || null,
+    vote_average: Number(item.vote_average) || 0,
+    release_date: releaseDate,
+    media_type: mediaType,
+    overview: item.overview || "",
+    content_type: item.content_type || null,
+  };
 }
 
 function normalizeItems(items: any[], fallbackMediaType?: string): any[] {
