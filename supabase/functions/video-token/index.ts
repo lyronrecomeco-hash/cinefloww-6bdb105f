@@ -269,8 +269,10 @@ Deno.serve(async (req) => {
       if (!encUrl) {
         return new Response("Bad Request", { status: 400, headers: corsHeaders });
       }
-      const segUrl = decryptUrl(decodeURIComponent(encUrl));
+      const segUrl = decryptUrl(encUrl);
+      console.log("[pmedia] Decrypted URL:", segUrl.substring(0, 80));
       if (!segUrl.startsWith("http")) {
+        console.error("[pmedia] Invalid URL after decrypt:", segUrl.substring(0, 50));
         return new Response("Bad Request", { status: 400, headers: corsHeaders });
       }
 
@@ -285,7 +287,10 @@ Deno.serve(async (req) => {
       if (rangeHeader) segHeaders["Range"] = rangeHeader;
 
       const segResp = await fetch(segUrl, { headers: segHeaders, redirect: "follow" });
+      console.log("[pmedia] Upstream status:", segResp.status);
       if (!segResp.ok && segResp.status !== 206) {
+        const errBody = await segResp.text().catch(() => "");
+        console.error("[pmedia] Upstream error:", segResp.status, errBody.substring(0, 200));
         return new Response("Upstream error", { status: 502, headers: corsHeaders });
       }
 
