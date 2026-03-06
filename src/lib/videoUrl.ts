@@ -1,92 +1,46 @@
 /**
- * Video URL security layer with signed tokens.
- * 
- * Tokens are ultra-short lived (60s) and bound to IP+UA.
- * Auto-refresh ensures continuous playback.
+ * Video URL layer — direct streaming, no proxy.
+ * Credentials are split/obfuscated to avoid plain-text scraping.
  */
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+// Obfuscated parts — reassembled at runtime
+const _h = [99,105,110,101,116,118,101,109,98,101,100,46,99,105,110,101,118,101,111,46,115,105,116,101]; // host
+const _u = [108,121,110,101,102,108,105,120,45,118,111,100,115]; // user
+const _p = [117,86,108,106,115,50,100]; // pass
 
-let _tokenCache: { rawUrl: string; streamUrl: string; expires: number } | null = null;
-const REFRESH_MARGIN_MS = 15_000;
+function _d(arr: number[]): string { return arr.map(c => String.fromCharCode(c)).join(""); }
 
+let _base: string | null = null;
+let _user: string | null = null;
+let _pass: string | null = null;
+
+function getBase(): string { if (!_base) _base = `https://${_d(_h)}`; return _base; }
+function getUser(): string { if (!_user) _user = _d(_u); return _user; }
+function getPass(): string { if (!_pass) _pass = _d(_p); return _pass; }
+
+/** Build a direct CineVeo movie URL */
+export function buildMovieUrl(tmdbId: number): string {
+  return `${getBase()}/movie/${getUser()}/${getPass()}/${tmdbId}.mp4`;
+}
+
+/** Build a direct CineVeo series episode URL */
+export function buildEpisodeUrl(tmdbId: number, season: number, episode: number): string {
+  return `${getBase()}/series/${getUser()}/${getPass()}/${tmdbId}/${season}/${episode}.mp4`;
+}
+
+/** Legacy compat — now just returns the URL directly (no proxy) */
 export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
-  if (!rawUrl) return rawUrl;
-  if (rawUrl.includes("action=stream") || rawUrl.includes("video-token")) return rawUrl;
-
-  // Cloudflare R2/CDN e CineVeo MP4 direto devem ir nativo no browser.
-  // Evita token/proxy desnecessário que pode quebrar alguns provedores.
-  const lowerUrl = rawUrl.toLowerCase();
-  // Direct hosts: URLs that work natively in browser without proxy
-  // CineVeo MP4 direct links work fine without crossOrigin (player removes it for MP4)
-  const directHosts = [
-    "cdf.lyneflix.online/vd/",
-    ".m3u8",
-  ];
-  if (directHosts.some((h) => lowerUrl.includes(h))) return rawUrl;
-
-  // Check cache
-  if (_tokenCache && _tokenCache.rawUrl === rawUrl && Date.now() < _tokenCache.expires - REFRESH_MARGIN_MS) {
-    return _tokenCache.streamUrl;
-  }
-
-  try {
-    // Use fetch (intercepted by networkCloak) with query param for action
-    const resp = await fetch(`${SUPABASE_URL}/functions/v1/video-token?action=sign`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": SUPABASE_KEY,
-        "Authorization": `Bearer ${SUPABASE_KEY}`,
-      },
-      body: JSON.stringify({ video_url: rawUrl }),
-    });
-
-    if (!resp.ok) {
-      console.warn("[videoUrl] Failed to sign URL, using raw:", resp.status);
-      return rawUrl;
-    }
-
-    const data = await resp.json();
-    if (!data.stream_url) return rawUrl;
-
-    _tokenCache = {
-      rawUrl,
-      streamUrl: data.stream_url,
-      expires: data.expires || Date.now() + 55_000,
-    };
-
-    return data.stream_url;
-  } catch (err) {
-    console.warn("[videoUrl] Token signing failed, using raw URL");
-    return rawUrl;
-  }
+  return rawUrl;
 }
 
-/**
- * Start auto-refreshing the token for continuous playback.
- * Returns a cleanup function to stop refreshing.
- */
-export function startTokenRefresh(rawUrl: string, onNewUrl: (url: string) => void): () => void {
-  let active = true;
-  
-  const refresh = async () => {
-    if (!active) return;
-    try {
-      _tokenCache = null;
-      const newUrl = await getSignedVideoUrl(rawUrl);
-      if (active) onNewUrl(newUrl);
-    } catch {}
-    if (active) setTimeout(refresh, 45_000);
-  };
-
-  const timer = setTimeout(refresh, 45_000);
-  return () => { active = false; clearTimeout(timer); };
+/** Legacy compat */
+export function startTokenRefresh(_rawUrl: string, _onNewUrl: (url: string) => void): () => void {
+  return () => {};
 }
 
+/** Legacy compat */
 export async function secureVideoUrl(rawUrl: string): Promise<string> {
-  return getSignedVideoUrl(rawUrl);
+  return rawUrl;
 }
 
 export function secureVideoUrlSync(rawUrl: string): string {
