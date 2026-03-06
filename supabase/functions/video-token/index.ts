@@ -172,23 +172,6 @@ Deno.serve(async (req) => {
         return new Response("Bad Request", { status: 400, headers: corsHeaders });
       }
 
-      // Cloudflare R2/CDF links can block server-side fetches with anti-bot HTML.
-      // For these hosts, keep token validation here and then redirect browser directly.
-      let realHost = "";
-      try { realHost = new URL(realUrl).hostname; } catch {}
-      if (realHost === "cdf.lyneflix.online" || realHost.endsWith(".lyneflix.online")) {
-        return new Response(null, {
-          status: 302,
-          headers: {
-            ...corsHeaders,
-            "Location": realUrl,
-            "Cache-Control": "no-store, private",
-            "Referrer-Policy": "no-referrer",
-            "X-Robots-Tag": "noindex",
-          },
-        });
-      }
-
       const fetchHeaders: Record<string, string> = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         "Referer": new URL(realUrl).origin + "/",
@@ -199,8 +182,11 @@ Deno.serve(async (req) => {
       // Determine the base URL for this proxy (so we can rewrite segment URLs)
       const proxyBase = `${Deno.env.get("SUPABASE_URL") || ""}/functions/v1/video-token`;
 
-      // For HLS manifests, proxy and rewrite ALL segment URLs through our proxy
-      if (realUrl.includes(".m3u8") || realUrl.includes("/master") || realUrl.includes("/playlist") || realUrl.includes("index-")) {
+      // Check if URL looks like HLS
+      const isHlsUrl = realUrl.includes(".m3u8") || realUrl.includes("/master") || realUrl.includes("/playlist") || realUrl.includes("index-");
+
+      if (isHlsUrl) {
+        // For HLS manifests, proxy and rewrite ALL segment URLs through our proxy
         const resp = await fetch(realUrl, { headers: fetchHeaders, redirect: "follow" });
         if (!resp.ok) {
           return new Response("Upstream error", { status: 502, headers: corsHeaders });
@@ -216,7 +202,7 @@ Deno.serve(async (req) => {
           return `${proxyBase}?action=pmedia&u=${encodeURIComponent(enc)}`;
         };
 
-        // Rewrite #EXT-X-MAP:URI (init segments)
+        // Rewrite #EXT-X-MAP:URI (init segments) — resolve to absolute
         body = body.replace(/#EXT-X-MAP:URI="([^"]+)"/g, (_full, uri) => {
           return `#EXT-X-MAP:URI="${toProxied(uri)}"`;
         });
@@ -236,30 +222,60 @@ Deno.serve(async (req) => {
         });
       }
 
-      // For MP4/other media — full body proxy with Range support
-      const rangeHeader = req.headers.get("Range");
-      if (rangeHeader) fetchHeaders["Range"] = rangeHeader;
+      // Non-HLS content (MP4, etc.)
+      // Edge functions can't reliably stream large files. Follow redirects to find
+      // the final URL, then check if it's actually HLS. If not, redirect browser.
+      const headResp = await fetch(realUrl, { method: "HEAD", headers: fetchHeaders, redirect: "follow" });
+      const finalUrl = headResp.url || realUrl;
+      const upstreamCT = headResp.headers.get("content-type") || "";
+      // Consume body to prevent resource leak
+      await headResp.text().catch(() => {});
 
-      const mediaResp = await fetch(realUrl, { headers: fetchHeaders, redirect: "follow" });
-      if (!mediaResp.ok && mediaResp.status !== 206) {
-        return new Response("Upstream error", { status: 502, headers: corsHeaders });
+      // Check if the redirected URL is actually HLS
+      const isActuallyHls = upstreamCT.includes("mpegurl") || finalUrl.includes(".m3u8");
+
+      if (isActuallyHls) {
+        // Fetch the manifest and rewrite it
+        const resp = await fetch(finalUrl, { headers: { ...fetchHeaders, "Referer": new URL(finalUrl).origin + "/" }, redirect: "follow" });
+        if (!resp.ok) {
+          return new Response("Upstream error", { status: 502, headers: corsHeaders });
+        }
+        let body = await resp.text();
+        const manifestBaseUrl = finalUrl.substring(0, finalUrl.lastIndexOf("/") + 1);
+        const toProxied = (segUrl: string): string => {
+          const abs = segUrl.startsWith("http") ? segUrl : manifestBaseUrl + segUrl;
+          const enc = encryptUrl(abs);
+          return `${proxyBase}?action=pmedia&u=${encodeURIComponent(enc)}`;
+        };
+        body = body.replace(/#EXT-X-MAP:URI="([^"]+)"/g, (_full, uri) => {
+          return `#EXT-X-MAP:URI="${toProxied(uri)}"`;
+        });
+        body = body.replace(/^(?!#)(\S+)$/gm, (match) => {
+          return toProxied(match.trim());
+        });
+        return new Response(body, {
+          headers: {
+            ...corsHeaders,
+            "Content-Type": "application/vnd.apple.mpegurl",
+            "Cache-Control": "no-store, private",
+            "X-Robots-Tag": "noindex",
+          },
+        });
       }
 
-      const responseHeaders: Record<string, string> = {
-        ...corsHeaders,
-        "Cache-Control": "no-store, private",
-        "X-Robots-Tag": "noindex",
-      };
-
-      for (const h of ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"]) {
-        const val = mediaResp.headers.get(h);
-        if (val) responseHeaders[h] = val;
-      }
-      if (!responseHeaders["Content-Type"]) responseHeaders["Content-Type"] = "video/mp4";
-
-      return new Response(mediaResp.body, {
-        status: mediaResp.status,
-        headers: responseHeaders,
+      // MP4/other: redirect browser to the final URL.
+      // Token was already validated above, so the user is authorized.
+      // no-referrer prevents the target from seeing our domain.
+      console.log("[stream] Redirecting to final URL:", finalUrl.substring(0, 80));
+      return new Response(null, {
+        status: 302,
+        headers: {
+          ...corsHeaders,
+          "Location": finalUrl,
+          "Cache-Control": "no-store, private",
+          "Referrer-Policy": "no-referrer",
+          "X-Robots-Tag": "noindex",
+        },
       });
     }
 
