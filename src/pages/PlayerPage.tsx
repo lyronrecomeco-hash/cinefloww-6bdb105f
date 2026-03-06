@@ -270,14 +270,23 @@ const PlayerPage = () => {
         const resolvedUrl = data.url as string;
         const provider = data.provider || "cineveo-api";
 
-        // ALWAYS try MP4 first (self-contained, no init segment issues), M3U8 as fallback
-        const sources: VideoSource[] = [];
+        // Route through video-token proxy for CORS bypass (required for CineVeo streams)
         const baseUrl = resolvedUrl.replace(/\.(m3u8|mp4)$/, "");
+        const mp4Raw = baseUrl + ".mp4";
+        const m3u8Raw = baseUrl + ".m3u8";
         
-        sources.push({ url: baseUrl + ".mp4", quality: "auto", provider: provider + "-mp4", type: "mp4" });
-        sources.push({ url: baseUrl + ".m3u8", quality: "auto", provider: provider + "-m3u8", type: "m3u8" });
+        // Sign both URLs through proxy
+        const [mp4Signed, m3u8Signed] = await Promise.all([
+          signVideoUrl(mp4Raw),
+          signVideoUrl(m3u8Raw),
+        ]);
 
-        console.log("[Player] Sources:", sources.map(s => `${s.type}:${s.url.substring(0, 60)}`));
+        const sources: VideoSource[] = [
+          { url: mp4Signed, quality: "auto", provider: provider + "-mp4", type: "mp4" },
+          { url: m3u8Signed, quality: "auto", provider: provider + "-m3u8", type: "m3u8" },
+        ];
+
+        console.log("[Player] Sources (proxied):", sources.map(s => `${s.type}:${s.url.substring(0, 80)}`));
         setBankSources(sources);
       } else {
         // Fallback: build direct URLs with both formats
