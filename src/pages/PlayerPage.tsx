@@ -281,17 +281,15 @@ const PlayerPage = () => {
         console.log("[Player] Source (m3u8 direct):", m3u8Url.substring(0, 100));
         setBankSources(sources);
       } else {
-        // Fallback: build direct URLs with both formats
+        // Fallback: build direct m3u8 URL
         const baseUrl = params.type === "movie"
           ? buildMovieUrl(tmdbId)
           : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
         
-        const mp4Url = baseUrl.replace(/\.m3u8$/, ".mp4");
         const m3u8Url = baseUrl.replace(/\.mp4$/, ".m3u8");
         
         setBankSources([
-          { url: mp4Url, quality: "auto", provider: "cineveo-direct", type: "mp4" },
-          { url: m3u8Url, quality: "auto", provider: "cineveo-direct-m3u8", type: "m3u8" },
+          { url: m3u8Url, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
         ]);
       }
       setBankLoading(false);
