@@ -193,11 +193,12 @@ const PlayerPage = () => {
     fallbackTriedRef.current = false;
     apiFallbackUrlRef.current = null;
 
-    // Build direct URL (no proxy)
+    // Build direct URL as instant starter (plays while API resolves)
     const rawUrl = params.type === "movie"
       ? buildMovieUrl(tmdbId)
       : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
 
+    // Start with direct URL immediately for speed
     setBankSources([{
       url: rawUrl,
       quality: "auto",
@@ -210,7 +211,7 @@ const PlayerPage = () => {
     supabase.functions.invoke("extract-video", {
       body: { tmdb_id: tmdbId, content_type: params.type === "movie" ? "movie" : "tv", season, episode },
     }).then(({ data, error: fnErr }) => {
-      if (!fnErr && data?.url && data.url !== rawUrl) {
+      if (!fnErr && data?.url) {
         console.log("[Player] Pre-fetched API URL ready:", data.url);
         apiFallbackUrlRef.current = {
           url: data.url,
