@@ -138,11 +138,6 @@ const PlayerPage = () => {
     return () => { cancelled = true; };
   }, [tmdbId, season, episode, contentType, bankTitle, audioParam, imdbId, params.id]);
 
-  // ⚡ INSTANT: Build CineVeo URL directly on client — zero Edge Function overhead
-  const CINEVEO_BASE = "https://cinetvembed.cineveo.site";
-  const CINEVEO_USER = "lyneflix-vods";
-  const CINEVEO_PASS = "uVljs2d";
-
   const extractionRef = useRef<string | null>(null);
   const fallbackTriedRef = useRef(false);
 
@@ -159,7 +154,6 @@ const PlayerPage = () => {
         console.warn("[Player] API fallback failed:", fnErr || "no url");
         return;
       }
-      // Only use if different from direct pattern
       const currentUrl = bankSources[0]?.url;
       if (data.url !== currentUrl) {
         console.log("[Player] API fallback got:", data.url);
@@ -171,7 +165,7 @@ const PlayerPage = () => {
         }]);
         setError(false);
         setLoading(true);
-        attachedSourceRef.current = null; // force re-attach
+        attachedSourceRef.current = null;
       }
     } catch (e) {
       console.warn("[Player] API fallback error:", e);
@@ -185,35 +179,17 @@ const PlayerPage = () => {
     setNoSources(false);
     fallbackTriedRef.current = false;
 
-    // Build CineVeo URL
-    let rawUrl: string;
-    if (params.type === "movie") {
-      rawUrl = `${CINEVEO_BASE}/movie/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}.mp4`;
-    } else {
-      const s = season || 1;
-      const e = episode || 1;
-      rawUrl = `${CINEVEO_BASE}/series/${CINEVEO_USER}/${CINEVEO_PASS}/${tmdbId}/${s}/${e}.mp4`;
-    }
+    // Build direct URL (no proxy)
+    const rawUrl = params.type === "movie"
+      ? buildMovieUrl(tmdbId)
+      : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
 
-    // Sign through video-token proxy for proper headers (UA, Referer)
-    try {
-      const signedUrl = await getSignedVideoUrl(rawUrl);
-      const isProxied = signedUrl.includes("video-token");
-      setBankSources([{
-        url: signedUrl,
-        quality: "auto",
-        provider: isProxied ? "cineveo-proxied" : "cineveo-direct",
-        type: "mp4",
-      }]);
-    } catch {
-      // Fallback to raw URL if signing fails
-      setBankSources([{
-        url: rawUrl,
-        quality: "auto",
-        provider: "cineveo-direct",
-        type: "mp4",
-      }]);
-    }
+    setBankSources([{
+      url: rawUrl,
+      quality: "auto",
+      provider: "cineveo-direct",
+      type: "mp4",
+    }]);
     setBankLoading(false);
   }, [params.id, params.type, season, episode, tmdbId]);
 
