@@ -183,7 +183,8 @@ const PlayerPage = () => {
           const vType: "mp4" | "m3u8" = useUrl.includes(".m3u8") ? "m3u8" : "mp4";
 
           console.log(`[Player] Retry got: ${useUrl.substring(0, 80)} (${vType})`);
-          attachedSourceRef.current = null; // Force re-attach
+          attachedSourceRef.current = null;
+          prevSourceUrl.current = null; // Force re-attach
           setBankSources([{
             url: useUrl,
             quality: "auto",
