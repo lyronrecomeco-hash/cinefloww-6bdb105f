@@ -474,13 +474,9 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    // Proxied URLs have CORS headers — set crossorigin. Direct URLs need no-referrer only.
-    const isProxied = src.url.includes("supabase.co") || src.url.includes("/functions/");
-    if (isProxied) {
-      video.setAttribute("crossorigin", "anonymous");
-    } else {
-      video.removeAttribute("crossorigin");
-    }
+    // MSE (used by hls.js) doesn't need crossorigin. Native video element does for CORS.
+    // NEVER set crossorigin — it causes opaque response issues with proxied streams.
+    video.removeAttribute("crossorigin");
     video.setAttribute("referrerpolicy", "no-referrer");
 
     const useNativeHLS = src.type === "m3u8" && !Hls.isSupported() && video.canPlayType("application/vnd.apple.mpegurl");
