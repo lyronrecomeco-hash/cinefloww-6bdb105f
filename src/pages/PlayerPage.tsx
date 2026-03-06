@@ -429,12 +429,40 @@ const PlayerPage = () => {
 
   // HLS / Video Attach - stabilized to prevent double loading
   const attachedSourceRef = useRef<string | null>(null);
-  const attachSource = useCallback((src: VideoSource, force = false) => {
+  const playAttemptRef = useRef(0); // Monotonic counter to cancel stale play attempts
+
+  const safePlay = useCallback((video: HTMLVideoElement) => {
+    const attempt = ++playAttemptRef.current;
+    video.play().then(() => {
+      if (attempt === playAttemptRef.current) setPlaying(true);
+    }).catch(() => {
+      if (attempt !== playAttemptRef.current) return; // Stale, ignore
+      console.log("[Player] Autoplay blocked, trying muted...");
+      video.muted = true;
+      setMuted(true);
+      video.play().then(() => {
+        if (attempt === playAttemptRef.current) setPlaying(true);
+      }).catch(() => {
+        if (attempt === playAttemptRef.current) setPlaying(false);
+      });
+    });
+  }, []);
+
+  // Stable ref-based attach to avoid dependency churn
+  const currentSourceIdxRef = useRef(currentSourceIdx);
+  currentSourceIdxRef.current = currentSourceIdx;
+  const sourcesLenRef = useRef(sources.length);
+  sourcesLenRef.current = sources.length;
+
+  const attachSource = useCallback((src: VideoSource) => {
     const video = videoRef.current;
     if (!video) return;
     const srcKey = src.url;
-    if (!force && attachedSourceRef.current === srcKey) return; // Already attached
+    if (attachedSourceRef.current === srcKey) return; // Already attached
     attachedSourceRef.current = srcKey;
+
+    // Cancel any pending play attempt
+    playAttemptRef.current++;
 
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
     setLoading(true);
@@ -443,12 +471,11 @@ const PlayerPage = () => {
     setCurrentLevel(-1);
 
     // NEVER set crossorigin for CineVeo streams — same approach as TV player
-    // This avoids CORS preflight blocks on m3u8 manifests and segments
     video.removeAttribute("crossorigin");
     video.setAttribute("referrerpolicy", "no-referrer");
 
-    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     const useNativeHLS = src.type === "m3u8" && !Hls.isSupported() && video.canPlayType("application/vnd.apple.mpegurl");
+
     if (src.type === "m3u8" && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
@@ -481,17 +508,7 @@ const PlayerPage = () => {
       hls.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
         setLoading(false);
         setHlsLevels(data.levels.map(l => ({ height: l.height, bitrate: l.bitrate })));
-        // Try play with sound first, fallback to muted autoplay
-        video.play().catch(() => {
-          console.log("[Player] Autoplay blocked, trying muted...");
-          video.muted = true;
-          setMuted(true);
-          video.play().catch((e2) => {
-            console.warn("[Player] Even muted play failed:", e2);
-            setPlaying(false);
-          });
-        });
-        // Enable subtitle tracks if available
+        safePlay(video);
         if (hls.subtitleTracks?.length > 0) {
           setCcTracks(Array.from(video.textTracks));
           hls.subtitleDisplay = ccEnabled;
@@ -508,15 +525,13 @@ const PlayerPage = () => {
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
             hls.startLoad();
-            // If network error persists, try next source after 5s
             setTimeout(() => {
               if (video.readyState < 3) {
                 console.log("[Player] HLS network error — trying next source");
-                const nextIdx = currentSourceIdx + 1;
-                if (nextIdx < sources.length) {
+                const nextIdx = currentSourceIdxRef.current + 1;
+                if (nextIdx < sourcesLenRef.current) {
                   setCurrentSourceIdx(nextIdx);
                 } else {
-                  // Auto-retry will pick up from here
                   setError(true);
                   setLoading(false);
                 }
@@ -525,9 +540,8 @@ const PlayerPage = () => {
           } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
             hls.recoverMediaError();
           } else {
-            // Try next source
-            const nextIdx = currentSourceIdx + 1;
-            if (nextIdx < sources.length) {
+            const nextIdx = currentSourceIdxRef.current + 1;
+            if (nextIdx < sourcesLenRef.current) {
               console.log("[Player] HLS fatal — switching to source", nextIdx);
               setCurrentSourceIdx(nextIdx);
             } else {
@@ -539,62 +553,50 @@ const PlayerPage = () => {
       });
       hls.on(Hls.Events.FRAG_LOADED, () => { setLoading(false); });
     } else if (useNativeHLS) {
-      // iOS native HLS — no crossOrigin, use native player inline
       video.src = src.url;
       video.addEventListener("loadedmetadata", () => {
         setLoading(false);
-        video.play().catch(() => {
-          video.muted = true;
-          setMuted(true);
-          video.play().catch(() => setPlaying(false));
-        });
+        safePlay(video);
       }, { once: true });
-      video.addEventListener("error", (e) => {
+      video.addEventListener("error", () => {
         console.error("[Player] iOS native HLS error:", (video as any).error);
         setError(true); setLoading(false);
       }, { once: true });
-      video.load(); // Force iOS to start loading
+      video.load();
     } else {
-      // MP4: play as soon as metadata is ready — don't wait for full buffer
+      // MP4
       video.preload = "auto";
       video.src = src.url;
       video.load();
-      // loadedmetadata fires MUCH faster than canplay/loadeddata for large MP4s
       video.addEventListener("loadedmetadata", () => {
         setLoading(false);
-        video.play().catch(() => {
-          console.log("[Player] MP4 autoplay blocked, trying muted...");
-          video.muted = true;
-          setMuted(true);
-          video.play().catch((e2) => {
-            console.warn("[Player] Even muted MP4 play failed:", e2);
-            setPlaying(false);
-          });
-        });
+        safePlay(video);
       }, { once: true });
     }
     if (!useNativeHLS) {
       video.addEventListener("error", () => {
-        // Try next source first, then API fallback
-        const nextIdx = currentSourceIdx + 1;
-        if (nextIdx < sources.length) {
+        const nextIdx = currentSourceIdxRef.current + 1;
+        if (nextIdx < sourcesLenRef.current) {
           console.log("[Player] Source error — trying next source", nextIdx);
           setCurrentSourceIdx(nextIdx);
         } else if (!fallbackTriedRef.current) {
           tryApiFallback();
         } else {
-          // Auto-retry will continue trying
           setError(true);
           setLoading(false);
         }
       }, { once: true });
     }
-  }, [ccEnabled, tryApiFallback, currentSourceIdx, sources.length]);
+  }, [ccEnabled, tryApiFallback, safePlay]);
 
+  // Only re-attach when the source URL actually changes
+  const prevSourceUrl = useRef<string | null>(null);
   useEffect(() => {
-    if (source) attachSource(source);
+    if (!source || source.url === prevSourceUrl.current) return;
+    prevSourceUrl.current = source.url;
+    attachSource(source);
     return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
-  }, [source, attachSource]);
+  }, [source?.url]);
 
   // Stall detector: if video has duration but currentTime stays 0 for 8s, force next source
   useEffect(() => {
