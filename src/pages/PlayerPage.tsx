@@ -481,7 +481,16 @@ const PlayerPage = () => {
       hls.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
         setLoading(false);
         setHlsLevels(data.levels.map(l => ({ height: l.height, bitrate: l.bitrate })));
-        video.play().catch(() => {});
+        // Try play with sound first, fallback to muted autoplay
+        video.play().catch(() => {
+          console.log("[Player] Autoplay blocked, trying muted...");
+          video.muted = true;
+          setMuted(true);
+          video.play().catch((e2) => {
+            console.warn("[Player] Even muted play failed:", e2);
+            setPlaying(false);
+          });
+        });
         // Enable subtitle tracks if available
         if (hls.subtitleTracks?.length > 0) {
           setCcTracks(Array.from(video.textTracks));
@@ -535,8 +544,9 @@ const PlayerPage = () => {
       video.addEventListener("loadedmetadata", () => {
         setLoading(false);
         video.play().catch(() => {
-          // iOS requires user gesture — show play button, don't error
-          setPlaying(false);
+          video.muted = true;
+          setMuted(true);
+          video.play().catch(() => setPlaying(false));
         });
       }, { once: true });
       video.addEventListener("error", (e) => {
@@ -552,7 +562,15 @@ const PlayerPage = () => {
       // loadedmetadata fires MUCH faster than canplay/loadeddata for large MP4s
       video.addEventListener("loadedmetadata", () => {
         setLoading(false);
-        video.play().catch(() => {});
+        video.play().catch(() => {
+          console.log("[Player] MP4 autoplay blocked, trying muted...");
+          video.muted = true;
+          setMuted(true);
+          video.play().catch((e2) => {
+            console.warn("[Player] Even muted MP4 play failed:", e2);
+            setPlaying(false);
+          });
+        });
       }, { once: true });
     }
     if (!useNativeHLS) {
@@ -577,6 +595,38 @@ const PlayerPage = () => {
     if (source) attachSource(source);
     return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
   }, [source, attachSource]);
+
+  // Stall detector: if video has duration but currentTime stays 0 for 8s, force next source
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !source) return;
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const checkStall = () => {
+      // If metadata loaded (duration > 0) but no frames decoded after 8s
+      if (video.duration > 0 && video.currentTime < 0.5 && !video.paused) {
+        console.log("[Player] Stall detected — no frames playing. Switching source...");
+        const nextIdx = currentSourceIdx + 1;
+        if (nextIdx < sources.length) {
+          attachedSourceRef.current = null;
+          setCurrentSourceIdx(nextIdx);
+        } else if (!fallbackTriedRef.current) {
+          tryApiFallback();
+        }
+      }
+    };
+
+    stallTimer = setTimeout(checkStall, 8000);
+    // Reset timer on any progress
+    const onProgress = () => {
+      if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+    };
+    video.addEventListener("timeupdate", onProgress);
+    return () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      video.removeEventListener("timeupdate", onProgress);
+    };
+  }, [source, currentSourceIdx, sources.length, tryApiFallback]);
 
   // Video events
   useEffect(() => {
@@ -834,7 +884,7 @@ const PlayerPage = () => {
       style={{ cursor: showControls ? "default" : "none" }}>
       
       {/* @ts-ignore referrerPolicy is valid HTML but not in React video types */}
-      <video ref={videoRef} className="w-full h-full object-contain" playsInline webkit-playsinline="true" preload="auto" autoPlay={false}
+      <video ref={videoRef} className="w-full h-full object-contain" playsInline webkit-playsinline="true" preload="auto" autoPlay
         onPlay={() => {
           if (watchRoom.isHost && watchRoom.room) {
             watchRoom.broadcastPlayback({ action: "play", position: videoRef.current?.currentTime || 0, timestamp: Date.now() });
