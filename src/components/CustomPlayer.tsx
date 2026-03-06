@@ -55,11 +55,9 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
     setLoading(true);
     setError(false);
 
-    // For mp4, use CORS only for protected token stream; keep direct links without crossorigin
+    // MP4: no crossorigin to avoid CORS issues with direct/rewrite streams
     if (src.type === "mp4") {
-      const isTokenStream = src.url.includes("/functions/v1/video-token") || src.url.includes(".supabase.co/functions/v1/video-token");
-      if (isTokenStream) video.crossOrigin = "anonymous";
-      else video.removeAttribute("crossorigin");
+      video.removeAttribute("crossorigin");
     } else {
       video.crossOrigin = "anonymous";
     }
