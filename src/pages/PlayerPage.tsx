@@ -270,20 +270,12 @@ const PlayerPage = () => {
         const resolvedUrl = data.url as string;
         const provider = data.provider || "cineveo-api";
 
-        // Build BOTH m3u8 and mp4 sources for automatic fallback
+        // ALWAYS try MP4 first (self-contained, no init segment issues), M3U8 as fallback
         const sources: VideoSource[] = [];
+        const baseUrl = resolvedUrl.replace(/\.(m3u8|mp4)$/, "");
         
-        if (resolvedUrl.includes(".m3u8")) {
-          // Primary: m3u8, Fallback: mp4 variant
-          sources.push({ url: resolvedUrl, quality: "auto", provider, type: "m3u8" });
-          sources.push({ url: resolvedUrl.replace(/\.m3u8$/, ".mp4"), quality: "auto", provider: provider + "-mp4", type: "mp4" });
-        } else if (resolvedUrl.includes(".mp4")) {
-          // Primary: mp4, Fallback: m3u8 variant
-          sources.push({ url: resolvedUrl, quality: "auto", provider, type: "mp4" });
-          sources.push({ url: resolvedUrl.replace(/\.mp4$/, ".m3u8"), quality: "auto", provider: provider + "-m3u8", type: "m3u8" });
-        } else {
-          sources.push({ url: resolvedUrl, quality: "auto", provider, type: "mp4" });
-        }
+        sources.push({ url: baseUrl + ".mp4", quality: "auto", provider: provider + "-mp4", type: "mp4" });
+        sources.push({ url: baseUrl + ".m3u8", quality: "auto", provider: provider + "-m3u8", type: "m3u8" });
 
         console.log("[Player] Sources:", sources.map(s => `${s.type}:${s.url.substring(0, 60)}`));
         setBankSources(sources);
