@@ -397,7 +397,12 @@ const PlayerPage = () => {
         levelLoadingTimeOut: 5000,
         levelLoadingMaxRetry: 2,
         backBufferLength: 15,
-        xhrSetup: (xhr) => { xhr.withCredentials = false; },
+        xhrSetup: (xhr) => {
+          xhr.withCredentials = false;
+        },
+        fetchSetup: (context: any, initParams: any) => {
+          return new Request(context.url, { ...initParams, referrerPolicy: "no-referrer" });
+        },
       } as any);
       hlsRef.current = hls;
       hls.loadSource(src.url);
