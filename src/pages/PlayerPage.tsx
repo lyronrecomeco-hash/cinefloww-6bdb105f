@@ -300,12 +300,17 @@ const PlayerPage = () => {
       startAutoRetry();
     } catch (e) {
       console.error("[Player] loadVideo error:", e);
-      const rawUrl = params.type === "movie"
-        ? buildMovieUrl(tmdbId).replace(/\.mp4$/, ".m3u8")
-        : buildEpisodeUrl(tmdbId, season || 1, episode || 1).replace(/\.mp4$/, ".m3u8");
-      setBankSources([
-        { url: rawUrl, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
-      ]);
+      try {
+        const rawUrl = params.type === "movie"
+          ? buildMovieUrl(tmdbId).replace(/\.mp4$/, ".m3u8")
+          : buildEpisodeUrl(tmdbId, season || 1, episode || 1).replace(/\.mp4$/, ".m3u8");
+        const signed = await signVideoUrl(rawUrl);
+        setBankSources([
+          { url: signed, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
+        ]);
+      } catch {
+        setBankSources([]);
+      }
       setBankLoading(false);
       startAutoRetry();
     }
