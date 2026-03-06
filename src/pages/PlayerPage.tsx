@@ -884,7 +884,7 @@ const PlayerPage = () => {
       style={{ cursor: showControls ? "default" : "none" }}>
       
       {/* @ts-ignore referrerPolicy is valid HTML but not in React video types */}
-      <video ref={videoRef} className="w-full h-full object-contain" playsInline webkit-playsinline="true" preload="auto" autoPlay={false}
+      <video ref={videoRef} className="w-full h-full object-contain" playsInline webkit-playsinline="true" preload="auto" autoPlay
         onPlay={() => {
           if (watchRoom.isHost && watchRoom.room) {
             watchRoom.broadcastPlayback({ action: "play", position: videoRef.current?.currentTime || 0, timestamp: Date.now() });
