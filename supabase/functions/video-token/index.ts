@@ -289,8 +289,7 @@ Deno.serve(async (req) => {
         if (!resp.ok) {
           return new Response("Upstream error", { status: 502, headers: corsHeaders });
         }
-        const body = await resp.text();
-        return rewriteManifest(finalUrl, body, hlsHeaders);
+        return rewriteManifest(finalUrl, resp);
       }
 
       // MP4/other: redirect browser to the final URL.
