@@ -298,10 +298,10 @@ const PlayerPage = () => {
     } catch (e) {
       console.error("[Player] loadVideo error:", e);
       const rawUrl = params.type === "movie"
-        ? buildMovieUrl(tmdbId)
-        : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
+        ? buildMovieUrl(tmdbId).replace(/\.mp4$/, ".m3u8")
+        : buildEpisodeUrl(tmdbId, season || 1, episode || 1).replace(/\.mp4$/, ".m3u8");
       setBankSources([
-        { url: rawUrl, quality: "auto", provider: "cineveo-direct", type: "mp4" },
+        { url: rawUrl, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
       ]);
       setBankLoading(false);
       startAutoRetry();
