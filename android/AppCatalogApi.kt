@@ -19,6 +19,7 @@ object AppCatalogApi {
 
     private const val TAG = "AppCatalogApi"
     private const val URL = "https://mfcnkltcdvitxczjwoer.supabase.co/functions/v1/app-catalog"
+    private const val ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mY25rbHRjZHZpdHhjemp3b2VyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyMzExOTgsImV4cCI6MjA4NjgwNzE5OH0.g8R1h217oI-y7zeBsvN7kfE9aPMlQZEEEbRCQLAEbXA"
     private val gson = Gson()
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
 
@@ -108,21 +109,24 @@ object AppCatalogApi {
         withContext(Dispatchers.IO) {
             try {
                 val body = gson.toJson(mapOf("action" to action, "data" to data))
+                Log.d(TAG, "[$action] POST body: $body")
                 val request = okhttp3.Request.Builder()
                     .url(URL)
                     .post(body.toRequestBody(JSON_TYPE))
                     .addHeader("Content-Type", "application/json")
+                    .addHeader("apikey", ANON_KEY)
                     .build()
                 val response = SafeHttpClient.instance.newCall(request).execute()
                 val responseBody = response.body?.string()
+                Log.d(TAG, "[$action] HTTP ${response.code} | ${responseBody?.length ?: 0} chars")
                 if (response.isSuccessful && !responseBody.isNullOrBlank()) {
                     responseBody
                 } else {
-                    Log.w(TAG, "[$action] HTTP ${response.code}")
+                    Log.w(TAG, "[$action] HTTP ${response.code} | body: ${responseBody?.take(200)}")
                     null
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "[$action] error: ${e.message}")
+                Log.e(TAG, "[$action] error: ${e.message}", e)
                 null
             }
         }

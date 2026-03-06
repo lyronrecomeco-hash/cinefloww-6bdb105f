@@ -56,3 +56,6 @@ verify_jwt = false
 
 [functions.sync-tv-api]
 verify_jwt = false
+
+[functions.app-catalog]
+verify_jwt = false
