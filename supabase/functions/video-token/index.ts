@@ -196,24 +196,34 @@ Deno.serve(async (req) => {
         "Accept": "*/*",
       };
 
-      // For HLS manifests, proxy and rewrite segment URLs
+      // Determine the base URL for this proxy (so we can rewrite segment URLs)
+      const proxyBase = `${Deno.env.get("SUPABASE_URL") || ""}/functions/v1/video-token`;
+
+      // For HLS manifests, proxy and rewrite ALL segment URLs through our proxy
       if (realUrl.includes(".m3u8") || realUrl.includes("/master") || realUrl.includes("/playlist") || realUrl.includes("index-")) {
-        const resp = await fetch(realUrl, { headers: fetchHeaders });
+        const resp = await fetch(realUrl, { headers: fetchHeaders, redirect: "follow" });
         if (!resp.ok) {
           return new Response("Upstream error", { status: 502, headers: corsHeaders });
         }
 
         let body = await resp.text();
         const manifestBaseUrl = realUrl.substring(0, realUrl.lastIndexOf("/") + 1);
-        // Rewrite relative segment URLs (.ts)
-        body = body.replace(/^(?!#)(.+\.ts.*)$/gm, (match) => {
-          if (match.startsWith("http")) return match;
-          return manifestBaseUrl + match;
-        });
-        // Rewrite relative #EXT-X-MAP:URI (init segments like .woff, .mp4, etc.)
+
+        // Helper: convert any URL to a proxied pmedia URL
+        const toProxied = (segUrl: string): string => {
+          const abs = segUrl.startsWith("http") ? segUrl : manifestBaseUrl + segUrl;
+          const enc = encryptUrl(abs);
+          return `${proxyBase}?action=pmedia&u=${encodeURIComponent(enc)}`;
+        };
+
+        // Rewrite #EXT-X-MAP:URI (init segments)
         body = body.replace(/#EXT-X-MAP:URI="([^"]+)"/g, (_full, uri) => {
-          if (uri.startsWith("http")) return `#EXT-X-MAP:URI="${uri}"`;
-          return `#EXT-X-MAP:URI="${manifestBaseUrl}${uri}"`;
+          return `#EXT-X-MAP:URI="${toProxied(uri)}"`;
+        });
+
+        // Rewrite non-comment lines (segment URLs like .ts, .woff2, etc.)
+        body = body.replace(/^(?!#)(\S+)$/gm, (match) => {
+          return toProxied(match.trim());
         });
 
         return new Response(body, {
