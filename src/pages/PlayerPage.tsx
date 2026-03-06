@@ -614,6 +614,7 @@ const PlayerPage = () => {
         const nextIdx = currentSourceIdx + 1;
         if (nextIdx < sources.length) {
           attachedSourceRef.current = null;
+          prevSourceUrl.current = null;
           setCurrentSourceIdx(nextIdx);
         } else if (!fallbackTriedRef.current) {
           tryApiFallback();
