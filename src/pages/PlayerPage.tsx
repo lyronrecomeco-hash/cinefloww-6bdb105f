@@ -244,6 +244,7 @@ const PlayerPage = () => {
       setError(false);
       setLoading(true);
       attachedSourceRef.current = null;
+      prevSourceUrl.current = null;
     } catch (e) {
       console.warn("[Player] API fallback error:", e);
       setError(true);
