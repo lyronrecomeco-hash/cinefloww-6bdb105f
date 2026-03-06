@@ -199,32 +199,28 @@ const PlayerPage = () => {
         body: { tmdb_id: tmdbId, content_type: params.type === "movie" ? "movie" : "tv", season, episode },
       });
 
-      let videoUrl: string;
+      let resolvedUrl: string;
       let vType: "mp4" | "m3u8";
       let provider: string;
 
       if (!fnErr && data?.url) {
-        videoUrl = data.url;
+        // Convert CineVeo URLs to first-party paths on production
+        resolvedUrl = toFirstPartyUrl(data.url);
         vType = (data.type as "mp4" | "m3u8") || "mp4";
         provider = data.provider || "cineveo-api";
       } else {
-        // Fallback: build direct URL
-        videoUrl = params.type === "movie"
+        // Fallback: build direct URL (already uses first-party on production)
+        resolvedUrl = params.type === "movie"
           ? buildMovieUrl(tmdbId)
           : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
         vType = "mp4";
         provider = "cineveo-direct";
       }
 
-      // 2) Sign through video-token proxy to bypass CORS
-      console.log("[Player] Signing URL via proxy:", videoUrl.substring(0, 60) + "...");
-      const signedUrl = await signVideoUrl(videoUrl);
-      console.log("[Player] Signed URL ready");
+      console.log("[Player] Playing URL:", resolvedUrl.substring(0, 80));
 
-      // For m3u8 signed through our proxy, it becomes a proxied m3u8
-      // The video-token handles manifest rewriting internally
       setBankSources([{
-        url: signedUrl,
+        url: resolvedUrl,
         quality: "auto",
         provider,
         type: vType,
@@ -232,7 +228,7 @@ const PlayerPage = () => {
       setBankLoading(false);
     } catch (e) {
       console.error("[Player] loadVideo error:", e);
-      // Last resort: try direct URL without signing
+      // Last resort: try direct URL
       const rawUrl = params.type === "movie"
         ? buildMovieUrl(tmdbId)
         : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
