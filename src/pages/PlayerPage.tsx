@@ -4,7 +4,7 @@ import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
 import { fromSlug } from "@/lib/slugify";
 import { toSlug } from "@/lib/slugify";
-import { buildMovieUrl, buildEpisodeUrl, toFirstPartyUrl, isFirstPartyUrl } from "@/lib/videoUrl";
+import { buildMovieUrl, buildEpisodeUrl, toFirstPartyUrl, isFirstPartyUrl, signVideoUrl } from "@/lib/videoUrl";
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Settings, AlertTriangle,
@@ -204,12 +204,11 @@ const PlayerPage = () => {
       let provider: string;
 
       if (!fnErr && data?.url) {
-        // Convert CineVeo URLs to first-party paths on production
-        resolvedUrl = toFirstPartyUrl(data.url);
+        resolvedUrl = data.url;
         vType = (data.type as "mp4" | "m3u8") || "mp4";
         provider = data.provider || "cineveo-api";
       } else {
-        // Fallback: build direct URL (already uses first-party on production)
+        // Fallback: build direct URL (first-party on production, raw on preview)
         resolvedUrl = params.type === "movie"
           ? buildMovieUrl(tmdbId)
           : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
@@ -217,10 +216,13 @@ const PlayerPage = () => {
         provider = "cineveo-direct";
       }
 
-      console.log("[Player] Playing URL:", resolvedUrl.substring(0, 80));
+      // On production: convert to first-party URL (Vercel rewrite)
+      // On preview: sign through video-token proxy for CORS bypass
+      const finalUrl = await signVideoUrl(resolvedUrl);
+      console.log("[Player] Playing URL:", finalUrl.substring(0, 80));
 
       setBankSources([{
-        url: resolvedUrl,
+        url: finalUrl,
         quality: "auto",
         provider,
         type: vType,
@@ -365,16 +367,22 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    // First-party URLs (/v/e/..., /v/a/...) are same-origin — no CORS needed
-    // Direct CineVeo URLs need no-referrer and no crossOrigin
+    // First-party URLs (/v/e/...) are same-origin — no CORS needed
+    // Proxied URLs (video-token) handle CORS internally
+    // Direct external URLs need no-referrer
     const isFirstParty = isFirstPartyUrl(src.url);
+    const isProxied = src.url.includes("video-token") || src.url.includes("/functions/v1/");
     
     if (isFirstParty) {
-      // Same-origin: no CORS attributes needed, browser handles naturally
+      // Same-origin via Vercel rewrite: no CORS attributes needed
       video.removeAttribute("crossorigin");
       video.removeAttribute("referrerpolicy");
+    } else if (isProxied && src.type === "m3u8") {
+      // Proxied HLS on preview: needs CORS for hls.js XHR
+      video.crossOrigin = "anonymous";
+      video.removeAttribute("referrerpolicy");
     } else {
-      // External URL: hide our referrer so CineVeo doesn't block
+      // External or proxied MP4 (302 redirect): hide referrer
       video.removeAttribute("crossorigin");
       video.setAttribute("referrerpolicy", "no-referrer");
     }
