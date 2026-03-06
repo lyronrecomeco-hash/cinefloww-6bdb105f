@@ -185,29 +185,70 @@ Deno.serve(async (req) => {
       // Check if URL looks like HLS
       const isHlsUrl = realUrl.includes(".m3u8") || realUrl.includes("/master") || realUrl.includes("/playlist") || realUrl.includes("index-");
 
-      if (isHlsUrl) {
-        // For HLS manifests, proxy and rewrite ALL segment URLs through our proxy
-        const resp = await fetch(realUrl, { headers: fetchHeaders, redirect: "follow" });
-        if (!resp.ok) {
-          return new Response("Upstream error", { status: 502, headers: corsHeaders });
-        }
-
-        let body = await resp.text();
-        const manifestBaseUrl = realUrl.substring(0, realUrl.lastIndexOf("/") + 1);
-
-        // Helper: convert any URL to a proxied pmedia URL
+      // Helper: rewrite HLS manifest, pre-fetching init segment with cookies to avoid 404
+      const rewriteManifest = async (manifestUrl: string, manifestResp: Response): Promise<Response> => {
+        // Extract cookies from manifest response for init segment fetch
+        const setCookies = manifestResp.headers.getSetCookie?.() || [];
+        const cookieStr = setCookies.map(c => c.split(";")[0]).join("; ");
+        
+        let body = await manifestResp.text();
+        const manifestBaseUrl = manifestUrl.substring(0, manifestUrl.lastIndexOf("/") + 1);
         const toProxied = (segUrl: string): string => {
           const abs = segUrl.startsWith("http") ? segUrl : manifestBaseUrl + segUrl;
           const enc = encryptUrl(abs);
           return `${proxyBase}?action=pmedia&u=${encodeURIComponent(enc)}`;
         };
 
-        // Rewrite #EXT-X-MAP:URI (init segments) — resolve to absolute
-        body = body.replace(/#EXT-X-MAP:URI="([^"]+)"/g, (_full, uri) => {
-          return `#EXT-X-MAP:URI="${toProxied(uri)}"`;
-        });
+        // Pre-fetch init segment with cookies from manifest response
+        const initMatch = body.match(/#EXT-X-MAP:URI="([^"]+)"/);
+        if (initMatch) {
+          const initRel = initMatch[1];
+          const initAbs = initRel.startsWith("http") ? initRel : manifestBaseUrl + initRel;
+          console.log("[stream] Pre-fetching init segment:", initAbs.substring(0, 80));
+          
+          let initData: ArrayBuffer | null = null;
+          
+          // Try multiple approaches to fetch init segment
+          const initHeaders = { ...fetchHeaders };
+          if (cookieStr) initHeaders["Cookie"] = cookieStr;
+          
+          for (const ref of [fetchHeaders["Referer"], manifestUrl, initAbs]) {
+            try {
+              const r = await fetch(initAbs, { 
+                headers: { ...initHeaders, "Referer": ref }, 
+                redirect: "follow" 
+              });
+              if (r.ok) {
+                const buf = await r.arrayBuffer();
+                if (buf.byteLength > 0) {
+                  initData = buf;
+                  console.log("[stream] Init OK with Referer:", ref?.substring(0, 50), "size:", buf.byteLength);
+                  break;
+                }
+              } else {
+                await r.text().catch(() => {});
+                console.log("[stream] Init failed with Referer:", ref?.substring(0, 50), "status:", r.status);
+              }
+            } catch (e) {
+              console.log("[stream] Init fetch error:", e);
+            }
+          }
+          
+          if (initData && initData.byteLength > 0) {
+            // Encode init data as base64 and serve via pinit action
+            const bytes = new Uint8Array(initData);
+            const b64 = btoa(String.fromCharCode(...bytes));
+            const pinitUrl = `${proxyBase}?action=pinit&d=${encodeURIComponent(b64)}`;
+            console.log("[stream] Using pinit for init segment, size:", bytes.byteLength);
+            body = body.replace(/#EXT-X-MAP:URI="[^"]*"/, `#EXT-X-MAP:URI="${pinitUrl}"`);
+          } else {
+            // Cannot get init segment — strip it and hope segments are self-init
+            console.warn("[stream] Init segment unavailable after all attempts, stripping EXT-X-MAP");
+            body = body.replace(/#EXT-X-MAP:URI="[^"]*"\n?/g, "");
+          }
+        }
 
-        // Rewrite non-comment lines (segment URLs like .ts, .woff2, etc.)
+        // Rewrite segment URLs
         body = body.replace(/^(?!#)(\S+)$/gm, (match) => {
           return toProxied(match.trim());
         });
@@ -220,6 +261,14 @@ Deno.serve(async (req) => {
             "X-Robots-Tag": "noindex",
           },
         });
+      };
+
+      if (isHlsUrl) {
+        const resp = await fetch(realUrl, { headers: fetchHeaders, redirect: "follow" });
+        if (!resp.ok) {
+          return new Response("Upstream error", { status: 502, headers: corsHeaders });
+        }
+        return rewriteManifest(realUrl, resp);
       }
 
       // Non-HLS content (MP4, etc.)
@@ -235,32 +284,12 @@ Deno.serve(async (req) => {
       const isActuallyHls = upstreamCT.includes("mpegurl") || finalUrl.includes(".m3u8");
 
       if (isActuallyHls) {
-        // Fetch the manifest and rewrite it
-        const resp = await fetch(finalUrl, { headers: { ...fetchHeaders, "Referer": new URL(finalUrl).origin + "/" }, redirect: "follow" });
+        const hlsHeaders = { ...fetchHeaders, "Referer": new URL(finalUrl).origin + "/" };
+        const resp = await fetch(finalUrl, { headers: hlsHeaders, redirect: "follow" });
         if (!resp.ok) {
           return new Response("Upstream error", { status: 502, headers: corsHeaders });
         }
-        let body = await resp.text();
-        const manifestBaseUrl = finalUrl.substring(0, finalUrl.lastIndexOf("/") + 1);
-        const toProxied = (segUrl: string): string => {
-          const abs = segUrl.startsWith("http") ? segUrl : manifestBaseUrl + segUrl;
-          const enc = encryptUrl(abs);
-          return `${proxyBase}?action=pmedia&u=${encodeURIComponent(enc)}`;
-        };
-        body = body.replace(/#EXT-X-MAP:URI="([^"]+)"/g, (_full, uri) => {
-          return `#EXT-X-MAP:URI="${toProxied(uri)}"`;
-        });
-        body = body.replace(/^(?!#)(\S+)$/gm, (match) => {
-          return toProxied(match.trim());
-        });
-        return new Response(body, {
-          headers: {
-            ...corsHeaders,
-            "Content-Type": "application/vnd.apple.mpegurl",
-            "Cache-Control": "no-store, private",
-            "X-Robots-Tag": "noindex",
-          },
-        });
+        return rewriteManifest(finalUrl, resp);
       }
 
       // MP4/other: redirect browser to the final URL.
@@ -277,6 +306,24 @@ Deno.serve(async (req) => {
           "X-Robots-Tag": "noindex",
         },
       });
+    }
+
+    // === PINIT: Serve base64-encoded init segment data inline ===
+    if (action === "pinit") {
+      const b64Data = url.searchParams.get("d");
+      if (!b64Data) {
+        return new Response("Bad Request", { status: 400, headers: corsHeaders });
+      }
+      try {
+        const binary = atob(b64Data);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return new Response(bytes, {
+          headers: { ...corsHeaders, "Content-Type": "video/mp4", "Cache-Control": "public, max-age=3600" },
+        });
+      } catch {
+        return new Response("Bad Request", { status: 400, headers: corsHeaders });
+      }
     }
 
     // === PMEDIA: Lightweight proxy for HLS segments (no signing, just XOR-encrypted URL) ===
