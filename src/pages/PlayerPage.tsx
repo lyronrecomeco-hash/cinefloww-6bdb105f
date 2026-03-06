@@ -170,10 +170,6 @@ const PlayerPage = () => {
       }
       let fallbackUrl = data.url;
       const fallbackType: "mp4" | "m3u8" = fallbackUrl.includes(".m3u8") ? "m3u8" : ((data.type as "mp4" | "m3u8") || "mp4");
-      // Route m3u8 through proxy
-      if (fallbackType === "m3u8") {
-        try { fallbackUrl = await signVideoUrl(fallbackUrl); } catch {}
-      }
       console.log("[Player] API fallback got:", fallbackUrl.substring(0, 80));
       setBankSources([{
         url: fallbackUrl,
@@ -221,14 +217,8 @@ const PlayerPage = () => {
         provider = "cineveo-direct";
       }
 
-      // m3u8 streams MUST go through video-token proxy (CORS + init segment handling)
-      // mp4 streams work direct with no-referrer
-      if (vType === "m3u8") {
-        console.log("[Player] M3U8 detected, routing through proxy:", resolvedUrl.substring(0, 80));
-        const signed = await signVideoUrl(resolvedUrl);
-        resolvedUrl = signed;
-        provider = provider + "-proxied";
-      }
+      // Play ALL streams directly — no proxy needed (same approach as TV player)
+      // CineVeo streams work when crossorigin is removed and withCredentials=false
 
       console.log("[Player] Playing URL:", resolvedUrl.substring(0, 100), "type:", vType);
 
@@ -245,11 +235,7 @@ const PlayerPage = () => {
         ? buildMovieUrl(tmdbId)
         : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
       const rawType: "mp4" | "m3u8" = rawUrl.includes(".m3u8") ? "m3u8" : "mp4";
-      let finalUrl = rawUrl;
-      if (rawType === "m3u8") {
-        try { finalUrl = await signVideoUrl(rawUrl); } catch {}
-      }
-      setBankSources([{ url: finalUrl, quality: "auto", provider: "cineveo-direct", type: rawType }]);
+      setBankSources([{ url: rawUrl, quality: "auto", provider: "cineveo-direct", type: rawType }]);
       setBankLoading(false);
     }
   }, [params.id, params.type, season, episode, tmdbId]);
@@ -382,14 +368,9 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    // Proxied m3u8 (via video-token): use crossorigin=anonymous since proxy adds CORS
-    // Direct mp4: remove crossorigin, use no-referrer to bypass referer blocks
-    const isProxied = src.url.includes("video-token") || src.url.includes("/functions/v1/");
-    if (isProxied) {
-      video.setAttribute("crossorigin", "anonymous");
-    } else {
-      video.removeAttribute("crossorigin");
-    }
+    // NEVER set crossorigin for CineVeo streams — same approach as TV player
+    // This avoids CORS preflight blocks on m3u8 manifests and segments
+    video.removeAttribute("crossorigin");
     video.setAttribute("referrerpolicy", "no-referrer");
 
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -397,26 +378,26 @@ const PlayerPage = () => {
     if (src.type === "m3u8" && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
-        lowLatencyMode: true,
+        lowLatencyMode: false,
         startLevel: -1,
         abrEwmaDefaultEstimate: 5000000,
         abrBandWidthUpFactor: 0.7,
-        maxBufferLength: 10,
-        maxMaxBufferLength: 30,
-        maxBufferSize: 20 * 1000 * 1000,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 600,
+        maxBufferSize: 60 * 1000 * 1000,
         maxBufferHole: 0.5,
         startFragPrefetch: true,
         testBandwidth: false,
         progressive: true,
-        fragLoadingTimeOut: 8000,
-        fragLoadingMaxRetry: 3,
-        fragLoadingRetryDelay: 300,
-        manifestLoadingTimeOut: 5000,
-        manifestLoadingMaxRetry: 2,
-        levelLoadingTimeOut: 5000,
-        levelLoadingMaxRetry: 2,
-        backBufferLength: 15,
-        xhrSetup: (xhr) => {
+        fragLoadingTimeOut: 20000,
+        fragLoadingMaxRetry: 10,
+        fragLoadingRetryDelay: 1000,
+        manifestLoadingTimeOut: 15000,
+        manifestLoadingMaxRetry: 5,
+        levelLoadingTimeOut: 15000,
+        levelLoadingMaxRetry: 5,
+        backBufferLength: 30,
+        xhrSetup: (xhr: XMLHttpRequest) => {
           xhr.withCredentials = false;
         },
       } as any);
