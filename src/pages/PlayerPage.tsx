@@ -141,6 +141,68 @@ const PlayerPage = () => {
   const extractionRef = useRef<string | null>(null);
   const fallbackTriedRef = useRef(false);
   const apiFallbackUrlRef = useRef<VideoSource | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setInterval>>();
+  const retryCountRef = useRef(0);
+  const maxRetries = 30; // 30 x 10s = 5min max
+
+  // Auto-retry: every 10s if playback stalled or errored, re-extract and swap source
+  const startAutoRetry = useCallback(() => {
+    if (retryTimerRef.current) clearInterval(retryTimerRef.current);
+    retryCountRef.current = 0;
+
+    retryTimerRef.current = setInterval(async () => {
+      const video = videoRef.current;
+      if (!video || !tmdbId) return;
+
+      // Stop if playing fine or max retries reached
+      const isPlaying = !video.paused && !video.ended && video.readyState > 2 && video.currentTime > 0;
+      if (isPlaying) {
+        retryCountRef.current = 0; // Reset counter when healthy
+        return;
+      }
+
+      retryCountRef.current++;
+      if (retryCountRef.current > maxRetries) {
+        clearInterval(retryTimerRef.current);
+        return;
+      }
+
+      console.log(`[Player] Auto-retry #${retryCountRef.current} — re-extracting...`);
+
+      try {
+        const { data, error: fnErr } = await supabase.functions.invoke("extract-video", {
+          body: { tmdb_id: tmdbId, content_type: (params.type || contentType) === "movie" ? "movie" : "tv", season, episode },
+        });
+
+        if (!fnErr && data?.url) {
+          const url = data.url as string;
+          // Try mp4 variant if m3u8 keeps failing
+          const tryMp4 = retryCountRef.current % 2 === 0;
+          const mp4Url = url.replace(/\.m3u8$/, ".mp4");
+          const useUrl = tryMp4 && url.endsWith(".m3u8") ? mp4Url : url;
+          const vType: "mp4" | "m3u8" = useUrl.includes(".m3u8") ? "m3u8" : "mp4";
+
+          console.log(`[Player] Retry got: ${useUrl.substring(0, 80)} (${vType})`);
+          attachedSourceRef.current = null; // Force re-attach
+          setBankSources([{
+            url: useUrl,
+            quality: "auto",
+            provider: data.provider || "cineveo-retry",
+            type: vType,
+          }]);
+          setError(false);
+          setLoading(true);
+        }
+      } catch (e) {
+        console.warn("[Player] Retry extract failed:", e);
+      }
+    }, 10_000);
+  }, [tmdbId, params.type, contentType, season, episode]);
+
+  // Cleanup auto-retry on unmount
+  useEffect(() => {
+    return () => { if (retryTimerRef.current) clearInterval(retryTimerRef.current); };
+  }, []);
 
   // Fallback: call extract-video edge function for the real URL
   const tryApiFallback = useCallback(async () => {
@@ -201,44 +263,56 @@ const PlayerPage = () => {
         body: { tmdb_id: tmdbId, content_type: params.type === "movie" ? "movie" : "tv", season, episode },
       });
 
-      let resolvedUrl: string;
-      let vType: "mp4" | "m3u8";
-      let provider: string;
-
       if (!fnErr && data?.url) {
-        resolvedUrl = data.url;
-        vType = resolvedUrl.includes(".m3u8") || resolvedUrl.includes("/master") || resolvedUrl.includes("/playlist") ? "m3u8" : "mp4";
-        provider = data.provider || "cineveo-api";
+        const resolvedUrl = data.url as string;
+        const provider = data.provider || "cineveo-api";
+
+        // Build BOTH m3u8 and mp4 sources for automatic fallback
+        const sources: VideoSource[] = [];
+        
+        if (resolvedUrl.includes(".m3u8")) {
+          // Primary: m3u8, Fallback: mp4 variant
+          sources.push({ url: resolvedUrl, quality: "auto", provider, type: "m3u8" });
+          sources.push({ url: resolvedUrl.replace(/\.m3u8$/, ".mp4"), quality: "auto", provider: provider + "-mp4", type: "mp4" });
+        } else if (resolvedUrl.includes(".mp4")) {
+          // Primary: mp4, Fallback: m3u8 variant
+          sources.push({ url: resolvedUrl, quality: "auto", provider, type: "mp4" });
+          sources.push({ url: resolvedUrl.replace(/\.mp4$/, ".m3u8"), quality: "auto", provider: provider + "-m3u8", type: "m3u8" });
+        } else {
+          sources.push({ url: resolvedUrl, quality: "auto", provider, type: "mp4" });
+        }
+
+        console.log("[Player] Sources:", sources.map(s => `${s.type}:${s.url.substring(0, 60)}`));
+        setBankSources(sources);
       } else {
-        resolvedUrl = params.type === "movie"
+        // Fallback: build direct URLs with both formats
+        const baseUrl = params.type === "movie"
           ? buildMovieUrl(tmdbId)
           : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
-        vType = resolvedUrl.includes(".m3u8") ? "m3u8" : "mp4";
-        provider = "cineveo-direct";
+        
+        const mp4Url = baseUrl.replace(/\.m3u8$/, ".mp4");
+        const m3u8Url = baseUrl.replace(/\.mp4$/, ".m3u8");
+        
+        setBankSources([
+          { url: mp4Url, quality: "auto", provider: "cineveo-direct", type: "mp4" },
+          { url: m3u8Url, quality: "auto", provider: "cineveo-direct-m3u8", type: "m3u8" },
+        ]);
       }
-
-      // Play ALL streams directly — no proxy needed (same approach as TV player)
-      // CineVeo streams work when crossorigin is removed and withCredentials=false
-
-      console.log("[Player] Playing URL:", resolvedUrl.substring(0, 100), "type:", vType);
-
-      setBankSources([{
-        url: resolvedUrl,
-        quality: "auto",
-        provider,
-        type: vType,
-      }]);
       setBankLoading(false);
+      // Start auto-retry monitor
+      startAutoRetry();
     } catch (e) {
       console.error("[Player] loadVideo error:", e);
       const rawUrl = params.type === "movie"
         ? buildMovieUrl(tmdbId)
         : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
-      const rawType: "mp4" | "m3u8" = rawUrl.includes(".m3u8") ? "m3u8" : "mp4";
-      setBankSources([{ url: rawUrl, quality: "auto", provider: "cineveo-direct", type: rawType }]);
+      setBankSources([
+        { url: rawUrl, quality: "auto", provider: "cineveo-direct", type: "mp4" },
+      ]);
       setBankLoading(false);
+      startAutoRetry();
     }
-  }, [params.id, params.type, season, episode, tmdbId]);
+  }, [params.id, params.type, season, episode, tmdbId, startAutoRetry]);
 
   // Initial load
   useEffect(() => {
