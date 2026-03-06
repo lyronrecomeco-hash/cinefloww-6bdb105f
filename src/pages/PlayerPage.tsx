@@ -557,16 +557,21 @@ const PlayerPage = () => {
     }
     if (!useNativeHLS) {
       video.addEventListener("error", () => {
-        // Try API fallback before showing error
-        if (!fallbackTriedRef.current) {
+        // Try next source first, then API fallback
+        const nextIdx = currentSourceIdx + 1;
+        if (nextIdx < sources.length) {
+          console.log("[Player] Source error — trying next source", nextIdx);
+          setCurrentSourceIdx(nextIdx);
+        } else if (!fallbackTriedRef.current) {
           tryApiFallback();
         } else {
+          // Auto-retry will continue trying
           setError(true);
           setLoading(false);
         }
       }, { once: true });
     }
-  }, [ccEnabled, tryApiFallback]);
+  }, [ccEnabled, tryApiFallback, currentSourceIdx, sources.length]);
 
   useEffect(() => {
     if (source) attachSource(source);
