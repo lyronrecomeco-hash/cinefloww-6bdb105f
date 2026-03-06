@@ -350,6 +350,9 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
+    // Strip Referer header to bypass CineVeo Referer checks
+    video.setAttribute("referrerpolicy", "no-referrer");
+
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     const useNativeHLS = src.type === "m3u8" && !Hls.isSupported() && video.canPlayType("application/vnd.apple.mpegurl");
 
