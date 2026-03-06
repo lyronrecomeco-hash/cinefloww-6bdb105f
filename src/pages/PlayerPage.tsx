@@ -4,7 +4,7 @@ import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
 import { fromSlug } from "@/lib/slugify";
 import { toSlug } from "@/lib/slugify";
-import { buildMovieUrl, buildEpisodeUrl, signVideoUrl } from "@/lib/videoUrl";
+import { buildMovieUrl, buildEpisodeUrl, toFirstPartyUrl, isFirstPartyUrl } from "@/lib/videoUrl";
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Settings, AlertTriangle,
@@ -199,32 +199,28 @@ const PlayerPage = () => {
         body: { tmdb_id: tmdbId, content_type: params.type === "movie" ? "movie" : "tv", season, episode },
       });
 
-      let videoUrl: string;
+      let resolvedUrl: string;
       let vType: "mp4" | "m3u8";
       let provider: string;
 
       if (!fnErr && data?.url) {
-        videoUrl = data.url;
+        // Convert CineVeo URLs to first-party paths on production
+        resolvedUrl = toFirstPartyUrl(data.url);
         vType = (data.type as "mp4" | "m3u8") || "mp4";
         provider = data.provider || "cineveo-api";
       } else {
-        // Fallback: build direct URL
-        videoUrl = params.type === "movie"
+        // Fallback: build direct URL (already uses first-party on production)
+        resolvedUrl = params.type === "movie"
           ? buildMovieUrl(tmdbId)
           : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
         vType = "mp4";
         provider = "cineveo-direct";
       }
 
-      // 2) Sign through video-token proxy to bypass CORS
-      console.log("[Player] Signing URL via proxy:", videoUrl.substring(0, 60) + "...");
-      const signedUrl = await signVideoUrl(videoUrl);
-      console.log("[Player] Signed URL ready");
+      console.log("[Player] Playing URL:", resolvedUrl.substring(0, 80));
 
-      // For m3u8 signed through our proxy, it becomes a proxied m3u8
-      // The video-token handles manifest rewriting internally
       setBankSources([{
-        url: signedUrl,
+        url: resolvedUrl,
         quality: "auto",
         provider,
         type: vType,
@@ -232,7 +228,7 @@ const PlayerPage = () => {
       setBankLoading(false);
     } catch (e) {
       console.error("[Player] loadVideo error:", e);
-      // Last resort: try direct URL without signing
+      // Last resort: try direct URL
       const rawUrl = params.type === "movie"
         ? buildMovieUrl(tmdbId)
         : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
@@ -369,16 +365,16 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    // Proxied HLS URLs (from video-token) support CORS — use crossOrigin
-    // Proxied MP4 URLs redirect (302) to external CDNs — NO crossOrigin
+    // First-party URLs (/v/e/..., /v/a/...) are same-origin — no CORS needed
     // Direct CineVeo URLs need no-referrer and no crossOrigin
-    const isProxied = src.url.includes("video-token") || src.url.includes("/functions/v1/") || src.url.includes("/b/functions/");
+    const isFirstParty = isFirstPartyUrl(src.url);
     
-    if (isProxied && src.type === "m3u8") {
-      video.crossOrigin = "anonymous";
+    if (isFirstParty) {
+      // Same-origin: no CORS attributes needed, browser handles naturally
+      video.removeAttribute("crossorigin");
       video.removeAttribute("referrerpolicy");
     } else {
-      // MP4 (even proxied) redirects to external CDN — no crossOrigin
+      // External URL: hide our referrer so CineVeo doesn't block
       video.removeAttribute("crossorigin");
       video.setAttribute("referrerpolicy", "no-referrer");
     }

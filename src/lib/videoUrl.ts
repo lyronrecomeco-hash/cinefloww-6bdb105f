@@ -1,9 +1,7 @@
 /**
- * Video URL layer — all CineVeo streams are signed via video-token edge function
- * to bypass CORS/Referer blocks in any environment (preview, production, custom domain).
+ * Video URL layer — CineVeo streams use first-party Vercel rewrites on production
+ * and direct URLs (no-referrer) on preview/dev to bypass CORS/Referer blocks.
  */
-
-import { supabase } from "@/integrations/supabase/client";
 
 // Obfuscated credentials — reassembled at runtime
 const _u = [108,121,110,101,102,108,105,120,45,118,111,100,115]; // user
@@ -20,37 +18,73 @@ function getUser(): string { if (!_user) _user = _d(_u); return _user; }
 function getPass(): string { if (!_pass) _pass = _d(_p); return _pass; }
 function getHost(): string { if (!_host) _host = _d(_h); return _host; }
 
-/** Build a raw movie video URL (not proxied) */
+/** Check if running on production domain with Vercel rewrites */
+function isProductionDomain(): boolean {
+  const h = window.location.hostname;
+  return h === "lyneflix.online" || h.endsWith(".lyneflix.online");
+}
+
+/**
+ * Build a movie video URL.
+ * On production: first-party path via Vercel rewrite (/v/e/movie/...)
+ * On preview: direct CineVeo URL (played with no-referrer)
+ */
 export function buildMovieUrl(tmdbId: number): string {
+  if (isProductionDomain()) {
+    return `/v/e/movie/${getUser()}/${getPass()}/${tmdbId}.mp4`;
+  }
   return `https://${getHost()}/movie/${getUser()}/${getPass()}/${tmdbId}.mp4`;
 }
 
-/** Build a raw series episode video URL (not proxied) */
+/**
+ * Build a series episode video URL.
+ * On production: first-party path via Vercel rewrite (/v/e/series/...)
+ * On preview: direct CineVeo URL (played with no-referrer)
+ */
 export function buildEpisodeUrl(tmdbId: number, season: number, episode: number): string {
+  if (isProductionDomain()) {
+    return `/v/e/series/${getUser()}/${getPass()}/${tmdbId}/${season}/${episode}.mp4`;
+  }
   return `https://${getHost()}/series/${getUser()}/${getPass()}/${tmdbId}/${season}/${episode}.mp4`;
 }
 
 /**
- * Sign a video URL through video-token edge function.
- * Returns a proxied stream_url that bypasses CORS/Referer.
+ * Convert any CineVeo URL to first-party path on production.
+ * Returns original URL if not on production or not a CineVeo URL.
  */
-export async function signVideoUrl(rawUrl: string): Promise<string> {
+export function toFirstPartyUrl(url: string): string {
+  if (!isProductionDomain()) return url;
+  
   try {
-    const { data, error } = await supabase.functions.invoke("video-token", {
-      body: { video_url: rawUrl },
-    });
-    if (error || !data?.stream_url) {
-      console.warn("[videoUrl] Sign failed, using raw URL:", error);
-      return rawUrl;
+    const parsed = new URL(url);
+    const host = parsed.hostname;
+    
+    // cinetvembed.cineveo.site → /v/e/
+    if (host === getHost() || host === "cinetvembed.cineveo.site") {
+      // URL path is like /movie/user/pass/id.mp4 or /series/user/pass/id/s/e.mp4
+      return `/v/e${parsed.pathname}`;
     }
-    return data.stream_url;
-  } catch (e) {
-    console.warn("[videoUrl] Sign error:", e);
-    return rawUrl;
-  }
+    
+    // cdn.cineveo.site → /v/a/
+    if (host === "cdn.cineveo.site") {
+      return `/v/a${parsed.pathname}`;
+    }
+  } catch {}
+  
+  return url;
 }
 
-/** Legacy compat — returns URL directly (no proxy) */
+/** Check if a URL is a first-party proxied URL */
+export function isFirstPartyUrl(url: string): boolean {
+  return url.startsWith("/v/") || url.startsWith(window.location.origin + "/v/");
+}
+
+/** Legacy compat — no-op, signing is no longer used */
+export async function signVideoUrl(rawUrl: string): Promise<string> {
+  return toFirstPartyUrl(rawUrl);
+}
+
+/** Legacy compat */
 export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
   return rawUrl;
 }
