@@ -270,23 +270,15 @@ const PlayerPage = () => {
         const resolvedUrl = data.url as string;
         const provider = data.provider || "cineveo-api";
 
-        // Route through video-token proxy for CORS bypass (required for CineVeo streams)
+        // Use m3u8 directly — hls.js handles CORS via XHR internally
         const baseUrl = resolvedUrl.replace(/\.(m3u8|mp4)$/, "");
-        const mp4Raw = baseUrl + ".mp4";
-        const m3u8Raw = baseUrl + ".m3u8";
-        
-        // Sign both URLs through proxy
-        const [mp4Signed, m3u8Signed] = await Promise.all([
-          signVideoUrl(mp4Raw),
-          signVideoUrl(m3u8Raw),
-        ]);
+        const m3u8Url = baseUrl + ".m3u8";
 
         const sources: VideoSource[] = [
-          { url: mp4Signed, quality: "auto", provider: provider + "-mp4", type: "mp4" },
-          { url: m3u8Signed, quality: "auto", provider: provider + "-m3u8", type: "m3u8" },
+          { url: m3u8Url, quality: "auto", provider, type: "m3u8" },
         ];
 
-        console.log("[Player] Sources (proxied):", sources.map(s => `${s.type}:${s.url.substring(0, 80)}`));
+        console.log("[Player] Source (m3u8 direct):", m3u8Url.substring(0, 100));
         setBankSources(sources);
       } else {
         // Fallback: build direct URLs with both formats
