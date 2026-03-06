@@ -499,11 +499,32 @@ const PlayerPage = () => {
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
             hls.startLoad();
+            // If network error persists, try next source after 5s
+            setTimeout(() => {
+              if (video.readyState < 3) {
+                console.log("[Player] HLS network error — trying next source");
+                const nextIdx = currentSourceIdx + 1;
+                if (nextIdx < sources.length) {
+                  setCurrentSourceIdx(nextIdx);
+                } else {
+                  // Auto-retry will pick up from here
+                  setError(true);
+                  setLoading(false);
+                }
+              }
+            }, 5000);
           } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
             hls.recoverMediaError();
           } else {
-            setError(true);
-            setLoading(false);
+            // Try next source
+            const nextIdx = currentSourceIdx + 1;
+            if (nextIdx < sources.length) {
+              console.log("[Player] HLS fatal — switching to source", nextIdx);
+              setCurrentSourceIdx(nextIdx);
+            } else {
+              setError(true);
+              setLoading(false);
+            }
           }
         }
       });
