@@ -720,7 +720,7 @@ const PlayerPage = () => {
       }}
       style={{ cursor: showControls ? "default" : "none" }}>
       
-      <video ref={videoRef} className="w-full h-full object-contain" playsInline webkit-playsinline="true" preload="auto" autoPlay={false}
+      <video ref={videoRef} className="w-full h-full object-contain" playsInline webkit-playsinline="true" preload="auto" autoPlay={false} referrerPolicy="no-referrer"
         onPlay={() => {
           if (watchRoom.isHost && watchRoom.room) {
             watchRoom.broadcastPlayback({ action: "play", position: videoRef.current?.currentTime || 0, timestamp: Date.now() });
