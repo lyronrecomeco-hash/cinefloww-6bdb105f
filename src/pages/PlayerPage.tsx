@@ -221,14 +221,8 @@ const PlayerPage = () => {
         provider = "cineveo-direct";
       }
 
-      // m3u8 streams MUST go through video-token proxy (CORS + init segment handling)
-      // mp4 streams work direct with no-referrer
-      if (vType === "m3u8") {
-        console.log("[Player] M3U8 detected, routing through proxy:", resolvedUrl.substring(0, 80));
-        const signed = await signVideoUrl(resolvedUrl);
-        resolvedUrl = signed;
-        provider = provider + "-proxied";
-      }
+      // Play ALL streams directly — no proxy needed (same approach as TV player)
+      // CineVeo streams work when crossorigin is removed and withCredentials=false
 
       console.log("[Player] Playing URL:", resolvedUrl.substring(0, 100), "type:", vType);
 
