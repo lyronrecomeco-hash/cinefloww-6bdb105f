@@ -193,34 +193,52 @@ const PlayerPage = () => {
     fallbackTriedRef.current = false;
     apiFallbackUrlRef.current = null;
 
-    // Build direct URL as instant starter (plays while API resolves)
-    const rawUrl = params.type === "movie"
-      ? buildMovieUrl(tmdbId)
-      : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
+    try {
+      // 1) Call extract-video to get the best URL
+      const { data, error: fnErr } = await supabase.functions.invoke("extract-video", {
+        body: { tmdb_id: tmdbId, content_type: params.type === "movie" ? "movie" : "tv", season, episode },
+      });
 
-    // Start with direct URL immediately for speed
-    setBankSources([{
-      url: rawUrl,
-      quality: "auto",
-      provider: "cineveo-direct",
-      type: "mp4",
-    }]);
-    setBankLoading(false);
+      let videoUrl: string;
+      let vType: "mp4" | "m3u8";
+      let provider: string;
 
-    // Pre-fetch API fallback in background so it's ready instantly if direct fails
-    supabase.functions.invoke("extract-video", {
-      body: { tmdb_id: tmdbId, content_type: params.type === "movie" ? "movie" : "tv", season, episode },
-    }).then(({ data, error: fnErr }) => {
       if (!fnErr && data?.url) {
-        console.log("[Player] Pre-fetched API URL ready:", data.url);
-        apiFallbackUrlRef.current = {
-          url: data.url,
-          quality: "auto",
-          provider: data.provider || "cineveo-api",
-          type: (data.type as "mp4" | "m3u8") || "mp4",
-        };
+        videoUrl = data.url;
+        vType = (data.type as "mp4" | "m3u8") || "mp4";
+        provider = data.provider || "cineveo-api";
+      } else {
+        // Fallback: build direct URL
+        videoUrl = params.type === "movie"
+          ? buildMovieUrl(tmdbId)
+          : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
+        vType = "mp4";
+        provider = "cineveo-direct";
       }
-    }).catch(() => {});
+
+      // 2) Sign through video-token proxy to bypass CORS
+      console.log("[Player] Signing URL via proxy:", videoUrl.substring(0, 60) + "...");
+      const signedUrl = await signVideoUrl(videoUrl);
+      console.log("[Player] Signed URL ready");
+
+      // For m3u8 signed through our proxy, it becomes a proxied m3u8
+      // The video-token handles manifest rewriting internally
+      setBankSources([{
+        url: signedUrl,
+        quality: "auto",
+        provider,
+        type: vType,
+      }]);
+      setBankLoading(false);
+    } catch (e) {
+      console.error("[Player] loadVideo error:", e);
+      // Last resort: try direct URL without signing
+      const rawUrl = params.type === "movie"
+        ? buildMovieUrl(tmdbId)
+        : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
+      setBankSources([{ url: rawUrl, quality: "auto", provider: "cineveo-direct", type: "mp4" }]);
+      setBankLoading(false);
+    }
   }, [params.id, params.type, season, episode, tmdbId]);
 
   // Initial load
