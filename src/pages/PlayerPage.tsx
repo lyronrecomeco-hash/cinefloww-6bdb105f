@@ -365,16 +365,16 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    // Proxied HLS URLs (from video-token) support CORS — use crossOrigin
-    // Proxied MP4 URLs redirect (302) to external CDNs — NO crossOrigin
+    // First-party URLs (/v/e/..., /v/a/...) are same-origin — no CORS needed
     // Direct CineVeo URLs need no-referrer and no crossOrigin
-    const isProxied = src.url.includes("video-token") || src.url.includes("/functions/v1/") || src.url.includes("/b/functions/");
+    const isFirstParty = isFirstPartyUrl(src.url);
     
-    if (isProxied && src.type === "m3u8") {
-      video.crossOrigin = "anonymous";
+    if (isFirstParty) {
+      // Same-origin: no CORS attributes needed, browser handles naturally
+      video.removeAttribute("crossorigin");
       video.removeAttribute("referrerpolicy");
     } else {
-      // MP4 (even proxied) redirects to external CDN — no crossOrigin
+      // External URL: hide our referrer so CineVeo doesn't block
       video.removeAttribute("crossorigin");
       video.setAttribute("referrerpolicy", "no-referrer");
     }
