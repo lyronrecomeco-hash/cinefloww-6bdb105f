@@ -270,26 +270,29 @@ const PlayerPage = () => {
         const resolvedUrl = data.url as string;
         const provider = data.provider || "cineveo-api";
 
-        // Use m3u8 directly — hls.js handles CORS via XHR internally
+        // CineVeo requires Referer header — must proxy through video-token
         const baseUrl = resolvedUrl.replace(/\.(m3u8|mp4)$/, "");
-        const m3u8Url = baseUrl + ".m3u8";
+        const m3u8Raw = baseUrl + ".m3u8";
+        
+        const m3u8Signed = await signVideoUrl(m3u8Raw);
 
         const sources: VideoSource[] = [
-          { url: m3u8Url, quality: "auto", provider, type: "m3u8" },
+          { url: m3u8Signed, quality: "auto", provider, type: "m3u8" },
         ];
 
-        console.log("[Player] Source (m3u8 direct):", m3u8Url.substring(0, 100));
+        console.log("[Player] Source (m3u8 proxied):", m3u8Signed.substring(0, 100));
         setBankSources(sources);
       } else {
-        // Fallback: build direct m3u8 URL
+        // Fallback: build direct m3u8 URL via proxy
         const baseUrl = params.type === "movie"
           ? buildMovieUrl(tmdbId)
           : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
         
         const m3u8Url = baseUrl.replace(/\.mp4$/, ".m3u8");
+        const m3u8Signed = await signVideoUrl(m3u8Url);
         
         setBankSources([
-          { url: m3u8Url, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
+          { url: m3u8Signed, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
         ]);
       }
       setBankLoading(false);
@@ -297,12 +300,17 @@ const PlayerPage = () => {
       startAutoRetry();
     } catch (e) {
       console.error("[Player] loadVideo error:", e);
-      const rawUrl = params.type === "movie"
-        ? buildMovieUrl(tmdbId).replace(/\.mp4$/, ".m3u8")
-        : buildEpisodeUrl(tmdbId, season || 1, episode || 1).replace(/\.mp4$/, ".m3u8");
-      setBankSources([
-        { url: rawUrl, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
-      ]);
+      try {
+        const rawUrl = params.type === "movie"
+          ? buildMovieUrl(tmdbId).replace(/\.mp4$/, ".m3u8")
+          : buildEpisodeUrl(tmdbId, season || 1, episode || 1).replace(/\.mp4$/, ".m3u8");
+        const signed = await signVideoUrl(rawUrl);
+        setBankSources([
+          { url: signed, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
+        ]);
+      } catch {
+        setBankSources([]);
+      }
       setBankLoading(false);
       startAutoRetry();
     }
