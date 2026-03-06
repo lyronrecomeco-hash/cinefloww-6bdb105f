@@ -205,24 +205,24 @@ const PlayerPage = () => {
 
       if (!fnErr && data?.url) {
         resolvedUrl = data.url;
-        vType = (data.type as "mp4" | "m3u8") || "mp4";
+        // Auto-detect type from URL extension
+        vType = resolvedUrl.includes(".m3u8") || resolvedUrl.includes("/master") || resolvedUrl.includes("/playlist") ? "m3u8" : "mp4";
         provider = data.provider || "cineveo-api";
       } else {
-        // Fallback: build direct URL (first-party on production, raw on preview)
+        // Fallback: build direct URL
         resolvedUrl = params.type === "movie"
           ? buildMovieUrl(tmdbId)
           : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
-        vType = "mp4";
+        // Detect type from built URL
+        vType = resolvedUrl.includes(".m3u8") ? "m3u8" : "mp4";
         provider = "cineveo-direct";
       }
 
-      // On production: convert to first-party URL (Vercel rewrite)
-      // On preview: sign through video-token proxy for CORS bypass
-      const finalUrl = await signVideoUrl(resolvedUrl);
-      console.log("[Player] Playing URL:", finalUrl.substring(0, 80));
+      // Use the URL directly — no proxy, no signing
+      console.log("[Player] Playing URL:", resolvedUrl.substring(0, 100), "type:", vType);
 
       setBankSources([{
-        url: finalUrl,
+        url: resolvedUrl,
         quality: "auto",
         provider,
         type: vType,
@@ -234,7 +234,8 @@ const PlayerPage = () => {
       const rawUrl = params.type === "movie"
         ? buildMovieUrl(tmdbId)
         : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
-      setBankSources([{ url: rawUrl, quality: "auto", provider: "cineveo-direct", type: "mp4" }]);
+      const rawType: "mp4" | "m3u8" = rawUrl.includes(".m3u8") ? "m3u8" : "mp4";
+      setBankSources([{ url: rawUrl, quality: "auto", provider: "cineveo-direct", type: rawType }]);
       setBankLoading(false);
     }
   }, [params.id, params.type, season, episode, tmdbId]);
