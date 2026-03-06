@@ -1,7 +1,9 @@
 /**
  * Video URL layer — CineVeo streams use first-party Vercel rewrites on production
- * and direct URLs (no-referrer) on preview/dev to bypass CORS/Referer blocks.
+ * and video-token proxy on preview/dev to bypass CORS/Referer blocks.
  */
+
+import { supabase } from "@/integrations/supabase/client";
 
 // Obfuscated credentials — reassembled at runtime
 const _u = [108,121,110,101,102,108,105,120,45,118,111,100,115]; // user
@@ -27,7 +29,7 @@ function isProductionDomain(): boolean {
 /**
  * Build a movie video URL.
  * On production: first-party path via Vercel rewrite (/v/e/movie/...)
- * On preview: direct CineVeo URL (played with no-referrer)
+ * On preview: direct CineVeo URL (will be proxied via video-token)
  */
 export function buildMovieUrl(tmdbId: number): string {
   if (isProductionDomain()) {
@@ -39,7 +41,7 @@ export function buildMovieUrl(tmdbId: number): string {
 /**
  * Build a series episode video URL.
  * On production: first-party path via Vercel rewrite (/v/e/series/...)
- * On preview: direct CineVeo URL (played with no-referrer)
+ * On preview: direct CineVeo URL (will be proxied via video-token)
  */
 export function buildEpisodeUrl(tmdbId: number, season: number, episode: number): string {
   if (isProductionDomain()) {
@@ -61,7 +63,6 @@ export function toFirstPartyUrl(url: string): string {
     
     // cinetvembed.cineveo.site → /v/e/
     if (host === getHost() || host === "cinetvembed.cineveo.site") {
-      // URL path is like /movie/user/pass/id.mp4 or /series/user/pass/id/s/e.mp4
       return `/v/e${parsed.pathname}`;
     }
     
@@ -79,9 +80,30 @@ export function isFirstPartyUrl(url: string): boolean {
   return url.startsWith("/v/") || url.startsWith(window.location.origin + "/v/");
 }
 
-/** Legacy compat — no-op, signing is no longer used */
+/**
+ * Sign a video URL through video-token edge function (preview/dev only).
+ * On production, URLs use first-party rewrites and don't need signing.
+ */
 export async function signVideoUrl(rawUrl: string): Promise<string> {
-  return toFirstPartyUrl(rawUrl);
+  // On production, use first-party rewrite instead of proxy
+  if (isProductionDomain()) {
+    return toFirstPartyUrl(rawUrl);
+  }
+  
+  // On preview/dev: use video-token proxy for CORS bypass
+  try {
+    const { data, error } = await supabase.functions.invoke("video-token", {
+      body: { video_url: rawUrl },
+    });
+    if (error || !data?.stream_url) {
+      console.warn("[videoUrl] Sign failed, using raw URL:", error);
+      return rawUrl;
+    }
+    return data.stream_url;
+  } catch (e) {
+    console.warn("[videoUrl] Sign error:", e);
+    return rawUrl;
+  }
 }
 
 /** Legacy compat */
