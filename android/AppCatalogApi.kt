@@ -19,6 +19,7 @@ object AppCatalogApi {
 
     private const val TAG = "AppCatalogApi"
     private const val URL = "https://mfcnkltcdvitxczjwoer.supabase.co/functions/v1/app-catalog"
+    private const val ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mY25rbHRjZHZpdHhjemp3b2VyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyMzExOTgsImV4cCI6MjA4NjgwNzE5OH0.g8R1h217oI-y7zeBsvN7kfE9aPMlQZEEEbRCQLAEbXA"
     private val gson = Gson()
     private val JSON_TYPE = "application/json; charset=utf-8".toMediaType()
 
