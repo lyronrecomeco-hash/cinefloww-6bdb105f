@@ -140,37 +140,50 @@ const PlayerPage = () => {
 
   const extractionRef = useRef<string | null>(null);
   const fallbackTriedRef = useRef(false);
+  const apiFallbackUrlRef = useRef<VideoSource | null>(null);
 
   // Fallback: call extract-video edge function for the real URL
   const tryApiFallback = useCallback(async () => {
     if (fallbackTriedRef.current || !tmdbId) return;
     fallbackTriedRef.current = true;
     console.log("[Player] Direct URL failed, trying API fallback...");
+
+    // Check if we already have a pre-fetched API result
+    if (apiFallbackUrlRef.current) {
+      console.log("[Player] Using pre-fetched API URL:", apiFallbackUrlRef.current.url);
+      setBankSources([apiFallbackUrlRef.current]);
+      setError(false);
+      setLoading(true);
+      attachedSourceRef.current = null;
+      return;
+    }
+
     try {
       const { data, error: fnErr } = await supabase.functions.invoke("extract-video", {
         body: { tmdb_id: tmdbId, content_type: contentType === "movie" ? "movie" : "tv", season, episode },
       });
       if (fnErr || !data?.url) {
         console.warn("[Player] API fallback failed:", fnErr || "no url");
+        setError(true);
+        setLoading(false);
         return;
       }
-      const currentUrl = bankSources[0]?.url;
-      if (data.url !== currentUrl) {
-        console.log("[Player] API fallback got:", data.url);
-        setBankSources([{
-          url: data.url,
-          quality: "auto",
-          provider: data.provider || "cineveo-api",
-          type: (data.type as "mp4" | "m3u8") || "mp4",
-        }]);
-        setError(false);
-        setLoading(true);
-        attachedSourceRef.current = null;
-      }
+      console.log("[Player] API fallback got:", data.url);
+      setBankSources([{
+        url: data.url,
+        quality: "auto",
+        provider: data.provider || "cineveo-api",
+        type: (data.type as "mp4" | "m3u8") || "mp4",
+      }]);
+      setError(false);
+      setLoading(true);
+      attachedSourceRef.current = null;
     } catch (e) {
       console.warn("[Player] API fallback error:", e);
+      setError(true);
+      setLoading(false);
     }
-  }, [tmdbId, contentType, season, episode, bankSources]);
+  }, [tmdbId, contentType, season, episode]);
 
   const loadVideo = useCallback(async () => {
     if (!params.id || !params.type || !tmdbId) return;
@@ -178,12 +191,14 @@ const PlayerPage = () => {
     setBankSources([]);
     setNoSources(false);
     fallbackTriedRef.current = false;
+    apiFallbackUrlRef.current = null;
 
-    // Build direct URL (no proxy)
+    // Build direct URL as instant starter (plays while API resolves)
     const rawUrl = params.type === "movie"
       ? buildMovieUrl(tmdbId)
       : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
 
+    // Start with direct URL immediately for speed
     setBankSources([{
       url: rawUrl,
       quality: "auto",
@@ -191,6 +206,21 @@ const PlayerPage = () => {
       type: "mp4",
     }]);
     setBankLoading(false);
+
+    // Pre-fetch API fallback in background so it's ready instantly if direct fails
+    supabase.functions.invoke("extract-video", {
+      body: { tmdb_id: tmdbId, content_type: params.type === "movie" ? "movie" : "tv", season, episode },
+    }).then(({ data, error: fnErr }) => {
+      if (!fnErr && data?.url) {
+        console.log("[Player] Pre-fetched API URL ready:", data.url);
+        apiFallbackUrlRef.current = {
+          url: data.url,
+          quality: "auto",
+          provider: data.provider || "cineveo-api",
+          type: (data.type as "mp4" | "m3u8") || "mp4",
+        };
+      }
+    }).catch(() => {});
   }, [params.id, params.type, season, episode, tmdbId]);
 
   // Initial load
@@ -320,6 +350,9 @@ const PlayerPage = () => {
     setError(false);
     setHlsLevels([]);
     setCurrentLevel(-1);
+
+    // Strip Referer header to bypass CineVeo Referer checks
+    video.setAttribute("referrerpolicy", "no-referrer");
 
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     const useNativeHLS = src.type === "m3u8" && !Hls.isSupported() && video.canPlayType("application/vnd.apple.mpegurl");
@@ -691,6 +724,7 @@ const PlayerPage = () => {
       }}
       style={{ cursor: showControls ? "default" : "none" }}>
       
+      {/* @ts-ignore referrerPolicy is valid HTML but not in React video types */}
       <video ref={videoRef} className="w-full h-full object-contain" playsInline webkit-playsinline="true" preload="auto" autoPlay={false}
         onPlay={() => {
           if (watchRoom.isHost && watchRoom.room) {
