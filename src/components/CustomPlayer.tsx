@@ -55,6 +55,9 @@ const CustomPlayer = ({ sources, title, subtitle, startTime, onClose, onError, o
     setLoading(true);
     setError(false);
 
+    // Strip Referer header to bypass CineVeo Referer checks
+    video.setAttribute("referrerpolicy", "no-referrer");
+
     // MP4: no crossorigin to avoid CORS issues with direct/rewrite streams
     if (src.type === "mp4") {
       video.removeAttribute("crossorigin");
