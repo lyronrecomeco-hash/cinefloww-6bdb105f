@@ -204,12 +204,11 @@ const PlayerPage = () => {
       let provider: string;
 
       if (!fnErr && data?.url) {
-        // Convert CineVeo URLs to first-party paths on production
-        resolvedUrl = toFirstPartyUrl(data.url);
+        resolvedUrl = data.url;
         vType = (data.type as "mp4" | "m3u8") || "mp4";
         provider = data.provider || "cineveo-api";
       } else {
-        // Fallback: build direct URL (already uses first-party on production)
+        // Fallback: build direct URL (first-party on production, raw on preview)
         resolvedUrl = params.type === "movie"
           ? buildMovieUrl(tmdbId)
           : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
@@ -217,10 +216,13 @@ const PlayerPage = () => {
         provider = "cineveo-direct";
       }
 
-      console.log("[Player] Playing URL:", resolvedUrl.substring(0, 80));
+      // On production: convert to first-party URL (Vercel rewrite)
+      // On preview: sign through video-token proxy for CORS bypass
+      const finalUrl = await signVideoUrl(resolvedUrl);
+      console.log("[Player] Playing URL:", finalUrl.substring(0, 80));
 
       setBankSources([{
-        url: resolvedUrl,
+        url: finalUrl,
         quality: "auto",
         provider,
         type: vType,
