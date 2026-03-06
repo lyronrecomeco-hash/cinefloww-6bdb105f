@@ -168,12 +168,18 @@ const PlayerPage = () => {
         setLoading(false);
         return;
       }
-      console.log("[Player] API fallback got:", data.url);
+      let fallbackUrl = data.url;
+      const fallbackType: "mp4" | "m3u8" = fallbackUrl.includes(".m3u8") ? "m3u8" : ((data.type as "mp4" | "m3u8") || "mp4");
+      // Route m3u8 through proxy
+      if (fallbackType === "m3u8") {
+        try { fallbackUrl = await signVideoUrl(fallbackUrl); } catch {}
+      }
+      console.log("[Player] API fallback got:", fallbackUrl.substring(0, 80));
       setBankSources([{
-        url: data.url,
+        url: fallbackUrl,
         quality: "auto",
         provider: data.provider || "cineveo-api",
-        type: (data.type as "mp4" | "m3u8") || "mp4",
+        type: fallbackType,
       }]);
       setError(false);
       setLoading(true);
@@ -194,7 +200,7 @@ const PlayerPage = () => {
     apiFallbackUrlRef.current = null;
 
     try {
-      // 1) Call extract-video to get the best URL
+      // 1) Call extract-video to get the best URL from CineVeo API
       const { data, error: fnErr } = await supabase.functions.invoke("extract-video", {
         body: { tmdb_id: tmdbId, content_type: params.type === "movie" ? "movie" : "tv", season, episode },
       });
@@ -205,20 +211,25 @@ const PlayerPage = () => {
 
       if (!fnErr && data?.url) {
         resolvedUrl = data.url;
-        // Auto-detect type from URL extension
         vType = resolvedUrl.includes(".m3u8") || resolvedUrl.includes("/master") || resolvedUrl.includes("/playlist") ? "m3u8" : "mp4";
         provider = data.provider || "cineveo-api";
       } else {
-        // Fallback: build direct URL
         resolvedUrl = params.type === "movie"
           ? buildMovieUrl(tmdbId)
           : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
-        // Detect type from built URL
         vType = resolvedUrl.includes(".m3u8") ? "m3u8" : "mp4";
         provider = "cineveo-direct";
       }
 
-      // Use the URL directly — no proxy, no signing
+      // m3u8 streams MUST go through video-token proxy (CORS + init segment handling)
+      // mp4 streams work direct with no-referrer
+      if (vType === "m3u8") {
+        console.log("[Player] M3U8 detected, routing through proxy:", resolvedUrl.substring(0, 80));
+        const signed = await signVideoUrl(resolvedUrl);
+        resolvedUrl = signed;
+        provider = provider + "-proxied";
+      }
+
       console.log("[Player] Playing URL:", resolvedUrl.substring(0, 100), "type:", vType);
 
       setBankSources([{
@@ -230,12 +241,15 @@ const PlayerPage = () => {
       setBankLoading(false);
     } catch (e) {
       console.error("[Player] loadVideo error:", e);
-      // Last resort: try direct URL
       const rawUrl = params.type === "movie"
         ? buildMovieUrl(tmdbId)
         : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
       const rawType: "mp4" | "m3u8" = rawUrl.includes(".m3u8") ? "m3u8" : "mp4";
-      setBankSources([{ url: rawUrl, quality: "auto", provider: "cineveo-direct", type: rawType }]);
+      let finalUrl = rawUrl;
+      if (rawType === "m3u8") {
+        try { finalUrl = await signVideoUrl(rawUrl); } catch {}
+      }
+      setBankSources([{ url: finalUrl, quality: "auto", provider: "cineveo-direct", type: rawType }]);
       setBankLoading(false);
     }
   }, [params.id, params.type, season, episode, tmdbId]);
@@ -368,9 +382,14 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    // Direct CineVeo URLs: remove crossOrigin to avoid CORS issues,
-    // set no-referrer to bypass referer-based blocks (same strategy as TV player)
-    video.removeAttribute("crossorigin");
+    // Proxied m3u8 (via video-token): use crossorigin=anonymous since proxy adds CORS
+    // Direct mp4: remove crossorigin, use no-referrer to bypass referer blocks
+    const isProxied = src.url.includes("video-token") || src.url.includes("/functions/v1/");
+    if (isProxied) {
+      video.setAttribute("crossorigin", "anonymous");
+    } else {
+      video.removeAttribute("crossorigin");
+    }
     video.setAttribute("referrerpolicy", "no-referrer");
 
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -399,9 +418,6 @@ const PlayerPage = () => {
         backBufferLength: 15,
         xhrSetup: (xhr) => {
           xhr.withCredentials = false;
-        },
-        fetchSetup: (context: any, initParams: any) => {
-          return new Request(context.url, { ...initParams, referrerPolicy: "no-referrer" });
         },
       } as any);
       hlsRef.current = hls;
