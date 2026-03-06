@@ -1,6 +1,6 @@
 /**
  * extract-video: Video link resolution via CineVeo.
- * Layers: 1) M3U index  2) Direct URL  3) CineVeo API fallback
+ * Priority: 1) CineVeo API (returns correct internal IDs)  2) M3U index  3) Direct URL fallback
  */
 
 const corsHeaders = {
@@ -33,7 +33,60 @@ function pickUrl(obj: Record<string, unknown>): string | null {
   return null;
 }
 
-// ── Layer 1: M3U Shard Index ──
+// ── Layer 1: CineVeo Catalog API (PRIMARY — returns correct internal IDs) ──
+
+async function apiLookup(tmdbId: number, cType: string, s?: number, e?: number): Promise<{ url: string; type: string; provider: string } | null> {
+  const apiType = cType === "movie" ? "movies" : "series";
+  const url = `${CINEVEO_API}/catalog.php?username=${CUSER}&password=${CPASS}&type=${apiType}&tmdb_id=${tmdbId}`;
+  
+  try {
+    const res = await timedFetch(url, 10000, { headers: { "User-Agent": UA, Accept: "application/json" } });
+    if (!res.ok) return null;
+    const payload = await res.json();
+    const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+    
+    for (const item of items) {
+      const id = String(item?.tmdb_id ?? item?.tmdbId ?? item?.id ?? "");
+      if (id !== String(tmdbId)) continue;
+      
+      // For series, find the specific episode
+      if (apiType === "series" && Array.isArray(item?.episodes) && s && e) {
+        for (const ep of item.episodes) {
+          const epS = Number(ep?.season ?? ep?.temporada ?? ep?.s ?? 1) || 1;
+          const epE = Number(ep?.episode ?? ep?.ep ?? ep?.e ?? 1) || 1;
+          if (epS === s && epE === e) {
+            const epUrl = pickUrl(ep as Record<string, unknown>);
+            if (epUrl) return { url: epUrl, type: epUrl.includes(".m3u8") ? "m3u8" : "mp4", provider: "cineveo-api" };
+          }
+        }
+      }
+      
+      // Use stream_url from item (this has the correct internal CineVeo ID)
+      const streamUrl = pickUrl(item as Record<string, unknown>);
+      if (streamUrl) return { url: streamUrl, type: streamUrl.includes(".m3u8") ? "m3u8" : "mp4", provider: "cineveo-api" };
+    }
+  } catch (_e) { /* skip */ }
+  
+  // Try opposite type as fallback
+  const altType = cType === "movie" ? "series" : "movies";
+  const altUrl = `${CINEVEO_API}/catalog.php?username=${CUSER}&password=${CPASS}&type=${altType}&tmdb_id=${tmdbId}`;
+  try {
+    const res = await timedFetch(altUrl, 6000, { headers: { "User-Agent": UA, Accept: "application/json" } });
+    if (!res.ok) return null;
+    const payload = await res.json();
+    const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+    for (const item of items) {
+      const id = String(item?.tmdb_id ?? item?.tmdbId ?? item?.id ?? "");
+      if (id !== String(tmdbId)) continue;
+      const streamUrl = pickUrl(item as Record<string, unknown>);
+      if (streamUrl) return { url: streamUrl, type: streamUrl.includes(".m3u8") ? "m3u8" : "mp4", provider: "cineveo-api" };
+    }
+  } catch (_e) { /* skip */ }
+  
+  return null;
+}
+
+// ── Layer 2: M3U Shard Index ──
 
 async function m3uLookup(tmdbId: number, cType: string, s?: number, e?: number): Promise<{ url: string; type: string; provider: string } | null> {
   const base = Deno.env.get("SUPABASE_URL");
@@ -60,71 +113,11 @@ async function m3uLookup(tmdbId: number, cType: string, s?: number, e?: number):
   return null;
 }
 
-// ── Layer 2: Direct CineVeo URL ──
+// ── Layer 3: Direct URL fallback (uses TMDB ID — may not always work) ──
 
 function directUrl(tmdbId: number, cType: string, s?: number, e?: number): string {
   if (cType === "movie") return `${CINEVEO_BASE}/movie/${CUSER}/${CPASS}/${tmdbId}.mp4`;
   return `${CINEVEO_BASE}/series/${CUSER}/${CPASS}/${tmdbId}/${s || 1}/${e || 1}.mp4`;
-}
-
-async function headCheck(url: string): Promise<boolean> {
-  try {
-    const res = await timedFetch(url, 3000, { method: "HEAD", headers: { "User-Agent": UA } });
-    return res.ok || res.status === 301 || res.status === 302;
-  } catch (_e) { return false; }
-}
-
-// ── Layer 3: CineVeo Catalog API ──
-
-async function apiLookup(tmdbId: number, cType: string, s?: number, e?: number): Promise<{ url: string; type: string; provider: string } | null> {
-  const apiType = cType === "movie" ? "movies" : "series";
-  const url = `${CINEVEO_API}/catalog.php?username=${CUSER}&password=${CPASS}&type=${apiType}&tmdb_id=${tmdbId}`;
-  
-  try {
-    const res = await timedFetch(url, 8000, { headers: { "User-Agent": UA, Accept: "application/json" } });
-    if (!res.ok) return null;
-    const payload = await res.json();
-    const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
-    
-    for (const item of items) {
-      const id = String(item?.tmdb_id ?? item?.tmdbId ?? item?.id ?? "");
-      if (id !== String(tmdbId)) continue;
-      
-      // For series, find the specific episode
-      if (apiType === "series" && Array.isArray(item?.episodes) && s && e) {
-        for (const ep of item.episodes) {
-          const epS = Number(ep?.season ?? ep?.temporada ?? ep?.s ?? 1) || 1;
-          const epE = Number(ep?.episode ?? ep?.ep ?? ep?.e ?? 1) || 1;
-          if (epS === s && epE === e) {
-            const epUrl = pickUrl(ep as Record<string, unknown>);
-            if (epUrl) return { url: epUrl, type: epUrl.includes(".m3u8") ? "m3u8" : "mp4", provider: "cineveo-api" };
-          }
-        }
-      }
-      
-      // Fallback: pick any stream URL from the item
-      const streamUrl = pickUrl(item as Record<string, unknown>);
-      if (streamUrl) return { url: streamUrl, type: streamUrl.includes(".m3u8") ? "m3u8" : "mp4", provider: "cineveo-api" };
-    }
-  } catch (_e) { /* skip */ }
-  
-  // Try opposite type
-  const altType = cType === "movie" ? "series" : "movies";
-  const altUrl = `${CINEVEO_API}/catalog.php?username=${CUSER}&password=${CPASS}&type=${altType}&tmdb_id=${tmdbId}`;
-  try {
-    const res = await timedFetch(altUrl, 6000, { headers: { "User-Agent": UA, Accept: "application/json" } });
-    if (!res.ok) return null;
-    const payload = await res.json();
-    const items = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
-    for (const item of items) {
-      const id = String(item?.tmdb_id ?? item?.tmdbId ?? item?.id ?? "");
-      if (id !== String(tmdbId)) continue;
-      const streamUrl = pickUrl(item as Record<string, unknown>);
-      if (streamUrl) return { url: streamUrl, type: streamUrl.includes(".m3u8") ? "m3u8" : "mp4", provider: "cineveo-api" };
-    }
-  } catch (_e) { /* skip */ }
-  
-  return null;
 }
 
 // ── Handler ──
@@ -148,50 +141,33 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const isSeries = cType !== "movie";
-
-    // Layer 1: M3U shard
-    const m3u = await m3uLookup(tmdbId, cType, season, episode);
-    if (m3u) {
-      console.log(`[extract] M3U hit tmdb=${tmdbId} s=${season} e=${episode}`);
-      return new Response(JSON.stringify({ ...m3u, cached: false }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Layer 2: Direct URL
-    const dUrl = directUrl(tmdbId, cType, season, episode);
-
-    if (!isSeries) {
-      console.log(`[extract] Direct movie tmdb=${tmdbId}`);
-      return new Response(JSON.stringify({ url: dUrl, type: "mp4", provider: "cineveo-direct", cached: false }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Series: HEAD check + API in parallel
-    const [valid, api] = await Promise.all([
-      headCheck(dUrl),
+    // Layer 1 (API) + Layer 2 (M3U) in parallel — API is primary
+    const [api, m3u] = await Promise.all([
       apiLookup(tmdbId, cType, season, episode),
+      m3uLookup(tmdbId, cType, season, episode),
     ]);
 
-    if (valid) {
-      console.log(`[extract] Direct verified tmdb=${tmdbId} s=${season} e=${episode}`);
-      return new Response(JSON.stringify({ url: dUrl, type: "mp4", provider: "cineveo-direct-verified", cached: false }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
+    // Prefer API result (has correct internal CineVeo IDs)
     if (api) {
-      console.log(`[extract] API hit tmdb=${tmdbId} s=${season} e=${episode}`);
+      console.log(`[extract] API hit tmdb=${tmdbId} url=${api.url.substring(0, 80)}`);
       return new Response(JSON.stringify({ ...api, cached: false }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Last resort
-    console.log(`[extract] Last resort tmdb=${tmdbId} s=${season} e=${episode}`);
-    return new Response(JSON.stringify({ url: dUrl, type: "mp4", provider: "cineveo-direct-unverified", cached: false }), {
+    // Fallback to M3U shard
+    if (m3u) {
+      console.log(`[extract] M3U hit tmdb=${tmdbId}`);
+      return new Response(JSON.stringify({ ...m3u, cached: false }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Last resort: direct URL with TMDB ID (may not work for all content)
+    const dUrl = directUrl(tmdbId, cType, season, episode);
+    const dType = dUrl.includes(".m3u8") ? "m3u8" : "mp4";
+    console.log(`[extract] Last resort direct tmdb=${tmdbId}`);
+    return new Response(JSON.stringify({ url: dUrl, type: dType, provider: "cineveo-direct-unverified", cached: false }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
