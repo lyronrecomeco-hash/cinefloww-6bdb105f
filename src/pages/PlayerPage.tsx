@@ -562,7 +562,15 @@ const PlayerPage = () => {
       // loadedmetadata fires MUCH faster than canplay/loadeddata for large MP4s
       video.addEventListener("loadedmetadata", () => {
         setLoading(false);
-        video.play().catch(() => {});
+        video.play().catch(() => {
+          console.log("[Player] MP4 autoplay blocked, trying muted...");
+          video.muted = true;
+          setMuted(true);
+          video.play().catch((e2) => {
+            console.warn("[Player] Even muted MP4 play failed:", e2);
+            setPlaying(false);
+          });
+        });
       }, { once: true });
     }
     if (!useNativeHLS) {
