@@ -481,7 +481,16 @@ const PlayerPage = () => {
       hls.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
         setLoading(false);
         setHlsLevels(data.levels.map(l => ({ height: l.height, bitrate: l.bitrate })));
-        video.play().catch(() => {});
+        // Try play with sound first, fallback to muted autoplay
+        video.play().catch(() => {
+          console.log("[Player] Autoplay blocked, trying muted...");
+          video.muted = true;
+          setMuted(true);
+          video.play().catch((e2) => {
+            console.warn("[Player] Even muted play failed:", e2);
+            setPlaying(false);
+          });
+        });
         // Enable subtitle tracks if available
         if (hls.subtitleTracks?.length > 0) {
           setCcTracks(Array.from(video.textTracks));
