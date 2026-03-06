@@ -369,23 +369,20 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    // Strip Referer header to bypass CineVeo Referer checks
-    video.setAttribute("referrerpolicy", "no-referrer");
+    // Proxied URLs (from video-token) support CORS — use crossOrigin
+    // Direct CineVeo URLs need no-referrer and no crossOrigin
+    const isProxied = src.url.includes("video-token") || src.url.includes("/functions/v1/") || src.url.includes("/b/functions/");
+    
+    if (isProxied) {
+      video.crossOrigin = "anonymous";
+      video.removeAttribute("referrerpolicy");
+    } else {
+      video.setAttribute("referrerpolicy", "no-referrer");
+      video.removeAttribute("crossorigin");
+    }
 
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     const useNativeHLS = src.type === "m3u8" && !Hls.isSupported() && video.canPlayType("application/vnd.apple.mpegurl");
-
-    if (src.type === "m3u8" && Hls.isSupported()) {
-      video.crossOrigin = "anonymous";
-    } else if (src.type === "mp4") {
-      // Direct mp4 links — no crossorigin to avoid CORS issues
-      video.removeAttribute("crossorigin");
-    } else if (useNativeHLS) {
-      // iOS native HLS: keep native behavior
-      video.removeAttribute("crossorigin");
-    } else {
-      video.crossOrigin = "anonymous";
-    }
     if (src.type === "m3u8" && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
