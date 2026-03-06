@@ -368,25 +368,10 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    // First-party URLs (/v/e/...) are same-origin — no CORS needed
-    // Proxied URLs (video-token) handle CORS internally
-    // Direct external URLs need no-referrer
-    const isFirstParty = isFirstPartyUrl(src.url);
-    const isProxied = src.url.includes("video-token") || src.url.includes("/functions/v1/");
-    
-    if (isFirstParty) {
-      // Same-origin via Vercel rewrite: no CORS attributes needed
-      video.removeAttribute("crossorigin");
-      video.removeAttribute("referrerpolicy");
-    } else if (isProxied && src.type === "m3u8") {
-      // Proxied HLS on preview: needs CORS for hls.js XHR
-      video.crossOrigin = "anonymous";
-      video.removeAttribute("referrerpolicy");
-    } else {
-      // External or proxied MP4 (302 redirect): hide referrer
-      video.removeAttribute("crossorigin");
-      video.setAttribute("referrerpolicy", "no-referrer");
-    }
+    // Direct CineVeo URLs: remove crossOrigin to avoid CORS issues,
+    // set no-referrer to bypass referer-based blocks (same strategy as TV player)
+    video.removeAttribute("crossorigin");
+    video.setAttribute("referrerpolicy", "no-referrer");
 
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     const useNativeHLS = src.type === "m3u8" && !Hls.isSupported() && video.canPlayType("application/vnd.apple.mpegurl");
