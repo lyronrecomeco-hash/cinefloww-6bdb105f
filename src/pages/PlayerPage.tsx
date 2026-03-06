@@ -376,9 +376,14 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    // Direct CineVeo URLs: remove crossOrigin to avoid CORS issues,
-    // set no-referrer to bypass referer-based blocks (same strategy as TV player)
-    video.removeAttribute("crossorigin");
+    // Proxied m3u8 (via video-token): use crossorigin=anonymous since proxy adds CORS
+    // Direct mp4: remove crossorigin, use no-referrer to bypass referer blocks
+    const isProxied = src.url.includes("video-token") || src.url.includes("/functions/v1/");
+    if (isProxied) {
+      video.setAttribute("crossorigin", "anonymous");
+    } else {
+      video.removeAttribute("crossorigin");
+    }
     video.setAttribute("referrerpolicy", "no-referrer");
 
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -407,9 +412,6 @@ const PlayerPage = () => {
         backBufferLength: 15,
         xhrSetup: (xhr) => {
           xhr.withCredentials = false;
-        },
-        fetchSetup: (context: any, initParams: any) => {
-          return new Request(context.url, { ...initParams, referrerPolicy: "no-referrer" });
         },
       } as any);
       hlsRef.current = hls;
