@@ -596,6 +596,38 @@ const PlayerPage = () => {
     return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
   }, [source, attachSource]);
 
+  // Stall detector: if video has duration but currentTime stays 0 for 8s, force next source
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !source) return;
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const checkStall = () => {
+      // If metadata loaded (duration > 0) but no frames decoded after 8s
+      if (video.duration > 0 && video.currentTime < 0.5 && !video.paused) {
+        console.log("[Player] Stall detected — no frames playing. Switching source...");
+        const nextIdx = currentSourceIdx + 1;
+        if (nextIdx < sources.length) {
+          attachedSourceRef.current = null;
+          setCurrentSourceIdx(nextIdx);
+        } else if (!fallbackTriedRef.current) {
+          tryApiFallback();
+        }
+      }
+    };
+
+    stallTimer = setTimeout(checkStall, 8000);
+    // Reset timer on any progress
+    const onProgress = () => {
+      if (stallTimer) { clearTimeout(stallTimer); stallTimer = null; }
+    };
+    video.addEventListener("timeupdate", onProgress);
+    return () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      video.removeEventListener("timeupdate", onProgress);
+    };
+  }, [source, currentSourceIdx, sources.length, tryApiFallback]);
+
   // Video events
   useEffect(() => {
     const video = videoRef.current;
