@@ -368,14 +368,9 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    // Proxied m3u8 (via video-token): use crossorigin=anonymous since proxy adds CORS
-    // Direct mp4: remove crossorigin, use no-referrer to bypass referer blocks
-    const isProxied = src.url.includes("video-token") || src.url.includes("/functions/v1/");
-    if (isProxied) {
-      video.setAttribute("crossorigin", "anonymous");
-    } else {
-      video.removeAttribute("crossorigin");
-    }
+    // NEVER set crossorigin for CineVeo streams — same approach as TV player
+    // This avoids CORS preflight blocks on m3u8 manifests and segments
+    video.removeAttribute("crossorigin");
     video.setAttribute("referrerpolicy", "no-referrer");
 
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
