@@ -544,8 +544,9 @@ const PlayerPage = () => {
       video.addEventListener("loadedmetadata", () => {
         setLoading(false);
         video.play().catch(() => {
-          // iOS requires user gesture — show play button, don't error
-          setPlaying(false);
+          video.muted = true;
+          setMuted(true);
+          video.play().catch(() => setPlaying(false));
         });
       }, { once: true });
       video.addEventListener("error", (e) => {
