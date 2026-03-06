@@ -263,6 +263,46 @@ Deno.serve(async (req) => {
       });
     }
 
+    // === PMEDIA: Lightweight proxy for HLS segments (no signing, just XOR-encrypted URL) ===
+    if (action === "pmedia") {
+      const encUrl = url.searchParams.get("u");
+      if (!encUrl) {
+        return new Response("Bad Request", { status: 400, headers: corsHeaders });
+      }
+      const segUrl = decryptUrl(decodeURIComponent(encUrl));
+      if (!segUrl.startsWith("http")) {
+        return new Response("Bad Request", { status: 400, headers: corsHeaders });
+      }
+
+      const segHeaders: Record<string, string> = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept": "*/*",
+        "Connection": "keep-alive",
+      };
+      try { segHeaders["Referer"] = new URL(segUrl).origin + "/"; } catch {}
+      
+      const rangeHeader = req.headers.get("Range");
+      if (rangeHeader) segHeaders["Range"] = rangeHeader;
+
+      const segResp = await fetch(segUrl, { headers: segHeaders, redirect: "follow" });
+      if (!segResp.ok && segResp.status !== 206) {
+        return new Response("Upstream error", { status: 502, headers: corsHeaders });
+      }
+
+      const rh: Record<string, string> = {
+        ...corsHeaders,
+        "Cache-Control": "public, max-age=3600",
+        "X-Robots-Tag": "noindex",
+      };
+      for (const h of ["Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"]) {
+        const val = segResp.headers.get(h);
+        if (val) rh[h] = val;
+      }
+      if (!rh["Content-Type"]) rh["Content-Type"] = "video/mp2t";
+
+      return new Response(segResp.body, { status: segResp.status, headers: rh });
+    }
+
     return new Response(JSON.stringify({ error: "Invalid action" }), {
       status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
