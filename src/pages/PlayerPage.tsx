@@ -235,11 +235,7 @@ const PlayerPage = () => {
         ? buildMovieUrl(tmdbId)
         : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
       const rawType: "mp4" | "m3u8" = rawUrl.includes(".m3u8") ? "m3u8" : "mp4";
-      let finalUrl = rawUrl;
-      if (rawType === "m3u8") {
-        try { finalUrl = await signVideoUrl(rawUrl); } catch {}
-      }
-      setBankSources([{ url: finalUrl, quality: "auto", provider: "cineveo-direct", type: rawType }]);
+      setBankSources([{ url: rawUrl, quality: "auto", provider: "cineveo-direct", type: rawType }]);
       setBankLoading(false);
     }
   }, [params.id, params.type, season, episode, tmdbId]);
