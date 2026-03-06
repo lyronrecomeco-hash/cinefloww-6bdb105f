@@ -369,16 +369,18 @@ const PlayerPage = () => {
     setHlsLevels([]);
     setCurrentLevel(-1);
 
-    // Proxied URLs (from video-token) support CORS — use crossOrigin
+    // Proxied HLS URLs (from video-token) support CORS — use crossOrigin
+    // Proxied MP4 URLs redirect (302) to external CDNs — NO crossOrigin
     // Direct CineVeo URLs need no-referrer and no crossOrigin
     const isProxied = src.url.includes("video-token") || src.url.includes("/functions/v1/") || src.url.includes("/b/functions/");
     
-    if (isProxied) {
+    if (isProxied && src.type === "m3u8") {
       video.crossOrigin = "anonymous";
       video.removeAttribute("referrerpolicy");
     } else {
-      video.setAttribute("referrerpolicy", "no-referrer");
+      // MP4 (even proxied) redirects to external CDN — no crossOrigin
       video.removeAttribute("crossorigin");
+      video.setAttribute("referrerpolicy", "no-referrer");
     }
 
     const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
