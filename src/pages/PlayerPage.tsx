@@ -218,6 +218,7 @@ const PlayerPage = () => {
       setError(false);
       setLoading(true);
       attachedSourceRef.current = null;
+      prevSourceUrl.current = null;
       return;
     }
 
