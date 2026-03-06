@@ -168,12 +168,18 @@ const PlayerPage = () => {
         setLoading(false);
         return;
       }
-      console.log("[Player] API fallback got:", data.url);
+      let fallbackUrl = data.url;
+      const fallbackType: "mp4" | "m3u8" = fallbackUrl.includes(".m3u8") ? "m3u8" : ((data.type as "mp4" | "m3u8") || "mp4");
+      // Route m3u8 through proxy
+      if (fallbackType === "m3u8") {
+        try { fallbackUrl = await signVideoUrl(fallbackUrl); } catch {}
+      }
+      console.log("[Player] API fallback got:", fallbackUrl.substring(0, 80));
       setBankSources([{
-        url: data.url,
+        url: fallbackUrl,
         quality: "auto",
         provider: data.provider || "cineveo-api",
-        type: (data.type as "mp4" | "m3u8") || "mp4",
+        type: fallbackType,
       }]);
       setError(false);
       setLoading(true);
