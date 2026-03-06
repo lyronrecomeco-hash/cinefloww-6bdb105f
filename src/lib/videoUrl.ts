@@ -1,8 +1,9 @@
 /**
- * Video URL layer — direct streaming via Vercel rewrites (no edge function proxy).
- * In production, URLs go through /v/e/ rewrite to avoid CORS/Referer blocks.
- * Credentials are obfuscated to prevent plain-text scraping.
+ * Video URL layer — all CineVeo streams are signed via video-token edge function
+ * to bypass CORS/Referer blocks in any environment (preview, production, custom domain).
  */
+
+import { supabase } from "@/integrations/supabase/client";
 
 // Obfuscated credentials — reassembled at runtime
 const _u = [108,121,110,101,102,108,105,120,45,118,111,100,115]; // user
@@ -19,32 +20,34 @@ function getUser(): string { if (!_user) _user = _d(_u); return _user; }
 function getPass(): string { if (!_pass) _pass = _d(_p); return _pass; }
 function getHost(): string { if (!_host) _host = _d(_h); return _host; }
 
-/**
- * Detect if we're on a production domain (custom domain or published Lovable app).
- * In production, use Vercel rewrites (/v/e/) to avoid CORS.
- * In dev/preview, use direct URLs.
- */
-function useRewrite(): boolean {
-  const h = window.location.hostname;
-  // Lovable preview doesn't have Vercel rewrites
-  if (h.includes("lovableproject.com") || h === "localhost" || h === "127.0.0.1") return false;
-  return true;
-}
-
-/** Build a movie video URL */
+/** Build a raw movie video URL (not proxied) */
 export function buildMovieUrl(tmdbId: number): string {
-  if (useRewrite()) {
-    return `${window.location.origin}/v/e/movie/${getUser()}/${getPass()}/${tmdbId}.mp4`;
-  }
   return `https://${getHost()}/movie/${getUser()}/${getPass()}/${tmdbId}.mp4`;
 }
 
-/** Build a series episode video URL */
+/** Build a raw series episode video URL (not proxied) */
 export function buildEpisodeUrl(tmdbId: number, season: number, episode: number): string {
-  if (useRewrite()) {
-    return `${window.location.origin}/v/e/series/${getUser()}/${getPass()}/${tmdbId}/${season}/${episode}.mp4`;
-  }
   return `https://${getHost()}/series/${getUser()}/${getPass()}/${tmdbId}/${season}/${episode}.mp4`;
+}
+
+/**
+ * Sign a video URL through video-token edge function.
+ * Returns a proxied stream_url that bypasses CORS/Referer.
+ */
+export async function signVideoUrl(rawUrl: string): Promise<string> {
+  try {
+    const { data, error } = await supabase.functions.invoke("video-token", {
+      body: { video_url: rawUrl },
+    });
+    if (error || !data?.stream_url) {
+      console.warn("[videoUrl] Sign failed, using raw URL:", error);
+      return rawUrl;
+    }
+    return data.stream_url;
+  } catch (e) {
+    console.warn("[videoUrl] Sign error:", e);
+    return rawUrl;
+  }
 }
 
 /** Legacy compat — returns URL directly (no proxy) */
