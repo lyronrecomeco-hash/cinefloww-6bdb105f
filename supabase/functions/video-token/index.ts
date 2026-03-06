@@ -205,9 +205,15 @@ Deno.serve(async (req) => {
 
         let body = await resp.text();
         const manifestBaseUrl = realUrl.substring(0, realUrl.lastIndexOf("/") + 1);
+        // Rewrite relative segment URLs (.ts)
         body = body.replace(/^(?!#)(.+\.ts.*)$/gm, (match) => {
           if (match.startsWith("http")) return match;
           return manifestBaseUrl + match;
+        });
+        // Rewrite relative #EXT-X-MAP:URI (init segments like .woff, .mp4, etc.)
+        body = body.replace(/#EXT-X-MAP:URI="([^"]+)"/g, (_full, uri) => {
+          if (uri.startsWith("http")) return `#EXT-X-MAP:URI="${uri}"`;
+          return `#EXT-X-MAP:URI="${manifestBaseUrl}${uri}"`;
         });
 
         return new Response(body, {
