@@ -544,15 +544,34 @@ const TabAtualizacao = () => {
 
             <div>
               <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1 block">
-                Link do APK
+                Arquivo APK
               </label>
-              <input
-                type="url"
-                value={apkUrl}
-                onChange={(e) => setApkUrl(e.target.value)}
-                placeholder="https://..."
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/40"
-              />
+              <div className="relative">
+                <input
+                  type="file"
+                  accept=".apk"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                  id="apk-upload"
+                />
+                <label
+                  htmlFor="apk-upload"
+                  className="flex items-center gap-3 w-full bg-white/5 border border-white/10 border-dashed rounded-xl px-3 py-3 text-sm cursor-pointer hover:bg-white/10 hover:border-primary/30 transition-all"
+                >
+                  <Upload className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                  <span className="text-foreground truncate">
+                    {apkFile ? apkFile.name : apkUrl ? `✓ ${apkUrl.split('/').pop()}` : "Selecionar arquivo .apk"}
+                  </span>
+                </label>
+                {uploading && (
+                  <div className="mt-2 w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-300"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
