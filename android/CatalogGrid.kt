@@ -11,8 +11,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -81,28 +83,39 @@ fun CatalogGrid(
         return
     }
 
-    Column(Modifier.fillMaxSize()) {
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(3),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.weight(1f)
-        ) {
-            items(items, key = { it.tmdbId }) { item ->
-                PremiumGridCard(
-                    item = item,
-                    onClick = { onDetails(item) }
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(3),
+        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        items(items, key = { it.tmdbId }) { item ->
+            PremiumGridCard(
+                item = item,
+                onClick = { onDetails(item) }
+            )
+        }
+
+        // Paginação inline (rola junto com o conteúdo)
+        if (totalPages > 1) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                PaginationBar(
+                    currentPage = currentPage,
+                    totalPages = totalPages,
+                    loading = loading,
+                    onPageChange = onPageChange
                 )
             }
         }
 
-        if (totalPages > 1) {
-            PaginationBar(
-                currentPage = currentPage,
-                totalPages = totalPages,
-                loading = loading,
-                onPageChange = onPageChange
+        // Espaço para o BottomNav
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Spacer(
+                Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .height(80.dp)
             )
         }
     }
@@ -166,15 +179,17 @@ private fun PremiumGridCard(
                     )
             )
 
-            // Rating badge — estrela amarela + número branco (igual site)
+            // Rating badge — canto superior direito
             if (item.displayRating > 0) {
                 Surface(
                     color = Color.Black.copy(alpha = 0.60f),
-                    shape = RoundedCornerShape(bottomStart = 10.dp, topEnd = 12.dp),
-                    modifier = Modifier.align(Alignment.TopEnd)
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -193,25 +208,9 @@ private fun PremiumGridCard(
                     }
                 }
             }
-
-            // Type badge — FILME/SÉRIE (igual site)
-            Surface(
-                color = if (item.isMovie) LyneRed.copy(alpha = 0.88f) else LyneAccent.copy(alpha = 0.88f),
-                shape = RoundedCornerShape(topEnd = 10.dp, bottomStart = 12.dp),
-                modifier = Modifier.align(Alignment.BottomStart)
-            ) {
-                Text(
-                    text = if (item.isMovie) "FILME" else "SÉRIE",
-                    color = Color.White,
-                    fontSize = 8.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.2.sp,
-                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
-                )
-            }
         }
 
-        // Título + Ano FORA do card (igual site)
+        // Título + Ano
         Spacer(Modifier.height(7.dp))
 
         Text(
@@ -245,60 +244,92 @@ private fun PaginationBar(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Color(0xFF0D1017))
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .navigationBarsPadding(),
+            .padding(vertical = 20.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(
-            onClick = { if (currentPage > 1) onPageChange(currentPage - 1) },
+        // Botão anterior
+        Surface(
+            onClick = { if (currentPage > 1 && !loading) onPageChange(currentPage - 1) },
             enabled = currentPage > 1 && !loading,
-            modifier = Modifier.size(36.dp)
+            color = if (currentPage > 1) LyneCard else Color.Transparent,
+            shape = CircleShape,
+            modifier = Modifier.size(38.dp)
         ) {
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                contentDescription = "Anterior",
-                tint = if (currentPage > 1) Color.White else LyneTextSecondary.copy(0.3f)
-            )
-        }
-
-        Spacer(Modifier.width(12.dp))
-
-        Box(
-            modifier = Modifier
-                .background(LyneCard, RoundedCornerShape(8.dp))
-                .padding(horizontal = 16.dp, vertical = 6.dp)
-        ) {
-            if (loading) {
-                CircularProgressIndicator(
-                    color = LyneAccent,
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(16.dp)
-                )
-            } else {
-                Text(
-                    text = "$currentPage / $totalPages",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                    contentDescription = "Anterior",
+                    tint = if (currentPage > 1) Color.White else LyneTextSecondary.copy(0.3f),
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
 
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(16.dp))
 
-        IconButton(
-            onClick = { if (currentPage < totalPages) onPageChange(currentPage + 1) },
-            enabled = currentPage < totalPages && !loading,
-            modifier = Modifier.size(36.dp)
-        ) {
-            Icon(
-                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = "Próximo",
-                tint = if (currentPage < totalPages) Color.White else LyneTextSecondary.copy(0.3f)
+        // Indicador de página
+        if (loading) {
+            CircularProgressIndicator(
+                color = LyneAccent,
+                strokeWidth = 2.dp,
+                modifier = Modifier.size(20.dp)
             )
+        } else {
+            // Bolinhas de página (mostra até 5 páginas)
+            val visiblePages = buildList {
+                val start = maxOf(1, currentPage - 2)
+                val end = minOf(totalPages, start + 4)
+                for (i in start..end) add(i)
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                visiblePages.forEach { page ->
+                    val isCurrent = page == currentPage
+                    Surface(
+                        onClick = { if (!isCurrent && !loading) onPageChange(page) },
+                        color = if (isCurrent) LyneAccent else LyneCard,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.size(
+                            width = if (isCurrent) 36.dp else 32.dp,
+                            height = 32.dp
+                        )
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Text(
+                                text = "$page",
+                                color = if (isCurrent) Color.Black else LyneTextSecondary,
+                                fontSize = 13.sp,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.width(16.dp))
+
+        // Botão próximo
+        Surface(
+            onClick = { if (currentPage < totalPages && !loading) onPageChange(currentPage + 1) },
+            enabled = currentPage < totalPages && !loading,
+            color = if (currentPage < totalPages) LyneCard else Color.Transparent,
+            shape = CircleShape,
+            modifier = Modifier.size(38.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = "Próximo",
+                    tint = if (currentPage < totalPages) Color.White else LyneTextSecondary.copy(0.3f),
+                    modifier = Modifier.size(22.dp)
+                )
+            }
         }
     }
 }
