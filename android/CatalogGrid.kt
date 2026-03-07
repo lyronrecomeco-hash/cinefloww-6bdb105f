@@ -50,9 +50,9 @@ fun CatalogGrid(
     if (loading && items.isEmpty()) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(3),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             items(12) {
@@ -62,7 +62,7 @@ fun CatalogGrid(
                             .fillMaxWidth()
                             .aspectRatio(2f / 3f)
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(5.dp))
                     GlassShimmerCard(
                         modifier = Modifier
                             .fillMaxWidth(0.8f)
@@ -84,9 +84,9 @@ fun CatalogGrid(
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize()
     ) {
         items(items, key = { it.tmdbId }) { item ->
@@ -96,7 +96,7 @@ fun CatalogGrid(
             )
         }
 
-        // Paginação inline — estilo website
+        // Paginação inline
         if (totalPages > 1) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 WebStylePagination(
@@ -114,7 +114,7 @@ fun CatalogGrid(
                 Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .height(80.dp)
+                    .height(16.dp)
             )
         }
     }
@@ -160,6 +160,24 @@ private fun PremiumGridCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Badge tipo
+            Surface(
+                color = if (item.isMovie) LyneAccent.copy(alpha = 0.90f)
+                else LyneAccent.copy(alpha = 0.90f),
+                shape = RoundedCornerShape(5.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(6.dp)
+            ) {
+                Text(
+                    text = if (item.isMovie) "FILME" else "SÉRIE",
+                    color = Color.White,
+                    fontSize = 7.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                )
+            }
 
             // Gradiente inferior sutil
             Box(
@@ -208,7 +226,7 @@ private fun PremiumGridCard(
             }
         }
 
-        Spacer(Modifier.height(6.dp))
+        Spacer(Modifier.height(5.dp))
 
         Text(
             text = item.title,
@@ -231,7 +249,7 @@ private fun PremiumGridCard(
 }
 
 /**
- * Paginação estilo website — botões com bordas sutis, ellipsis, página ativa com accent
+ * Paginação estilo website
  */
 @Composable
 private fun WebStylePagination(
@@ -245,11 +263,10 @@ private fun WebStylePagination(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 24.dp),
+            .padding(vertical = 16.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Botão anterior
         PaginationButton(
             onClick = { onPageChange(currentPage - 1) },
             enabled = currentPage > 1 && !loading
@@ -262,7 +279,7 @@ private fun WebStylePagination(
             )
         }
 
-        Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(3.dp))
 
         if (loading) {
             CircularProgressIndicator(
@@ -274,9 +291,8 @@ private fun WebStylePagination(
             pages.forEach { page ->
                 when (page) {
                     -1 -> {
-                        // Ellipsis
                         Box(
-                            modifier = Modifier.size(width = 28.dp, height = 34.dp),
+                            modifier = Modifier.size(width = 26.dp, height = 32.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
@@ -289,30 +305,29 @@ private fun WebStylePagination(
                     }
                     else -> {
                         val isCurrent = page == currentPage
-                        Spacer(Modifier.width(3.dp))
+                        Spacer(Modifier.width(2.dp))
                         PaginationButton(
                             onClick = { if (!isCurrent) onPageChange(page) },
                             enabled = !isCurrent && !loading,
                             isActive = isCurrent,
-                            minWidth = 34.dp
+                            minWidth = 32.dp
                         ) {
                             Text(
                                 text = "$page",
-                                color = if (isCurrent) Color.White else LyneMuted,
+                                color = if (isCurrent) Color.White else Color.White.copy(0.7f),
                                 fontSize = 12.sp,
                                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
                                 textAlign = TextAlign.Center
                             )
                         }
-                        Spacer(Modifier.width(3.dp))
+                        Spacer(Modifier.width(2.dp))
                     }
                 }
             }
         }
 
-        Spacer(Modifier.width(4.dp))
+        Spacer(Modifier.width(3.dp))
 
-        // Botão próximo
         PaginationButton(
             onClick = { onPageChange(currentPage + 1) },
             enabled = currentPage < totalPages && !loading
@@ -332,12 +347,12 @@ private fun PaginationButton(
     onClick: () -> Unit,
     enabled: Boolean,
     isActive: Boolean = false,
-    minWidth: androidx.compose.ui.unit.Dp = 34.dp,
+    minWidth: androidx.compose.ui.unit.Dp = 32.dp,
     content: @Composable () -> Unit
 ) {
     Box(
         modifier = Modifier
-            .defaultMinSize(minWidth = minWidth, minHeight = 34.dp)
+            .defaultMinSize(minWidth = minWidth, minHeight = 32.dp)
             .clip(RoundedCornerShape(10.dp))
             .then(
                 if (isActive) {
@@ -372,11 +387,6 @@ private fun PaginationButton(
     }
 }
 
-/**
- * Gera números de página com ellipsis, igual ao site:
- * [1] ... [page-1] [page] [page+1] ... [totalPages]
- * -1 = ellipsis
- */
 private fun buildPageNumbers(current: Int, total: Int): List<Int> {
     if (total <= 7) return (1..total).toList()
 

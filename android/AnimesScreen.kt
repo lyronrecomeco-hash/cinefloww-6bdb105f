@@ -37,12 +37,11 @@ fun AnimesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
             .fillMaxSize()
             .background(LyneBg)
     ) {
-        // Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -53,12 +52,21 @@ fun AnimesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
                     .background(LyneAccent)
             )
             Spacer(Modifier.width(10.dp))
-            Text(
-                "Animes",
-                color = LyneText,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Column {
+                Text(
+                    "Animes",
+                    color = LyneText,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                if (totalPages > 1) {
+                    Text(
+                        "Página $currentPage de $totalPages",
+                        color = LyneTextSecondary,
+                        fontSize = 10.sp
+                    )
+                }
+            }
             Spacer(Modifier.weight(1f))
             if (items.isNotEmpty()) {
                 Text(
@@ -82,7 +90,6 @@ fun AnimesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
                     )
                 }
             } else if (items.isEmpty()) {
-                // Estado vazio
                 Column(
                     Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
