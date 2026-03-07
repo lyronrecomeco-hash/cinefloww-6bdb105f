@@ -14,7 +14,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -51,9 +50,9 @@ fun CatalogGrid(
     if (loading && items.isEmpty()) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(3),
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             items(12) {
@@ -66,14 +65,14 @@ fun CatalogGrid(
                     Spacer(Modifier.height(6.dp))
                     GlassShimmerCard(
                         modifier = Modifier
-                            .fillMaxWidth(0.82f)
+                            .fillMaxWidth(0.8f)
                             .height(10.dp)
                             .clip(RoundedCornerShape(4.dp))
                     )
                     Spacer(Modifier.height(3.dp))
                     GlassShimmerCard(
                         modifier = Modifier
-                            .fillMaxWidth(0.42f)
+                            .fillMaxWidth(0.4f)
                             .height(8.dp)
                             .clip(RoundedCornerShape(4.dp))
                     )
@@ -85,9 +84,9 @@ fun CatalogGrid(
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
-        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier.fillMaxSize()
     ) {
         items(items, key = { it.tmdbId }) { item ->
@@ -97,10 +96,10 @@ fun CatalogGrid(
             )
         }
 
-        // Paginação inline (rola junto com o conteúdo)
+        // Paginação inline — estilo website
         if (totalPages > 1) {
             item(span = { GridItemSpan(maxLineSpan) }) {
-                PaginationBar(
+                WebStylePagination(
                     currentPage = currentPage,
                     totalPages = totalPages,
                     loading = loading,
@@ -129,8 +128,8 @@ private fun PremiumGridCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.95f else 1f,
-        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing),
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing),
         label = "gridCardScale"
     )
 
@@ -143,12 +142,12 @@ private fun PremiumGridCard(
                     scaleY = scale
                 }
                 .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(10.dp))
                 .background(LyneCard)
                 .border(
                     width = 1.dp,
-                    color = Color.White.copy(alpha = 0.05f),
-                    shape = RoundedCornerShape(12.dp)
+                    color = Color.White.copy(alpha = 0.06f),
+                    shape = RoundedCornerShape(10.dp)
                 )
                 .clickable(
                     interactionSource = interactionSource,
@@ -162,34 +161,33 @@ private fun PremiumGridCard(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Gradiente sutil no rodapé
+            // Gradiente inferior sutil
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp)
+                    .height(48.dp)
                     .align(Alignment.BottomCenter)
                     .background(
                         Brush.verticalGradient(
                             colors = listOf(
                                 Color.Transparent,
-                                Color.Black.copy(alpha = 0.10f),
-                                Color.Black.copy(alpha = 0.70f)
+                                Color.Black.copy(alpha = 0.50f)
                             )
                         )
                     )
             )
 
-            // Rating badge — canto superior direito
+            // Rating badge
             if (item.displayRating > 0) {
                 Surface(
-                    color = Color.Black.copy(alpha = 0.60f),
+                    color = Color.Black.copy(alpha = 0.55f),
                     shape = RoundedCornerShape(6.dp),
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(6.dp)
+                        .padding(5.dp)
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
@@ -198,7 +196,7 @@ private fun PremiumGridCard(
                             fontSize = 8.sp,
                             fontWeight = FontWeight.Bold
                         )
-                        Spacer(Modifier.width(3.dp))
+                        Spacer(Modifier.width(2.dp))
                         Text(
                             text = "%.1f".format(item.displayRating),
                             color = Color.White,
@@ -210,65 +208,62 @@ private fun PremiumGridCard(
             }
         }
 
-        // Título + Ano
-        Spacer(Modifier.height(7.dp))
+        Spacer(Modifier.height(6.dp))
 
         Text(
             text = item.title,
             color = LyneText,
             fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             lineHeight = 14.sp
         )
 
-        Spacer(Modifier.height(2.dp))
+        Spacer(Modifier.height(1.dp))
 
         Text(
             text = item.displayYear,
-            color = LyneTextSecondary,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Medium
+            color = LyneMuted,
+            fontSize = 9.sp
         )
     }
 }
 
+/**
+ * Paginação estilo website — botões com bordas sutis, ellipsis, página ativa com accent
+ */
 @Composable
-private fun PaginationBar(
+private fun WebStylePagination(
     currentPage: Int,
     totalPages: Int,
     loading: Boolean,
     onPageChange: (Int) -> Unit
 ) {
+    val pages = buildPageNumbers(currentPage, totalPages)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 20.dp),
+            .padding(vertical = 24.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Botão anterior
-        Surface(
-            onClick = { if (currentPage > 1 && !loading) onPageChange(currentPage - 1) },
-            enabled = currentPage > 1 && !loading,
-            color = if (currentPage > 1) LyneCard else Color.Transparent,
-            shape = CircleShape,
-            modifier = Modifier.size(38.dp)
+        PaginationButton(
+            onClick = { onPageChange(currentPage - 1) },
+            enabled = currentPage > 1 && !loading
         ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Icon(
-                    Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                    contentDescription = "Anterior",
-                    tint = if (currentPage > 1) Color.White else LyneTextSecondary.copy(0.3f),
-                    modifier = Modifier.size(22.dp)
-                )
-            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                contentDescription = "Anterior",
+                tint = if (currentPage > 1) Color.White else LyneMuted.copy(0.3f),
+                modifier = Modifier.size(18.dp)
+            )
         }
 
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(4.dp))
 
-        // Indicador de página
         if (loading) {
             CircularProgressIndicator(
                 color = LyneAccent,
@@ -276,60 +271,122 @@ private fun PaginationBar(
                 modifier = Modifier.size(20.dp)
             )
         } else {
-            // Bolinhas de página (mostra até 5 páginas)
-            val visiblePages = buildList {
-                val start = maxOf(1, currentPage - 2)
-                val end = minOf(totalPages, start + 4)
-                for (i in start..end) add(i)
-            }
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                visiblePages.forEach { page ->
-                    val isCurrent = page == currentPage
-                    Surface(
-                        onClick = { if (!isCurrent && !loading) onPageChange(page) },
-                        color = if (isCurrent) LyneAccent else LyneCard,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.size(
-                            width = if (isCurrent) 36.dp else 32.dp,
-                            height = 32.dp
-                        )
-                    ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+            pages.forEach { page ->
+                when (page) {
+                    -1 -> {
+                        // Ellipsis
+                        Box(
+                            modifier = Modifier.size(width = 28.dp, height = 34.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "…",
+                                color = LyneMuted,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    else -> {
+                        val isCurrent = page == currentPage
+                        Spacer(Modifier.width(3.dp))
+                        PaginationButton(
+                            onClick = { if (!isCurrent) onPageChange(page) },
+                            enabled = !isCurrent && !loading,
+                            isActive = isCurrent,
+                            minWidth = 34.dp
+                        ) {
                             Text(
                                 text = "$page",
-                                color = if (isCurrent) Color.Black else LyneTextSecondary,
-                                fontSize = 13.sp,
+                                color = if (isCurrent) Color.White else LyneMuted,
+                                fontSize = 12.sp,
                                 fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Medium,
                                 textAlign = TextAlign.Center
                             )
                         }
+                        Spacer(Modifier.width(3.dp))
                     }
                 }
             }
         }
 
-        Spacer(Modifier.width(16.dp))
+        Spacer(Modifier.width(4.dp))
 
         // Botão próximo
-        Surface(
-            onClick = { if (currentPage < totalPages && !loading) onPageChange(currentPage + 1) },
-            enabled = currentPage < totalPages && !loading,
-            color = if (currentPage < totalPages) LyneCard else Color.Transparent,
-            shape = CircleShape,
-            modifier = Modifier.size(38.dp)
+        PaginationButton(
+            onClick = { onPageChange(currentPage + 1) },
+            enabled = currentPage < totalPages && !loading
         ) {
-            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                Icon(
-                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                    contentDescription = "Próximo",
-                    tint = if (currentPage < totalPages) Color.White else LyneTextSecondary.copy(0.3f),
-                    modifier = Modifier.size(22.dp)
-                )
-            }
+            Icon(
+                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                contentDescription = "Próximo",
+                tint = if (currentPage < totalPages) Color.White else LyneMuted.copy(0.3f),
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
+}
+
+@Composable
+private fun PaginationButton(
+    onClick: () -> Unit,
+    enabled: Boolean,
+    isActive: Boolean = false,
+    minWidth: androidx.compose.ui.unit.Dp = 34.dp,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .defaultMinSize(minWidth = minWidth, minHeight = 34.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .then(
+                if (isActive) {
+                    Modifier.background(LyneAccent)
+                } else {
+                    Modifier
+                        .background(Color.White.copy(alpha = 0.04f))
+                        .border(
+                            width = 1.dp,
+                            color = Color.White.copy(alpha = 0.08f),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                }
+            )
+            .then(
+                if (enabled || isActive) {
+                    Modifier.clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) { onClick() }
+                } else {
+                    Modifier
+                }
+            )
+            .then(
+                if (!enabled && !isActive) Modifier.graphicsLayer { alpha = 0.3f }
+                else Modifier
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        content()
+    }
+}
+
+/**
+ * Gera números de página com ellipsis, igual ao site:
+ * [1] ... [page-1] [page] [page+1] ... [totalPages]
+ * -1 = ellipsis
+ */
+private fun buildPageNumbers(current: Int, total: Int): List<Int> {
+    if (total <= 7) return (1..total).toList()
+
+    val pages = mutableListOf<Int>()
+    pages.add(1)
+    if (current > 3) pages.add(-1)
+    for (i in maxOf(2, current - 1)..minOf(total - 1, current + 1)) {
+        pages.add(i)
+    }
+    if (current < total - 2) pages.add(-1)
+    pages.add(total)
+    return pages
 }

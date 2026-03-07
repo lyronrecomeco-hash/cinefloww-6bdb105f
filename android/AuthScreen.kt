@@ -31,6 +31,7 @@ import com.lyneflix.online.data.SupabaseAuth
 import com.lyneflix.online.ui.theme.LyneAccent
 import com.lyneflix.online.ui.theme.LyneBg
 import com.lyneflix.online.ui.theme.LyneCard
+import com.lyneflix.online.ui.theme.LyneMuted
 import com.lyneflix.online.ui.theme.LyneTextSecondary
 import kotlinx.coroutines.launch
 
@@ -68,133 +69,115 @@ fun AuthScreen(
                 .padding(horizontal = 28.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(Modifier.height(60.dp))
+            Spacer(Modifier.height(80.dp))
 
             // Logo
             Text(
                 text = "LYNEFLIX",
                 color = LyneAccent,
-                fontSize = 36.sp,
+                fontSize = 32.sp,
                 fontWeight = FontWeight.Black,
-                letterSpacing = 8.sp
+                letterSpacing = 6.sp
             )
 
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(32.dp))
 
+            // Título
             Text(
-                text = if (isLogin) "Bem-vindo de volta" else "Crie sua conta",
+                text = if (isLogin) "Acesse sua conta" else "Crie sua conta",
                 color = Color.White,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.SemiBold
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
             )
+
+            Spacer(Modifier.height(4.dp))
 
             Text(
-                text = if (isLogin) "Entre para continuar assistindo" else "É rápido e grátis",
-                color = LyneTextSecondary,
-                fontSize = 14.sp
+                text = if (isLogin)
+                    "Bem-vindo de volta. Digite seus dados para entrar."
+                else
+                    "Cadastre-se para salvar sua lista e muito mais.",
+                color = LyneMuted,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 18.sp
             )
 
-            Spacer(Modifier.height(36.dp))
-
-            // Tabs Login / Cadastro
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF1A1D2E))
-                    .padding(4.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (isLogin) LyneAccent else Color.Transparent)
-                        .clickable {
-                            isLogin = true
-                            errorMessage = null
-                            successMessage = null
-                        }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "Entrar",
-                        color = if (isLogin) Color.Black else LyneTextSecondary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (!isLogin) LyneAccent else Color.Transparent)
-                        .clickable {
-                            isLogin = false
-                            errorMessage = null
-                            successMessage = null
-                        }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "Cadastrar",
-                        color = if (!isLogin) Color.Black else LyneTextSecondary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(32.dp))
 
             // Campo Nome (só no cadastro)
             AnimatedVisibility(visible = !isLogin) {
                 Column {
+                    FieldLabel("NOME")
+                    Spacer(Modifier.height(6.dp))
                     AuthTextField(
                         value = name,
                         onValueChange = { name = it },
                         placeholder = "Seu nome",
-                        leadingIcon = { Icon(Icons.Default.Person, null, tint = LyneTextSecondary, modifier = Modifier.size(20.dp)) }
+                        leadingIcon = {
+                            Icon(
+                                Icons.Default.Person, null,
+                                tint = LyneMuted.copy(0.5f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     )
-                    Spacer(Modifier.height(14.dp))
+                    Spacer(Modifier.height(16.dp))
                 }
             }
 
-            // Email
+            // E-mail
+            FieldLabel("E-MAIL")
+            Spacer(Modifier.height(6.dp))
             AuthTextField(
                 value = email,
                 onValueChange = { email = it },
-                placeholder = "E-mail",
-                leadingIcon = { Icon(Icons.Default.Email, null, tint = LyneTextSecondary, modifier = Modifier.size(20.dp)) }
+                placeholder = "seu@email.com",
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Email, null,
+                        tint = LyneMuted.copy(0.5f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             )
 
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(16.dp))
 
             // Senha
+            FieldLabel("SENHA")
+            Spacer(Modifier.height(6.dp))
             AuthTextField(
                 value = password,
                 onValueChange = { password = it },
-                placeholder = "Senha",
+                placeholder = "••••••••",
                 isPassword = !showPassword,
-                leadingIcon = { Icon(Icons.Default.Lock, null, tint = LyneTextSecondary, modifier = Modifier.size(20.dp)) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Lock, null,
+                        tint = LyneMuted.copy(0.5f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
                 trailingIcon = {
-                    IconButton(onClick = { showPassword = !showPassword }, modifier = Modifier.size(24.dp)) {
+                    IconButton(
+                        onClick = { showPassword = !showPassword },
+                        modifier = Modifier.size(24.dp)
+                    ) {
                         Icon(
-                            if (showPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            if (showPassword) Icons.Default.VisibilityOff
+                            else Icons.Default.Visibility,
                             null,
-                            tint = LyneTextSecondary,
+                            tint = LyneMuted.copy(0.5f),
                             modifier = Modifier.size(18.dp)
                         )
                     }
                 }
             )
 
-            Spacer(Modifier.height(8.dp))
-
             // Mensagens de erro/sucesso
             errorMessage?.let {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
                 Text(
                     text = it,
                     color = Color(0xFFEF4444),
@@ -205,7 +188,7 @@ fun AuthScreen(
             }
 
             successMessage?.let {
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(12.dp))
                 Text(
                     text = it,
                     color = Color(0xFF22C55E),
@@ -248,7 +231,8 @@ fun AuthScreen(
 
                         if (result.success) {
                             if (result.needsConfirmation) {
-                                successMessage = result.error ?: "Verifique seu e-mail para confirmar a conta."
+                                successMessage =
+                                    result.error ?: "Verifique seu e-mail para confirmar a conta."
                             } else {
                                 onAuthSuccess()
                             }
@@ -259,37 +243,38 @@ fun AuthScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(50.dp),
+                    .height(48.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = LyneAccent),
-                shape = RoundedCornerShape(14.dp),
+                shape = RoundedCornerShape(12.dp),
                 enabled = !isLoading
             ) {
                 if (isLoading) {
                     CircularProgressIndicator(
-                        color = Color.Black,
+                        color = Color.White,
                         strokeWidth = 2.dp,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 } else {
                     Text(
-                        text = if (isLogin) "Entrar" else "Criar Conta",
-                        color = Color.Black,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                        text = if (isLogin) "ENTRAR" else "CRIAR CONTA",
+                        color = Color.White,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.5.sp
                     )
                 }
             }
 
             Spacer(Modifier.height(20.dp))
 
-            // Link alternativo
+            // Link alternativo — sem tabs, igual ao site
             Row(
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
                     text = if (isLogin) "Não tem conta? " else "Já tem conta? ",
-                    color = LyneTextSecondary,
+                    color = LyneMuted,
                     fontSize = 13.sp
                 )
                 Text(
@@ -305,16 +290,45 @@ fun AuthScreen(
                 )
             }
 
-            Spacer(Modifier.height(40.dp))
+            Spacer(Modifier.height(24.dp))
 
-            // Botão voltar
-            TextButton(onClick = onBack) {
-                Text("Voltar ao início", color = LyneTextSecondary, fontSize = 13.sp)
+            // Segurança
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    Icons.Default.Lock,
+                    contentDescription = null,
+                    tint = LyneMuted.copy(0.4f),
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    text = "CONEXÃO SEGURA E2E",
+                    color = LyneMuted.copy(0.4f),
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 1.sp
+                )
             }
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(40.dp))
         }
     }
+}
+
+@Composable
+private fun FieldLabel(text: String) {
+    Text(
+        text = text,
+        color = LyneMuted,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Medium,
+        letterSpacing = 1.sp,
+        modifier = Modifier.fillMaxWidth()
+    )
 }
 
 @Composable
@@ -329,18 +343,26 @@ private fun AuthTextField(
     TextField(
         value = value,
         onValueChange = onValueChange,
-        placeholder = { Text(placeholder, color = LyneTextSecondary.copy(0.6f), fontSize = 14.sp) },
-        modifier = Modifier.fillMaxWidth(),
+        placeholder = {
+            Text(
+                placeholder,
+                color = LyneMuted.copy(0.4f),
+                fontSize = 14.sp
+            )
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(50.dp),
         colors = TextFieldDefaults.colors(
-            focusedContainerColor = Color(0xFF1A1D2E),
-            unfocusedContainerColor = Color(0xFF1A1D2E),
+            focusedContainerColor = Color.White.copy(alpha = 0.05f),
+            unfocusedContainerColor = Color.White.copy(alpha = 0.05f),
             focusedTextColor = Color.White,
             unfocusedTextColor = Color.White,
             cursorColor = LyneAccent,
             focusedIndicatorColor = LyneAccent.copy(0.5f),
-            unfocusedIndicatorColor = Color.Transparent
+            unfocusedIndicatorColor = Color.White.copy(alpha = 0.08f)
         ),
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(10.dp),
         singleLine = true,
         visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
         leadingIcon = leadingIcon,
