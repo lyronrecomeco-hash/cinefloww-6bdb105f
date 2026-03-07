@@ -18,7 +18,7 @@ const menuItems = [
   { label: "Categorias", path: "/admin/categorias", icon: FolderOpen },
   { label: "Banco", path: "/admin/banco", icon: Database },
   { label: "Fontes & Vídeos", path: "/admin/fontes", icon: Wrench },
-  { label: "Integrações", path: "/admin/integracoes", icon: Bot },
+  { label: "Aplicativo", path: "/admin/integracoes", icon: Bot },
   { label: "TVLYNE", path: "/admin/logs", icon: Radio },
   { label: "R2 CDN", path: "/admin/r2", icon: Cloud },
   { label: "Segurança", path: "/admin/seguranca", icon: Shield },

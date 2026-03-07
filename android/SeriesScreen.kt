@@ -39,7 +39,7 @@ fun SeriesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -60,7 +60,7 @@ fun SeriesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
                 if (totalPages > 1) {
                     Text(
                         "Página $currentPage de $totalPages",
-                        color = LyneMuted,
+                        color = LyneTextSecondary,
                         fontSize = 10.sp
                     )
                 }
@@ -69,7 +69,7 @@ fun SeriesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
             if (items.isNotEmpty()) {
                 Text(
                     "${items.size} títulos",
-                    color = LyneMuted,
+                    color = LyneTextSecondary,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium
                 )

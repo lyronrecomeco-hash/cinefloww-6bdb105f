@@ -214,33 +214,40 @@ fun HomeScreen(
                     }
                 }
 
-                // Rodapé
+                // Rodapé AVISO LEGAL — mesmo texto do site
                 item {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 32.dp, bottom = 16.dp, start = 24.dp, end = 24.dp),
+                            .padding(horizontal = 20.dp, vertical = 10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         HorizontalDivider(
                             thickness = 0.5.dp,
                             color = LyneBorder,
-                            modifier = Modifier.padding(bottom = 24.dp)
+                            modifier = Modifier.padding(bottom = 10.dp)
                         )
                         Text(
                             text = "LYNEFLIX",
-                            color = LyneAccent.copy(alpha = 0.7f),
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = 4.sp
+                            color = LyneAccent.copy(alpha = 0.70f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.8.sp
                         )
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(6.dp))
                         Text(
-                            text = "Aviso Legal: O site Lyneflix não hospeda nenhum arquivo em seu servidor. Todo conteúdo é disponibilizado através de indexadores de links e scripts de terceiros.",
-                            color = Color(0xFF8A94A6),
-                            fontSize = 11.sp,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 16.sp
+                            text = "AVISO LEGAL: Nós não armazenamos nenhum dos arquivos em nenhum servidor. Todos os conteúdos são fornecidos por terceiros sem qualquer tipo de filiação.",
+                            color = LyneTextSecondary.copy(alpha = 0.60f),
+                            fontSize = 9.sp,
+                            lineHeight = 13.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            text = "© 2026 LyneFlix. Todos os direitos reservados.",
+                            color = LyneTextSecondary.copy(alpha = 0.40f),
+                            fontSize = 8.sp,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
