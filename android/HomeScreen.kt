@@ -60,9 +60,8 @@ fun HomeScreen(
     var searchResults by remember { mutableStateOf<List<CineVeoItem>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
 
-    // Seções derivadas dos dados do ViewModel
     val heroItems = remember(featured, movies) {
-        if (featured.isNotEmpty()) featured else movies.take(6)
+        featured.ifEmpty { movies.take(6) }
     }
 
     val emAlta = remember(movies) {
@@ -93,7 +92,6 @@ fun HomeScreen(
             .take(12)
     }
 
-    // Busca local sobre dados já carregados
     val localSearchSource = remember(movies, series, animes) {
         (movies + series + animes).distinctBy { it.tmdbId }
     }
@@ -121,7 +119,6 @@ fun HomeScreen(
             return@LaunchedEffect
         }
 
-        // Fallback: busca completa via API
         try {
             val all = (
                 CineVeoApi.getAllMovies() +
@@ -172,7 +169,6 @@ fun HomeScreen(
                             onDetails = onItemClick
                         )
 
-                        // Header: LYNEFLIX + Buscar + Perfil
                         Row(
                             Modifier
                                 .fillMaxWidth()
@@ -244,7 +240,6 @@ fun HomeScreen(
                     }
                 }
 
-                // ── Seções de conteúdo ──
                 if (emAlta.isNotEmpty()) {
                     item {
                         ContentRow(
@@ -300,7 +295,6 @@ fun HomeScreen(
                     }
                 }
 
-                // Rodapé AVISO LEGAL
                 item {
                     Column(
                         modifier = Modifier
@@ -341,7 +335,6 @@ fun HomeScreen(
             }
         }
 
-        // ── Overlay de Busca ──
         if (isSearchActive) {
             SearchOverlay(
                 query = searchQuery,
@@ -364,8 +357,6 @@ fun HomeScreen(
     }
 }
 
-// ── Overlay de busca ──
-
 @Composable
 private fun SearchOverlay(
     query: String,
@@ -387,7 +378,6 @@ private fun SearchOverlay(
             .background(Color(0xF2090C14))
     ) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
-            // Barra de busca
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -450,7 +440,6 @@ private fun SearchOverlay(
                 }
             }
 
-            // Loading
             if (isSearching) {
                 Box(
                     Modifier.fillMaxWidth().padding(40.dp),
@@ -464,7 +453,6 @@ private fun SearchOverlay(
                 }
             }
 
-            // Resultados
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
@@ -474,7 +462,6 @@ private fun SearchOverlay(
                     SearchResultCard(item = item, onClick = { onItemClick(item) })
                 }
 
-                // Estado vazio
                 if (results.isEmpty() && query.length > 2 && !isSearching) {
                     item {
                         Column(
@@ -503,7 +490,6 @@ private fun SearchOverlay(
                     }
                 }
 
-                // Dica inicial
                 if (query.length <= 2 && results.isEmpty() && !isSearching) {
                     item {
                         Column(
@@ -577,7 +563,6 @@ private fun SearchResultCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Tipo
                     Surface(
                         shape = RoundedCornerShape(50),
                         color = if (item.isMovie) LyneRed.copy(alpha = 0.16f)
@@ -597,17 +582,16 @@ private fun SearchResultCard(
                         )
                     }
 
-                    // Ano
-                    if (item.displayYear.isNotBlank()) {
+                    val year = item.displayYear.orEmpty()
+                    if (year.isNotBlank()) {
                         Text(
-                            text = item.displayYear,
+                            text = year,
                             color = LyneTextSecondary,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
                         )
                     }
 
-                    // Nota
                     if (item.displayRating > 0) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
@@ -627,11 +611,11 @@ private fun SearchResultCard(
                     }
                 }
 
-                // Sinopse curta
-                if (item.overview.isNotBlank()) {
+                val overview = item.overview.orEmpty()
+                if (overview.isNotBlank()) {
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = item.overview,
+                        text = overview,
                         color = LyneTextSecondary.copy(0.7f),
                         fontSize = 11.sp,
                         lineHeight = 14.sp,
