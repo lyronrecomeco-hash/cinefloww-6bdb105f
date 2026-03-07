@@ -23,7 +23,8 @@ import com.lyneflix.online.ui.theme.components.CatalogGrid
 @Composable
 fun AnimesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
     val items by vm.animesCatalog.collectAsState()
-    val loading by vm.isPageLoading.collectAsState()
+    val isGlobalLoading by vm.isLoading.collectAsState()
+    val isAnimesLoading by vm.isAnimesLoading.collectAsState()
     val currentPage by vm.currentAnimePage.collectAsState()
     val totalPages by vm.totalAnimePages.collectAsState()
 
@@ -31,13 +32,17 @@ fun AnimesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
         if (items.isEmpty()) vm.loadAnimePage(1)
     }
 
-    Column(Modifier.fillMaxSize().background(LyneBg)) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(LyneBg)
+    ) {
         // Header
         Row(
-            Modifier
+            modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 16.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -48,20 +53,35 @@ fun AnimesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
                     .background(LyneAccent)
             )
             Spacer(Modifier.width(10.dp))
-            Text("Animes", color = LyneText, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Animes",
+                color = LyneText,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold
+            )
             Spacer(Modifier.weight(1f))
             if (items.isNotEmpty()) {
                 Text(
-                    "Página $currentPage",
+                    "${items.size} títulos",
                     color = LyneTextSecondary,
-                    fontSize = 12.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Medium
                 )
             }
         }
 
         Box(Modifier.weight(1f)) {
-            if (items.isEmpty() && !loading) {
+            if (items.isEmpty() && (isGlobalLoading || isAnimesLoading)) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = LyneAccent,
+                        strokeWidth = 2.dp
+                    )
+                }
+            } else if (items.isEmpty()) {
                 // Estado vazio
                 Column(
                     Modifier.fillMaxSize(),
@@ -70,7 +90,7 @@ fun AnimesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
                 ) {
                     Icon(Icons.Default.Star, null, tint = LyneAccent, modifier = Modifier.size(48.dp))
                     Spacer(Modifier.height(14.dp))
-                    Text("Carregando animes...", color = LyneTextSecondary, fontSize = 14.sp)
+                    Text("Nenhum anime encontrado", color = LyneTextSecondary, fontSize = 14.sp)
                     Spacer(Modifier.height(16.dp))
                     Button(
                         onClick = { vm.loadAnimePage(1) },
@@ -85,7 +105,7 @@ fun AnimesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
             } else {
                 CatalogGrid(
                     items = items,
-                    loading = loading,
+                    loading = isAnimesLoading && items.isEmpty(),
                     currentPage = currentPage,
                     totalPages = totalPages,
                     onPageChange = { vm.loadAnimePage(it) },
