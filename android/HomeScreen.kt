@@ -20,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -30,7 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
-import com.lyneflix.online.data.AppCatalogApi
+import com.lyneflix.online.data.CineVeoApi
 import com.lyneflix.online.data.SupabaseAuth
 import com.lyneflix.online.data.models.CineVeoItem
 import com.lyneflix.online.data.viewmodel.HomeViewModel
@@ -38,6 +37,7 @@ import com.lyneflix.online.ui.theme.LyneAccent
 import com.lyneflix.online.ui.theme.LyneBg
 import com.lyneflix.online.ui.theme.LyneBorder
 import com.lyneflix.online.ui.theme.LyneCard
+import com.lyneflix.online.ui.theme.LyneRed
 import com.lyneflix.online.ui.theme.LyneTextSecondary
 import com.lyneflix.online.ui.theme.components.ContentRow
 import com.lyneflix.online.ui.theme.components.HeroSlider
@@ -49,34 +49,99 @@ fun HomeScreen(
     onProfileClick: () -> Unit = {},
     viewModel: HomeViewModel = viewModel()
 ) {
-    val featured by viewModel.featured.collectAsState()
-    val emAlta by viewModel.emAlta.collectAsState()
-    val movies by viewModel.movies.collectAsState()
-    val series by viewModel.series.collectAsState()
-    val animes by viewModel.animes.collectAsState()
-    val doramas by viewModel.doramas.collectAsState()
-    val recentlyAdded by viewModel.recentlyAdded.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
+    val featured: List<CineVeoItem> by viewModel.featured.collectAsState()
+    val movies: List<CineVeoItem> by viewModel.movies.collectAsState()
+    val series: List<CineVeoItem> by viewModel.series.collectAsState()
+    val animes: List<CineVeoItem> by viewModel.animes.collectAsState()
+    val isLoading: Boolean by viewModel.isLoading.collectAsState()
 
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var searchResults by remember { mutableStateOf<List<CineVeoItem>>(emptyList()) }
     var isSearching by remember { mutableStateOf(false) }
 
-    // Busca via edge function (app-catalog)
-    LaunchedEffect(searchQuery) {
-        if (searchQuery.length > 2) {
-            isSearching = true
-            delay(500)
-            searchResults = AppCatalogApi.search(searchQuery)
+    // Seções derivadas dos dados do ViewModel
+    val heroItems = remember(featured, movies) {
+        if (featured.isNotEmpty()) featured else movies.take(6)
+    }
+
+    val emAlta = remember(movies) {
+        movies.distinctBy { it.tmdbId }
+            .sortedByDescending { it.displayRating }
+            .take(12)
+    }
+
+    val latestMovies = remember(movies) {
+        movies.distinctBy { it.tmdbId }.take(12)
+    }
+
+    val popularMovies = remember(movies) {
+        movies.distinctBy { it.tmdbId }
+            .sortedByDescending { it.displayRating }
+            .take(12)
+    }
+
+    val popularSeries = remember(series) {
+        series.distinctBy { it.tmdbId }
+            .sortedByDescending { it.displayRating }
+            .take(12)
+    }
+
+    val popularAnimes = remember(animes) {
+        animes.distinctBy { it.tmdbId }
+            .sortedByDescending { it.displayRating }
+            .take(12)
+    }
+
+    // Busca local sobre dados já carregados
+    val localSearchSource = remember(movies, series, animes) {
+        (movies + series + animes).distinctBy { it.tmdbId }
+    }
+
+    LaunchedEffect(searchQuery, localSearchSource) {
+        val normalized = searchQuery.trim()
+        if (normalized.length < 3) {
             isSearching = false
-        } else {
+            searchResults = emptyList()
+            return@LaunchedEffect
+        }
+
+        isSearching = true
+        delay(300)
+
+        val query = normalized.lowercase()
+        val localMatches = localSearchSource
+            .filter { it.title.isNotBlank() && it.title.lowercase().contains(query) }
+            .distinctBy { it.tmdbId }
+            .take(30)
+
+        if (localMatches.isNotEmpty()) {
+            searchResults = localMatches
+            isSearching = false
+            return@LaunchedEffect
+        }
+
+        // Fallback: busca completa via API
+        try {
+            val all = (
+                CineVeoApi.getAllMovies() +
+                    CineVeoApi.getAllSeries() +
+                    CineVeoApi.getAllAnimes()
+                ).distinctBy { it.tmdbId }
+
+            searchResults = all
+                .filter { it.title.isNotBlank() && it.title.lowercase().contains(query) }
+                .distinctBy { it.tmdbId }
+                .take(30)
+        } catch (_: Exception) {
             searchResults = emptyList()
         }
+
+        isSearching = false
     }
 
     Box(Modifier.fillMaxSize().background(LyneBg)) {
-        if (isLoading) {
+        if (isLoading && heroItems.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
@@ -101,7 +166,11 @@ fun HomeScreen(
             ) {
                 item {
                     Box {
-                        HeroSlider(items = featured, loading = isLoading, onDetails = onItemClick)
+                        HeroSlider(
+                            items = heroItems,
+                            loading = isLoading && heroItems.isEmpty(),
+                            onDetails = onItemClick
+                        )
 
                         // Header: LYNEFLIX + Buscar + Perfil
                         Row(
@@ -124,7 +193,6 @@ fun HomeScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                // Botão buscar
                                 IconButton(
                                     onClick = { isSearchActive = true },
                                     modifier = Modifier
@@ -140,7 +208,6 @@ fun HomeScreen(
                                     )
                                 }
 
-                                // Botão perfil / login
                                 Box(
                                     modifier = Modifier
                                         .size(36.dp)
@@ -177,44 +244,63 @@ fun HomeScreen(
                     }
                 }
 
-                // ── Seções de conteúdo ──────────────────────────────────────
+                // ── Seções de conteúdo ──
                 if (emAlta.isNotEmpty()) {
                     item {
-                        ContentRow(title = "Em Alta", items = emAlta, loading = false, onDetails = onItemClick)
+                        ContentRow(
+                            title = "Em Alta",
+                            items = emAlta,
+                            loading = false,
+                            onDetails = onItemClick
+                        )
                     }
                 }
 
-                if (recentlyAdded.isNotEmpty()) {
+                if (latestMovies.isNotEmpty()) {
                     item {
-                        ContentRow(title = "Últimos Adicionados", items = recentlyAdded, loading = false, onDetails = onItemClick)
+                        ContentRow(
+                            title = "Últimos Adicionados",
+                            items = latestMovies,
+                            loading = false,
+                            onDetails = onItemClick
+                        )
                     }
                 }
 
-                if (movies.isNotEmpty()) {
+                if (popularMovies.isNotEmpty()) {
                     item {
-                        ContentRow(title = "Filmes Populares", items = movies, loading = false, onDetails = onItemClick)
+                        ContentRow(
+                            title = "Filmes Populares",
+                            items = popularMovies,
+                            loading = false,
+                            onDetails = onItemClick
+                        )
                     }
                 }
 
-                if (series.isNotEmpty()) {
+                if (popularSeries.isNotEmpty()) {
                     item {
-                        ContentRow(title = "Séries Populares", items = series, loading = false, onDetails = onItemClick)
+                        ContentRow(
+                            title = "Séries Populares",
+                            items = popularSeries,
+                            loading = false,
+                            onDetails = onItemClick
+                        )
                     }
                 }
 
-                if (doramas.isNotEmpty()) {
+                if (popularAnimes.isNotEmpty()) {
                     item {
-                        ContentRow(title = "Doramas", items = doramas, loading = false, onDetails = onItemClick)
+                        ContentRow(
+                            title = "Animes Populares",
+                            items = popularAnimes,
+                            loading = false,
+                            onDetails = onItemClick
+                        )
                     }
                 }
 
-                if (animes.isNotEmpty()) {
-                    item {
-                        ContentRow(title = "Animes", items = animes, loading = false, onDetails = onItemClick)
-                    }
-                }
-
-                // Rodapé AVISO LEGAL — mesmo texto do site
+                // Rodapé AVISO LEGAL
                 item {
                     Column(
                         modifier = Modifier
@@ -236,7 +322,8 @@ fun HomeScreen(
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(
-                            text = "AVISO LEGAL: Nós não armazenamos nenhum dos arquivos em nenhum servidor. Todos os conteúdos são fornecidos por terceiros sem qualquer tipo de filiação.",
+                            text = "AVISO LEGAL: Nós não armazenamos nenhum dos arquivos em nenhum servidor. " +
+                                "Todos os conteúdos são fornecidos por terceiros sem qualquer tipo de filiação.",
                             color = LyneTextSecondary.copy(alpha = 0.60f),
                             fontSize = 9.sp,
                             lineHeight = 13.sp,
@@ -254,7 +341,7 @@ fun HomeScreen(
             }
         }
 
-        // ── Overlay de Busca ────────────────────────────────────────────────
+        // ── Overlay de Busca ──
         if (isSearchActive) {
             SearchOverlay(
                 query = searchQuery,
@@ -277,7 +364,7 @@ fun HomeScreen(
     }
 }
 
-// ── Overlay de busca redesenhado ─────────────────────────────────────────────
+// ── Overlay de busca ──
 
 @Composable
 private fun SearchOverlay(
@@ -297,7 +384,7 @@ private fun SearchOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xF2090C14)) // Escuro quase opaco
+            .background(Color(0xF2090C14))
     ) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding()) {
             // Barra de busca
@@ -311,7 +398,11 @@ private fun SearchOverlay(
                     value = query,
                     onValueChange = onQueryChange,
                     placeholder = {
-                        Text("Buscar filmes, séries, animes...", color = LyneTextSecondary, fontSize = 14.sp)
+                        Text(
+                            "Buscar filmes, séries, animes...",
+                            color = LyneTextSecondary,
+                            fontSize = 14.sp
+                        )
                     },
                     modifier = Modifier
                         .weight(1f)
@@ -328,26 +419,48 @@ private fun SearchOverlay(
                     shape = RoundedCornerShape(14.dp),
                     singleLine = true,
                     leadingIcon = {
-                        Icon(Icons.Default.Search, null, tint = LyneTextSecondary, modifier = Modifier.size(20.dp))
+                        Icon(
+                            Icons.Default.Search,
+                            null,
+                            tint = LyneTextSecondary,
+                            modifier = Modifier.size(20.dp)
+                        )
                     },
                     trailingIcon = {
                         if (query.isNotEmpty()) {
                             IconButton(onClick = { onQueryChange("") }) {
-                                Icon(Icons.Default.Close, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                Icon(
+                                    Icons.Default.Close,
+                                    null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
                             }
                         }
                     }
                 )
                 Spacer(Modifier.width(10.dp))
                 TextButton(onClick = onClose) {
-                    Text("Cancelar", color = LyneAccent, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                    Text(
+                        "Cancelar",
+                        color = LyneAccent,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp
+                    )
                 }
             }
 
             // Loading
             if (isSearching) {
-                Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = LyneAccent, strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
+                Box(
+                    Modifier.fillMaxWidth().padding(40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(
+                        color = LyneAccent,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(28.dp)
+                    )
                 }
             }
 
@@ -405,8 +518,8 @@ private fun SearchOverlay(
                             )
                             Spacer(Modifier.height(6.dp))
                             Text(
-                                "Digite pelo menos 3 caracteres para buscar",
-                                color = LyneTextSecondary,
+                                "Digite pelo menos 3 caracteres",
+                                color = LyneTextSecondary.copy(0.6f),
                                 fontSize = 13.sp
                             )
                         }
@@ -417,113 +530,115 @@ private fun SearchOverlay(
     }
 }
 
-// ── Card de resultado de busca redesenhado ───────────────────────────────────
-
 @Composable
-private fun SearchResultCard(item: CineVeoItem, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color(0xFF141724))
-            .clickable { onClick() }
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically
+private fun SearchResultCard(
+    item: CineVeoItem,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = LyneCard.copy(alpha = 0.92f),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            Color.White.copy(alpha = 0.06f)
+        )
     ) {
-        // Poster
-        Box(
+        Row(
             modifier = Modifier
-                .width(65.dp)
-                .height(95.dp)
-                .clip(RoundedCornerShape(8.dp))
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             AsyncImage(
                 model = item.displayPoster,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .size(56.dp, 84.dp)
+                    .clip(RoundedCornerShape(10.dp)),
                 contentScale = ContentScale.Crop
             )
-        }
 
-        Spacer(Modifier.width(14.dp))
+            Spacer(Modifier.width(12.dp))
 
-        // Info
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = item.title,
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = 19.sp
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.title,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
 
-            Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
 
-            // Badges: Tipo + Ano + Nota
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Tipo badge
-                Box(
-                    modifier = Modifier
-                        .background(
-                            color = if (item.isMovie) Color(0xFF3B82F6).copy(0.2f) else LyneAccent.copy(0.2f),
-                            shape = RoundedCornerShape(4.dp)
-                        )
-                        .padding(horizontal = 7.dp, vertical = 2.dp)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = if (item.isMovie) "Filme" else "Série",
-                        color = if (item.isMovie) Color(0xFF60A5FA) else LyneAccent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-
-                // Ano
-                if (item.displayYear.isNotBlank()) {
-                    Text(
-                        text = item.displayYear,
-                        color = Color(0xFFB0B8C8),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
-                // Nota
-                if (item.displayRating > 0) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Star,
-                            null,
-                            tint = Color(0xFFFBBF24),
-                            modifier = Modifier.size(13.dp)
+                    // Tipo
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = if (item.isMovie) LyneRed.copy(alpha = 0.16f)
+                        else LyneAccent.copy(alpha = 0.16f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (item.isMovie) LyneRed.copy(alpha = 0.30f)
+                            else LyneAccent.copy(alpha = 0.30f)
                         )
-                        Spacer(Modifier.width(3.dp))
+                    ) {
                         Text(
-                            text = String.format("%.1f", item.displayRating),
-                            color = Color(0xFFFBBF24),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
+                            text = if (item.isMovie) "FILME" else "SÉRIE",
+                            color = if (item.isMovie) LyneRed else LyneAccent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                         )
                     }
-                }
-            }
 
-            // Overview (truncado)
-            if (item.displayOverview.isNotBlank()) {
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    text = item.displayOverview,
-                    color = LyneTextSecondary.copy(0.7f),
-                    fontSize = 11.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = 15.sp
-                )
+                    // Ano
+                    if (item.displayYear.isNotBlank()) {
+                        Text(
+                            text = item.displayYear,
+                            color = LyneTextSecondary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Nota
+                    if (item.displayRating > 0) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Star,
+                                null,
+                                tint = Color(0xFFFFD700),
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Spacer(Modifier.width(2.dp))
+                            Text(
+                                text = String.format(java.util.Locale.US, "%.1f", item.displayRating),
+                                color = Color(0xFFFFD700),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
+                }
+
+                // Sinopse curta
+                if (item.overview.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = item.overview,
+                        color = LyneTextSecondary.copy(0.7f),
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
         }
     }
