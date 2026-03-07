@@ -380,6 +380,9 @@ const TabAtualizacao = () => {
   const [releaseNotes, setReleaseNotes] = useState("");
   const [forceUpdate, setForceUpdate] = useState(false);
   const [apkUrl, setApkUrl] = useState("");
+  const [apkFile, setApkFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -403,25 +406,79 @@ const TabAtualizacao = () => {
     }
   };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.endsWith(".apk")) {
+      toast.error("Selecione um arquivo .apk");
+      return;
+    }
+    setApkFile(file);
+  };
+
+  const uploadApk = async (): Promise<string | null> => {
+    if (!apkFile) return apkUrl || null;
+
+    setUploading(true);
+    setUploadProgress(0);
+
+    try {
+      const fileName = `lyneflix-v${newVersion || "latest"}.apk`;
+      const filePath = `apk/${fileName}`;
+
+      // Simular progresso visual
+      const progressInterval = setInterval(() => {
+        setUploadProgress((prev) => Math.min(prev + 10, 90));
+      }, 200);
+
+      const { error } = await supabase.storage
+        .from("catalog")
+        .upload(filePath, apkFile, { upsert: true });
+
+      clearInterval(progressInterval);
+
+      if (error) throw error;
+
+      setUploadProgress(100);
+
+      const { data: urlData } = supabase.storage
+        .from("catalog")
+        .getPublicUrl(filePath);
+
+      return urlData.publicUrl;
+    } catch (err: any) {
+      toast.error("Erro ao enviar APK: " + (err.message || ""));
+      return null;
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const publishUpdate = async () => {
     if (!newVersion.trim()) {
       toast.error("Informe a nova versão");
       return;
     }
-    if (!apkUrl.trim()) {
-      toast.error("Informe o link do APK");
+    if (!apkFile && !apkUrl) {
+      toast.error("Selecione o arquivo APK");
       return;
     }
 
     setSaving(true);
     try {
+      const uploadedUrl = await uploadApk();
+      if (!uploadedUrl) {
+        setSaving(false);
+        return;
+      }
+
       const payload = {
         current_version: newVersion,
         new_version: newVersion,
         min_version: forceUpdate ? newVersion : currentVersion,
         release_notes: releaseNotes,
         force_update: forceUpdate,
-        apk_url: apkUrl,
+        apk_url: uploadedUrl,
         published_at: new Date().toISOString(),
       };
 
@@ -443,6 +500,8 @@ const TabAtualizacao = () => {
       }
 
       setCurrentVersion(newVersion);
+      setApkUrl(uploadedUrl);
+      setApkFile(null);
       toast.success("Atualização publicada com sucesso!");
     } catch {
       toast.error("Erro ao publicar atualização");
