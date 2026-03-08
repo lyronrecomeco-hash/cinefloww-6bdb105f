@@ -4,163 +4,205 @@ package com.lyneflix.online.data.viewmodel
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.lyneflix.online.data.AppCatalogApi
+import com.lyneflix.online.data.CineVeoApi
 import com.lyneflix.online.data.models.CineVeoItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class HomeViewModel : ViewModel() {
 
-    private val TAG = "HomeViewModel"
-
-    // ── Estado do Início ─────────────────────────────────────────────────────
-    private val _featured = MutableStateFlow<List<CineVeoItem>>(emptyList())
-    val featured: StateFlow<List<CineVeoItem>> = _featured
-
-    private val _emAlta = MutableStateFlow<List<CineVeoItem>>(emptyList())
-    val emAlta: StateFlow<List<CineVeoItem>> = _emAlta
-
     private val _movies = MutableStateFlow<List<CineVeoItem>>(emptyList())
-    val movies: StateFlow<List<CineVeoItem>> = _movies
+    val movies: StateFlow<List<CineVeoItem>> = _movies.asStateFlow()
 
     private val _series = MutableStateFlow<List<CineVeoItem>>(emptyList())
-    val series: StateFlow<List<CineVeoItem>> = _series
-
-    private val _doramas = MutableStateFlow<List<CineVeoItem>>(emptyList())
-    val doramas: StateFlow<List<CineVeoItem>> = _doramas
+    val series: StateFlow<List<CineVeoItem>> = _series.asStateFlow()
 
     private val _animes = MutableStateFlow<List<CineVeoItem>>(emptyList())
-    val animes: StateFlow<List<CineVeoItem>> = _animes
+    val animes: StateFlow<List<CineVeoItem>> = _animes.asStateFlow()
 
-    private val _recentlyAdded = MutableStateFlow<List<CineVeoItem>>(emptyList())
-    val recentlyAdded: StateFlow<List<CineVeoItem>> = _recentlyAdded
+    private val _featured = MutableStateFlow<List<CineVeoItem>>(emptyList())
+    val featured: StateFlow<List<CineVeoItem>> = _featured.asStateFlow()
 
     private val _isLoading = MutableStateFlow(true)
-    val isLoading: StateFlow<Boolean> = _isLoading
-
-    // ── Estado das Abas (paginação) ──────────────────────────────────────────
-
-    // Filmes
-    private val _moviesCatalog = MutableStateFlow<List<CineVeoItem>>(emptyList())
-    val moviesCatalog: StateFlow<List<CineVeoItem>> = _moviesCatalog
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private val _currentMoviePage = MutableStateFlow(1)
-    val currentMoviePage: StateFlow<Int> = _currentMoviePage
-
-    private val _totalMoviePages = MutableStateFlow(1)
-    val totalMoviePages: StateFlow<Int> = _totalMoviePages
-
-    // Séries
-    private val _seriesCatalog = MutableStateFlow<List<CineVeoItem>>(emptyList())
-    val seriesCatalog: StateFlow<List<CineVeoItem>> = _seriesCatalog
+    val currentMoviePage: StateFlow<Int> = _currentMoviePage.asStateFlow()
 
     private val _currentSeriesPage = MutableStateFlow(1)
-    val currentSeriesPage: StateFlow<Int> = _currentSeriesPage
-
-    private val _totalSeriesPages = MutableStateFlow(1)
-    val totalSeriesPages: StateFlow<Int> = _totalSeriesPages
-
-    // Animes
-    private val _animesCatalog = MutableStateFlow<List<CineVeoItem>>(emptyList())
-    val animesCatalog: StateFlow<List<CineVeoItem>> = _animesCatalog
+    val currentSeriesPage: StateFlow<Int> = _currentSeriesPage.asStateFlow()
 
     private val _currentAnimePage = MutableStateFlow(1)
-    val currentAnimePage: StateFlow<Int> = _currentAnimePage
+    val currentAnimePage: StateFlow<Int> = _currentAnimePage.asStateFlow()
+
+    private val _totalMoviePages = MutableStateFlow(1)
+    val totalMoviePages: StateFlow<Int> = _totalMoviePages.asStateFlow()
+
+    private val _totalSeriesPages = MutableStateFlow(1)
+    val totalSeriesPages: StateFlow<Int> = _totalSeriesPages.asStateFlow()
 
     private val _totalAnimePages = MutableStateFlow(1)
-    val totalAnimePages: StateFlow<Int> = _totalAnimePages
+    val totalAnimePages: StateFlow<Int> = _totalAnimePages.asStateFlow()
 
-    private val _isPageLoading = MutableStateFlow(false)
-    val isPageLoading: StateFlow<Boolean> = _isPageLoading
+    private val _animesCatalog = MutableStateFlow<List<CineVeoItem>>(emptyList())
+    val animesCatalog: StateFlow<List<CineVeoItem>> = _animesCatalog.asStateFlow()
 
-    // ── Carregamento do Início ───────────────────────────────────────────────
+    private val _isMoviesLoading = MutableStateFlow(false)
+    val isMoviesLoading: StateFlow<Boolean> = _isMoviesLoading.asStateFlow()
+
+    private val _isSeriesLoading = MutableStateFlow(false)
+    val isSeriesLoading: StateFlow<Boolean> = _isSeriesLoading.asStateFlow()
+
+    private val _isAnimesLoading = MutableStateFlow(false)
+    val isAnimesLoading: StateFlow<Boolean> = _isAnimesLoading.asStateFlow()
+
+    private var allAnimesList: List<CineVeoItem> = emptyList()
+    private val animesPageSize = 30
+
+    @Volatile
+    private var loadAllInProgress = false
+
+    init {
+        loadAll()
+    }
 
     fun loadAll() {
-        viewModelScope.launch {
-            _isLoading.value = true
+        if (loadAllInProgress) {
+            Log.d("HomeVM", "loadAll ignorado: já em execução")
+            return
+        }
+
+        loadAllInProgress = true
+        _isLoading.value = true
+
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                val home = AppCatalogApi.getHome()
-                if (home != null) {
-                    _featured.value = home.heroSlider
-                    _emAlta.value = home.findSection("em_alta")
-                    _recentlyAdded.value = home.findSection("ultimos_adicionados")
-                    _movies.value = home.findSection("filmes_populares")
-                    _series.value = home.findSection("series_populares")
-                    _doramas.value = home.findSection("doramas")
-                    _animes.value = home.findSection("animes")
-                    Log.i(TAG, "Home carregada: hero=${home.heroSlider.size}, " +
-                            "emAlta=${_emAlta.value.size}, filmes=${_movies.value.size}, " +
-                            "series=${_series.value.size}, animes=${_animes.value.size}, " +
-                            "doramas=${_doramas.value.size}")
-                } else {
-                    Log.w(TAG, "Home retornou null")
+                val moviesDeferred = async {
+                    runCatching { CineVeoApi.getMoviesPage(1) }
+                        .getOrElse { CineVeoApi.PageResult(emptyList(), 1, 1) }
                 }
+
+                val seriesDeferred = async {
+                    runCatching { CineVeoApi.getSeriesPage(1) }
+                        .getOrElse { CineVeoApi.PageResult(emptyList(), 1, 1) }
+                }
+
+                val animesDeferred = async {
+                    runCatching { CineVeoApi.getAnimesPage(1) }
+                        .getOrElse { CineVeoApi.PageResult(emptyList(), 1, 1) }
+                }
+
+                val moviesPageResult = moviesDeferred.await()
+                val seriesPageResult = seriesDeferred.await()
+                val animesPageResult = animesDeferred.await()
+
+                _movies.value = moviesPageResult.items
+                _currentMoviePage.value = moviesPageResult.currentPage
+                _totalMoviePages.value = moviesPageResult.totalPages
+
+                _series.value = seriesPageResult.items
+                _currentSeriesPage.value = seriesPageResult.currentPage
+                _totalSeriesPages.value = seriesPageResult.totalPages
+
+                _animes.value = animesPageResult.items
+                _currentAnimePage.value = animesPageResult.currentPage
+                _totalAnimePages.value = animesPageResult.totalPages
+                _animesCatalog.value = animesPageResult.items
+
+                _featured.value = moviesPageResult.items.take(6)
             } catch (e: Exception) {
-                Log.e(TAG, "loadAll error: ${e.message}")
+                Log.e("HomeVM", "Erro geral: ${e.message}", e)
             } finally {
                 _isLoading.value = false
+                loadAllInProgress = false
             }
         }
     }
 
-    // ── Paginação: Filmes ────────────────────────────────────────────────────
+    fun loadMoviePage(page: Int) {
+        if (page < 1) return
 
-    fun loadMoviePage(page: Int, genreId: Int? = null, year: Int? = null) {
-        if (_isPageLoading.value) return
-        viewModelScope.launch {
-            _isPageLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            _isMoviesLoading.value = true
             try {
-                val result = AppCatalogApi.getMovies(page, genreId, year)
-                _moviesCatalog.value = result.items
-                _currentMoviePage.value = result.page
+                val result = CineVeoApi.getMoviesPage(page)
+                _movies.value = result.items
+                _currentMoviePage.value = result.currentPage
                 _totalMoviePages.value = result.totalPages
-                Log.d(TAG, "Movies page $page: ${result.items.size} itens, total=${result.totalPages}")
             } catch (e: Exception) {
-                Log.e(TAG, "loadMoviePage error: ${e.message}")
+                Log.e("HomeVM", "Erro loadMoviePage: ${e.message}", e)
             } finally {
-                _isPageLoading.value = false
+                _isMoviesLoading.value = false
             }
         }
     }
 
-    // ── Paginação: Séries ────────────────────────────────────────────────────
+    fun loadSeriesPage(page: Int) {
+        if (page < 1) return
 
-    fun loadSeriesPage(page: Int, genreId: Int? = null, year: Int? = null) {
-        if (_isPageLoading.value) return
-        viewModelScope.launch {
-            _isPageLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            _isSeriesLoading.value = true
             try {
-                val result = AppCatalogApi.getSeries(page, genreId, year)
-                _seriesCatalog.value = result.items
-                _currentSeriesPage.value = result.page
+                val result = CineVeoApi.getSeriesPage(page)
+                _series.value = result.items
+                _currentSeriesPage.value = result.currentPage
                 _totalSeriesPages.value = result.totalPages
-                Log.d(TAG, "Series page $page: ${result.items.size} itens, total=${result.totalPages}")
             } catch (e: Exception) {
-                Log.e(TAG, "loadSeriesPage error: ${e.message}")
+                Log.e("HomeVM", "Erro loadSeriesPage: ${e.message}", e)
             } finally {
-                _isPageLoading.value = false
+                _isSeriesLoading.value = false
             }
         }
     }
-
-    // ── Paginação: Animes ────────────────────────────────────────────────────
 
     fun loadAnimePage(page: Int) {
-        if (_isPageLoading.value) return
-        viewModelScope.launch {
-            _isPageLoading.value = true
+        if (page < 1) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _isAnimesLoading.value = true
             try {
-                val result = AppCatalogApi.getAnimes(page)
-                _animesCatalog.value = result.items
-                _currentAnimePage.value = result.page
-                _totalAnimePages.value = result.totalPages
-                Log.d(TAG, "Animes page $page: ${result.items.size} itens, total=${result.totalPages}")
+                if (allAnimesList.isEmpty()) {
+                    allAnimesList = CineVeoApi.getAllAnimes()
+                }
+
+                if (_animes.value.isEmpty() && allAnimesList.isNotEmpty()) {
+                    _animes.value = allAnimesList.take(animesPageSize)
+                    _currentAnimePage.value = 1
+                    _totalAnimePages.value =
+                        (allAnimesList.size + animesPageSize - 1) / animesPageSize
+                }
+
+                val totalPages =
+                    if (allAnimesList.isEmpty()) 1
+                    else (allAnimesList.size + animesPageSize - 1) / animesPageSize
+
+                _totalAnimePages.value = totalPages
+
+                val start = (page - 1) * animesPageSize
+                if (start >= allAnimesList.size) {
+                    _animesCatalog.value = emptyList()
+                    _currentAnimePage.value = page
+                    return@launch
+                }
+
+                val end = (start + animesPageSize).coerceAtMost(allAnimesList.size)
+                _animesCatalog.value = allAnimesList.subList(start, end)
+                _currentAnimePage.value = page
             } catch (e: Exception) {
-                Log.e(TAG, "loadAnimePage error: ${e.message}")
+                Log.e("HomeVM", "Erro loadAnimePage: ${e.message}", e)
             } finally {
-                _isPageLoading.value = false
+                _isAnimesLoading.value = false
             }
         }
+    }
+
+    fun refreshAll() {
+        CineVeoApi.clearCache()
+        allAnimesList = emptyList()
+        loadAll()
     }
 }
