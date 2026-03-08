@@ -331,7 +331,10 @@ Deno.serve(async (req) => {
           } catch { /* keep 20 if extra fetch fails */ }
         }
 
-        return json({ items: normalizeItems(items, "movie"), page, total_pages: Math.min(result.total_pages, 500) });
+        // Trim to nearest multiple of 3 for complete grid rows
+        const normalized = normalizeItems(items, "movie");
+        const trimmed = normalized.slice(0, Math.floor(normalized.length / 3) * 3);
+        return json({ items: trimmed, page, total_pages: Math.min(result.total_pages, 500) });
       }
 
       // ====== SERIES (paginated via TMDB, same as site /series) ======
@@ -372,7 +375,10 @@ Deno.serve(async (req) => {
           } catch { /* keep 20 if extra fetch fails */ }
         }
 
-        return json({ items: normalizeItems(items, "tv"), page, total_pages: Math.min(result.total_pages, 500) });
+        // Trim to nearest multiple of 3 for complete grid rows
+        const normalizedS = normalizeItems(items, "tv");
+        const trimmedS = normalizedS.slice(0, Math.floor(normalizedS.length / 3) * 3);
+        return json({ items: trimmedS, page, total_pages: Math.min(result.total_pages, 500) });
       }
 
       // ====== DORAMAS (from CineVeo API directly) ======
@@ -397,7 +403,10 @@ Deno.serve(async (req) => {
           } catch { /* keep 20 if extra fetch fails */ }
         }
 
-        return json({ items: normalizeItems(items, "tv"), page, total_pages: Math.min(result.total_pages, 500) });
+        // Trim to nearest multiple of 3 for complete grid rows
+        const normalizedA = normalizeItems(items, "tv");
+        const trimmedA = normalizedA.slice(0, Math.floor(normalizedA.length / 3) * 3);
+        return json({ items: trimmedA, page, total_pages: Math.min(result.total_pages, 500) });
       }
 
       // ====== DETAIL (TMDB + CineVeo for series episodes) ======
