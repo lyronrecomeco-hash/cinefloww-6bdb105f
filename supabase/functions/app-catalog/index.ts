@@ -383,11 +383,21 @@ Deno.serve(async (req) => {
       }
 
       // ====== ANIMES (TMDB discover, same as site) ======
+      // Returns 21 items per page so Android 3-column grid has complete rows
       case "animes": {
         const page = data.page || 1;
         const result = await getAnimesTMDB(page);
-        const items = normalizeItems(result.results, "tv");
-        return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
+
+        // Fetch 1 extra item from next page to make 21 (divisible by 3)
+        let items = result.results;
+        if (items.length === 20 && page < result.total_pages) {
+          try {
+            const nextResult = await getAnimesTMDB(page + 1);
+            if (nextResult.results.length > 0) items = [...items, nextResult.results[0]];
+          } catch { /* keep 20 if extra fetch fails */ }
+        }
+
+        return json({ items: normalizeItems(items, "tv"), page, total_pages: Math.min(result.total_pages, 500) });
       }
 
       // ====== DETAIL (TMDB + CineVeo for series episodes) ======
