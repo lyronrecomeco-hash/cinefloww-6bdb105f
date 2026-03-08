@@ -331,7 +331,10 @@ Deno.serve(async (req) => {
           } catch { /* keep 20 if extra fetch fails */ }
         }
 
-        return json({ items: normalizeItems(items, "movie"), page, total_pages: Math.min(result.total_pages, 500) });
+        // Trim to nearest multiple of 3 for complete grid rows
+        const normalized = normalizeItems(items, "movie");
+        const trimmed = normalized.slice(0, Math.floor(normalized.length / 3) * 3);
+        return json({ items: trimmed, page, total_pages: Math.min(result.total_pages, 500) });
       }
 
       // ====== SERIES (paginated via TMDB, same as site /series) ======
