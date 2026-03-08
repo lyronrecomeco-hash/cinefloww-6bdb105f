@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,19 +36,18 @@ fun MoviesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
             .fillMaxSize()
             .background(LyneBg)
     ) {
-        // Header compacto
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                Modifier
-                    .width(3.dp)
-                    .height(22.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(3.dp))
                     .background(LyneAccent)
             )
             Spacer(Modifier.width(10.dp))
@@ -55,38 +55,27 @@ fun MoviesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
                 Text(
                     "Filmes",
                     color = LyneText,
-                    fontSize = 22.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
-                if (totalPages > 1) {
+                if (totalPages > 0) {
                     Text(
                         "Página $currentPage de $totalPages",
-                        color = LyneTextSecondary,
-                        fontSize = 10.sp
+                        color = Color.White.copy(alpha = 0.50f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
-            Spacer(Modifier.weight(1f))
-            if (items.isNotEmpty()) {
-                Text(
-                    "${items.size} títulos",
-                    color = LyneTextSecondary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
         }
 
-        Box(Modifier.weight(1f)) {
+        Box(Modifier.fillMaxWidth().weight(1f)) {
             if (items.isEmpty() && (isGlobalLoading || isMoviesLoading)) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(
-                        color = LyneAccent,
-                        strokeWidth = 2.dp
-                    )
+                    CircularProgressIndicator(color = LyneAccent, strokeWidth = 2.dp)
                 }
             } else {
                 CatalogGrid(
