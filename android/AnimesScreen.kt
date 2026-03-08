@@ -4,14 +4,13 @@ package com.lyneflix.online.ui.theme.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material3.*
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,14 +40,14 @@ fun AnimesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+                .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
-                Modifier
-                    .width(3.dp)
-                    .height(22.dp)
-                    .clip(RoundedCornerShape(2.dp))
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(3.dp))
                     .background(LyneAccent)
             )
             Spacer(Modifier.width(10.dp))
@@ -56,58 +55,27 @@ fun AnimesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
                 Text(
                     "Animes",
                     color = LyneText,
-                    fontSize = 22.sp,
+                    fontSize = 20.sp,
                     fontWeight = FontWeight.Bold
                 )
-                if (totalPages > 1) {
+                if (totalPages > 0) {
                     Text(
                         "Página $currentPage de $totalPages",
-                        color = LyneTextSecondary,
-                        fontSize = 10.sp
+                        color = Color.White.copy(alpha = 0.50f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }
-            Spacer(Modifier.weight(1f))
-            if (items.isNotEmpty()) {
-                Text(
-                    "${items.size} títulos",
-                    color = LyneTextSecondary,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
         }
 
-        Box(Modifier.weight(1f)) {
+        Box(Modifier.fillMaxWidth().weight(1f)) {
             if (items.isEmpty() && (isGlobalLoading || isAnimesLoading)) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(
-                        color = LyneAccent,
-                        strokeWidth = 2.dp
-                    )
-                }
-            } else if (items.isEmpty()) {
-                Column(
-                    Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Icon(Icons.Default.Star, null, tint = LyneAccent, modifier = Modifier.size(48.dp))
-                    Spacer(Modifier.height(14.dp))
-                    Text("Nenhum anime encontrado", color = LyneTextSecondary, fontSize = 14.sp)
-                    Spacer(Modifier.height(16.dp))
-                    Button(
-                        onClick = { vm.loadAnimePage(1) },
-                        colors = ButtonDefaults.buttonColors(containerColor = LyneAccent),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text("Recarregar", fontWeight = FontWeight.SemiBold)
-                    }
+                    CircularProgressIndicator(color = LyneAccent, strokeWidth = 2.dp)
                 }
             } else {
                 CatalogGrid(
@@ -115,7 +83,7 @@ fun AnimesScreen(vm: HomeViewModel, onDetails: (CineVeoItem) -> Unit) {
                     loading = isAnimesLoading && items.isEmpty(),
                     currentPage = currentPage,
                     totalPages = totalPages,
-                    onPageChange = { vm.loadAnimePage(it) },
+                    onPageChange = { page -> vm.loadAnimePage(page) },
                     onDetails = onDetails
                 )
             }
