@@ -294,6 +294,7 @@ Deno.serve(async (req) => {
       }
 
       // ====== MOVIES (paginated via TMDB, same as site /filmes) ======
+      // Returns 21 items per page so Android 3-column grid has complete rows
       case "movies": {
         const page = data.page || 1;
         const genreId = data.genre_id || undefined;
@@ -311,12 +312,30 @@ Deno.serve(async (req) => {
           result = await getPopularMovies(page, genreId);
         }
 
-        const items = normalizeItems(result.results, "movie");
+        // Fetch 1 extra item from next page to make 21 (divisible by 3)
+        let items = result.results;
+        if (items.length === 20 && page < result.total_pages) {
+          try {
+            let nextResult;
+            if (year) {
+              const params: Record<string, string> = { sort_by: "popularity.desc", page: String(page + 1) };
+              if (genreId) params.with_genres = String(genreId);
+              params["primary_release_date.gte"] = `${year}-01-01`;
+              params["primary_release_date.lte"] = `${year}-12-31`;
+              const d = await tmdbFetch("/discover/movie", params);
+              nextResult = d?.results?.filter((m: any) => m.poster_path) || [];
+            } else {
+              nextResult = (await getPopularMovies(page + 1, genreId)).results;
+            }
+            if (nextResult.length > 0) items = [...items, nextResult[0]];
+          } catch { /* keep 20 if extra fetch fails */ }
+        }
 
-        return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
+        return json({ items: normalizeItems(items, "movie"), page, total_pages: Math.min(result.total_pages, 500) });
       }
 
       // ====== SERIES (paginated via TMDB, same as site /series) ======
+      // Returns 21 items per page so Android 3-column grid has complete rows
       case "series": {
         const page = data.page || 1;
         const genreId = data.genre_id || undefined;
@@ -334,9 +353,26 @@ Deno.serve(async (req) => {
           result = await getPopularSeries(page, genreId);
         }
 
-        const items = normalizeItems(result.results, "tv");
+        // Fetch 1 extra item from next page to make 21 (divisible by 3)
+        let items = result.results;
+        if (items.length === 20 && page < result.total_pages) {
+          try {
+            let nextResult;
+            if (year) {
+              const params: Record<string, string> = { sort_by: "popularity.desc", page: String(page + 1) };
+              if (genreId) params.with_genres = String(genreId);
+              params["first_air_date.gte"] = `${year}-01-01`;
+              params["first_air_date.lte"] = `${year}-12-31`;
+              const d = await tmdbFetch("/discover/tv", params);
+              nextResult = d?.results?.filter((m: any) => m.poster_path) || [];
+            } else {
+              nextResult = (await getPopularSeries(page + 1, genreId)).results;
+            }
+            if (nextResult.length > 0) items = [...items, nextResult[0]];
+          } catch { /* keep 20 if extra fetch fails */ }
+        }
 
-        return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
+        return json({ items: normalizeItems(items, "tv"), page, total_pages: Math.min(result.total_pages, 500) });
       }
 
       // ====== DORAMAS (from CineVeo API directly) ======
@@ -347,11 +383,21 @@ Deno.serve(async (req) => {
       }
 
       // ====== ANIMES (TMDB discover, same as site) ======
+      // Returns 21 items per page so Android 3-column grid has complete rows
       case "animes": {
         const page = data.page || 1;
         const result = await getAnimesTMDB(page);
-        const items = normalizeItems(result.results, "tv");
-        return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
+
+        // Fetch 1 extra item from next page to make 21 (divisible by 3)
+        let items = result.results;
+        if (items.length === 20 && page < result.total_pages) {
+          try {
+            const nextResult = await getAnimesTMDB(page + 1);
+            if (nextResult.results.length > 0) items = [...items, nextResult.results[0]];
+          } catch { /* keep 20 if extra fetch fails */ }
+        }
+
+        return json({ items: normalizeItems(items, "tv"), page, total_pages: Math.min(result.total_pages, 500) });
       }
 
       // ====== DETAIL (TMDB + CineVeo for series episodes) ======
