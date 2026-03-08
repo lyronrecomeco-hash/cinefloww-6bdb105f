@@ -294,6 +294,7 @@ Deno.serve(async (req) => {
       }
 
       // ====== MOVIES (paginated via TMDB, same as site /filmes) ======
+      // Returns 21 items per page so Android 3-column grid has complete rows
       case "movies": {
         const page = data.page || 1;
         const genreId = data.genre_id || undefined;
@@ -311,9 +312,26 @@ Deno.serve(async (req) => {
           result = await getPopularMovies(page, genreId);
         }
 
-        const items = normalizeItems(result.results, "movie");
+        // Fetch 1 extra item from next page to make 21 (divisible by 3)
+        let items = result.results;
+        if (items.length === 20 && page < result.total_pages) {
+          try {
+            let nextResult;
+            if (year) {
+              const params: Record<string, string> = { sort_by: "popularity.desc", page: String(page + 1) };
+              if (genreId) params.with_genres = String(genreId);
+              params["primary_release_date.gte"] = `${year}-01-01`;
+              params["primary_release_date.lte"] = `${year}-12-31`;
+              const d = await tmdbFetch("/discover/movie", params);
+              nextResult = d?.results?.filter((m: any) => m.poster_path) || [];
+            } else {
+              nextResult = (await getPopularMovies(page + 1, genreId)).results;
+            }
+            if (nextResult.length > 0) items = [...items, nextResult[0]];
+          } catch { /* keep 20 if extra fetch fails */ }
+        }
 
-        return json({ items, page, total_pages: Math.min(result.total_pages, 500) });
+        return json({ items: normalizeItems(items, "movie"), page, total_pages: Math.min(result.total_pages, 500) });
       }
 
       // ====== SERIES (paginated via TMDB, same as site /series) ======
