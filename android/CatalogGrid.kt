@@ -33,7 +33,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.lyneflix.online.data.models.CineVeoItem
-import com.lyneflix.online.ui.theme.*
+import com.lyneflix.online.ui.theme.LyneAccent
+import com.lyneflix.online.ui.theme.LyneCard
+import com.lyneflix.online.ui.theme.LyneText
 
 @Composable
 fun CatalogGrid(
@@ -42,7 +44,9 @@ fun CatalogGrid(
     currentPage: Int,
     totalPages: Int,
     onPageChange: (Int) -> Unit,
-    onDetails: (CineVeoItem) -> Unit
+    onDetails: (CineVeoItem) -> Unit,
+    headerTitle: String = "",
+    headerSubtitle: String = ""
 ) {
     if (loading && items.isEmpty()) {
         LazyVerticalGrid(
@@ -52,7 +56,36 @@ fun CatalogGrid(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxSize()
         ) {
-            items(12) {
+            // Header skeleton
+            if (headerTitle.isNotEmpty()) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(4.dp)
+                                .height(24.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(LyneAccent)
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                headerTitle,
+                                color = LyneText,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+            }
+
+            items(21) {
                 Column {
                     GlassShimmerCard(
                         modifier = Modifier
@@ -82,11 +115,48 @@ fun CatalogGrid(
 
     LazyVerticalGrid(
         columns = GridCells.Fixed(3),
-        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 16.dp),
+        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 80.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize()
     ) {
+        // Scrollable header inside the grid
+        if (headerTitle.isNotEmpty()) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(4.dp)
+                            .height(24.dp)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(LyneAccent)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            headerTitle,
+                            color = LyneText,
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        if (headerSubtitle.isNotEmpty()) {
+                            Text(
+                                headerSubtitle,
+                                color = Color.White.copy(alpha = 0.50f),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         items(items, key = { it.tmdbId }) { item ->
             PremiumGridCard(
                 item = item,
@@ -94,7 +164,7 @@ fun CatalogGrid(
             )
         }
 
-        // Pagination using PaginationBar
+        // Pagination
         if (totalPages > 1) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 PaginationBar(
@@ -156,7 +226,6 @@ private fun PremiumGridCard(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Rating badge — top-right
             if (item.displayRating > 0) {
                 Surface(
                     color = Color.Black.copy(alpha = 0.60f),
@@ -186,7 +255,6 @@ private fun PremiumGridCard(
                 }
             }
 
-            // Gradient overlay bottom
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
