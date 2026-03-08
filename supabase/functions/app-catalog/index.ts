@@ -403,7 +403,10 @@ Deno.serve(async (req) => {
           } catch { /* keep 20 if extra fetch fails */ }
         }
 
-        return json({ items: normalizeItems(items, "tv"), page, total_pages: Math.min(result.total_pages, 500) });
+        // Trim to nearest multiple of 3 for complete grid rows
+        const normalizedA = normalizeItems(items, "tv");
+        const trimmedA = normalizedA.slice(0, Math.floor(normalizedA.length / 3) * 3);
+        return json({ items: trimmedA, page, total_pages: Math.min(result.total_pages, 500) });
       }
 
       // ====== DETAIL (TMDB + CineVeo for series episodes) ======
