@@ -375,7 +375,10 @@ Deno.serve(async (req) => {
           } catch { /* keep 20 if extra fetch fails */ }
         }
 
-        return json({ items: normalizeItems(items, "tv"), page, total_pages: Math.min(result.total_pages, 500) });
+        // Trim to nearest multiple of 3 for complete grid rows
+        const normalizedS = normalizeItems(items, "tv");
+        const trimmedS = normalizedS.slice(0, Math.floor(normalizedS.length / 3) * 3);
+        return json({ items: trimmedS, page, total_pages: Math.min(result.total_pages, 500) });
       }
 
       // ====== DORAMAS (from CineVeo API directly) ======
