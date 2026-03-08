@@ -16,7 +16,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.lyneflix.online.data.models.CineVeoItem
 import com.lyneflix.online.data.viewmodel.HomeViewModel
-import com.lyneflix.online.ui.theme.*
+import com.lyneflix.online.ui.theme.LyneAccent
+import com.lyneflix.online.ui.theme.LyneBg
+import com.lyneflix.online.ui.theme.LyneText
 import com.lyneflix.online.ui.theme.components.CatalogGrid
 
 @Composable
