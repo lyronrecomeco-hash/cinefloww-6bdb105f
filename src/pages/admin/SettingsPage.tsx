@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Settings, Save, Loader2, Users, Handshake, Plus, Trash2, Eye, EyeOff, ExternalLink, Pencil } from "lucide-react";
+import { Settings, Save, Loader2, Users, Handshake, Plus, Trash2, Eye, EyeOff, ExternalLink, Pencil, Play } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 interface Partner {
