@@ -174,35 +174,65 @@ const SettingsPage = () => {
           />
         </div>
 
-        <div className="flex items-center justify-between p-4 rounded-xl bg-white/[0.03] border border-white/5">
-          <div>
-            <p className="text-sm font-medium">Modo Manutenção</p>
-            <p className="text-xs text-muted-foreground mt-0.5">Desabilita o acesso público ao site</p>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between p-4 rounded-xl bg-white/[0.03] border border-white/5">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-yellow-500/15 flex items-center justify-center">
+                <Settings className="w-4 h-4 text-yellow-500" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Modo Manutenção</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Desabilita o acesso público ao site</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setMaintenanceMode(!maintenanceMode)}
+              className={`w-11 h-6 rounded-full transition-colors relative ${maintenanceMode ? "bg-primary" : "bg-white/10"}`}
+            >
+              <div className={`w-4.5 h-4.5 rounded-full bg-white absolute top-[3px] transition-all ${maintenanceMode ? "left-[22px]" : "left-[3px]"}`} />
+            </button>
           </div>
-          <button
-            onClick={() => setMaintenanceMode(!maintenanceMode)}
-            className={`w-11 h-6 rounded-full transition-colors relative ${maintenanceMode ? "bg-primary" : "bg-white/10"}`}
-          >
-            <div className={`w-4.5 h-4.5 rounded-full bg-white absolute top-[3px] transition-all ${maintenanceMode ? "left-[22px]" : "left-[3px]"}`} />
-          </button>
-        </div>
 
-        <div className="flex items-center justify-between p-4 rounded-xl bg-white/[0.03] border border-white/5">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
-              <Users className="w-4 h-4 text-primary" />
+          <div className="flex items-center justify-between p-4 rounded-xl bg-white/[0.03] border border-white/5">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-red-500/15 flex items-center justify-center">
+                <Play className="w-4 h-4 text-red-500" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Desativar Botão Assistir</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Desativa o botão de assistir em todo o catálogo</p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-medium">Watch Together</p>
-              <p className="text-xs text-muted-foreground mt-0.5">Botão de assistir junto nas páginas de detalhe</p>
-            </div>
+            <button
+              onClick={() => setWatchDisabled(!watchDisabled)}
+              className={`w-11 h-6 rounded-full transition-colors relative ${watchDisabled ? "bg-red-500" : "bg-white/10"}`}
+            >
+              <div className={`w-4.5 h-4.5 rounded-full bg-white absolute top-[3px] transition-all ${watchDisabled ? "left-[22px]" : "left-[3px]"}`} />
+            </button>
           </div>
-          <button
-            onClick={() => setWatchTogetherEnabled(!watchTogetherEnabled)}
-            className={`w-11 h-6 rounded-full transition-colors relative ${watchTogetherEnabled ? "bg-primary" : "bg-white/10"}`}
-          >
-            <div className={`w-4.5 h-4.5 rounded-full bg-white absolute top-[3px] transition-all ${watchTogetherEnabled ? "left-[22px]" : "left-[3px]"}`} />
-          </button>
+          {watchDisabled && (
+            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400">
+              ⚠️ O botão "Assistir" está desativado em todo o catálogo. Os usuários verão um aviso de manutenção.
+            </div>
+          )}
+
+          <div className="flex items-center justify-between p-4 rounded-xl bg-white/[0.03] border border-white/5">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
+                <Users className="w-4 h-4 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-medium">Watch Together</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Botão de assistir junto nas páginas de detalhe</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setWatchTogetherEnabled(!watchTogetherEnabled)}
+              className={`w-11 h-6 rounded-full transition-colors relative ${watchTogetherEnabled ? "bg-primary" : "bg-white/10"}`}
+            >
+              <div className={`w-4.5 h-4.5 rounded-full bg-white absolute top-[3px] transition-all ${watchTogetherEnabled ? "left-[22px]" : "left-[3px]"}`} />
+            </button>
+          </div>
         </div>
 
         <button
