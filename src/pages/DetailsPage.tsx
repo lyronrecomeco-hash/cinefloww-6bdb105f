@@ -48,6 +48,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [inMyList, setInMyList] = useState(false);
   const [hasVideo, setHasVideo] = useState<boolean | null>(null);
+  const [watchDisabled, setWatchDisabled] = useState(false);
   const [isFutureRelease, setIsFutureRelease] = useState(false);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [showAdGate, setShowAdGate] = useState(false);
