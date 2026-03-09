@@ -155,6 +155,7 @@ const SeasonsModal = forwardRef<HTMLDivElement, SeasonsModalProps>(({ seriesId, 
                     key={ep.id}
                     episode={ep}
                     progress={prog}
+                    disabled={watchDisabled}
                     onPlay={() => handleEpisodePlay(ep.season_number, ep.episode_number)}
                   />
                 );
