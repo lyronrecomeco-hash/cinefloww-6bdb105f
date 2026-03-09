@@ -12,6 +12,7 @@ interface SeasonsModalProps {
   seriesTitle: string;
   seasons: { season_number: number; name: string; episode_count: number; poster_path: string | null; air_date: string | null }[];
   imdbId?: string | null;
+  watchDisabled?: boolean;
   onClose: () => void;
 }
 

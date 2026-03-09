@@ -501,6 +501,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
           seriesTitle={getDisplayTitle(detail)}
           seasons={detail.seasons}
           imdbId={imdbId}
+          watchDisabled={watchDisabled}
           onClose={() => setShowSeasons(false)}
         />
       )}
