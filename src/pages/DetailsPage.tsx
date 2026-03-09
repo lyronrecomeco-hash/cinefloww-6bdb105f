@@ -48,10 +48,33 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [inMyList, setInMyList] = useState(false);
   const [hasVideo, setHasVideo] = useState<boolean | null>(null);
+  const [watchDisabled, setWatchDisabled] = useState(false);
   const [isFutureRelease, setIsFutureRelease] = useState(false);
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [showAdGate, setShowAdGate] = useState(false);
   const [adGateCallback, setAdGateCallback] = useState<(() => void) | null>(null);
+
+  // Check watch_disabled setting
+  useEffect(() => {
+    supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "watch_disabled")
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) setWatchDisabled(!!(data.value as any).value);
+      });
+
+    const channel = supabase
+      .channel("watch-disabled-setting")
+      .on("postgres_changes", { event: "*", schema: "public", table: "site_settings", filter: "key=eq.watch_disabled" }, (payload: any) => {
+        const val = payload.new?.value;
+        if (val) setWatchDisabled(!!val.value);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   // Load active profile
   useEffect(() => {
@@ -313,6 +336,16 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                   Em Breve — {detail.release_date || detail.first_air_date
                     ? new Date((detail.release_date || detail.first_air_date)! + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "long", year: "numeric" })
                     : "Data a definir"}
+                </div>
+              ) : watchDisabled ? (
+                <div className="flex flex-col items-center sm:items-start gap-1.5">
+                  <div className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 font-semibold text-xs sm:text-sm cursor-not-allowed select-none opacity-80">
+                    <Play className="w-4 h-4 sm:w-5 sm:h-5" />
+                    Assistir Agora
+                  </div>
+                  <p className="text-[10px] sm:text-xs text-amber-400/80 max-w-xs text-center sm:text-left">
+                    ⚠️ O servidor está temporariamente inativo para manutenções e correções, em breve estará disponível.
+                  </p>
                 </div>
               ) : hasVideo === false ? (
                 <div className="flex flex-col items-center sm:items-start gap-1.5">
