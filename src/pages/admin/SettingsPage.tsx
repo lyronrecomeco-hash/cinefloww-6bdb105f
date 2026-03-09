@@ -43,6 +43,7 @@ const SettingsPage = () => {
           if (s.key === "site_name") setSiteName(s.value?.value || "Cineflow");
           if (s.key === "site_description") setSiteDescription(s.value?.value || "");
           if (s.key === "maintenance_mode") setMaintenanceMode(s.value?.value || false);
+          if (s.key === "watch_disabled") setWatchDisabled(s.value?.value || false);
           if (s.key === "watch_together_enabled") setWatchTogetherEnabled(s.value?.value ?? false);
         });
       }
