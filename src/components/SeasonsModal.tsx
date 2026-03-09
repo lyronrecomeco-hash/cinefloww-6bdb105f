@@ -193,8 +193,9 @@ SeasonsModal.displayName = "SeasonsModal";
 const EpisodeCard = forwardRef<HTMLDivElement, {
   episode: TMDBEpisode;
   progress?: { progress: number; duration: number; completed: boolean };
+  disabled?: boolean;
   onPlay: () => void;
-}>(({ episode, progress, onPlay }, ref) => {
+}>(({ episode, progress, disabled, onPlay }, ref) => {
   const progressPct = progress && progress.duration > 0
     ? Math.min(100, (progress.progress / progress.duration) * 100)
     : 0;
@@ -208,9 +209,10 @@ const EpisodeCard = forwardRef<HTMLDivElement, {
   };
 
   return (
-    <div ref={ref} className={`flex gap-2.5 sm:gap-4 p-2 sm:p-3 rounded-xl sm:rounded-2xl border transition-all group cursor-pointer ${
-      isWatched ? "bg-white/[0.01] border-white/5 opacity-40" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-white/10"
-    }`} onClick={onPlay}>
+    <div ref={ref} className={`flex gap-2.5 sm:gap-4 p-2 sm:p-3 rounded-xl sm:rounded-2xl border transition-all group ${
+      disabled ? "opacity-50 cursor-not-allowed bg-white/[0.01] border-white/5" :
+      isWatched ? "bg-white/[0.01] border-white/5 opacity-40 cursor-pointer" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-white/10 cursor-pointer"
+    }`} onClick={disabled ? undefined : onPlay}>
       {/* Thumbnail */}
       <div className="flex-shrink-0 w-20 sm:w-36 aspect-video rounded-lg sm:rounded-xl overflow-hidden bg-muted relative">
         {episode.still_path ? (
