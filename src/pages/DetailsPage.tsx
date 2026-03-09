@@ -54,6 +54,28 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [showAdGate, setShowAdGate] = useState(false);
   const [adGateCallback, setAdGateCallback] = useState<(() => void) | null>(null);
 
+  // Check watch_disabled setting
+  useEffect(() => {
+    supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "watch_disabled")
+      .maybeSingle()
+      .then(({ data }) => {
+        if (data?.value) setWatchDisabled(!!(data.value as any).value);
+      });
+
+    const channel = supabase
+      .channel("watch-disabled-setting")
+      .on("postgres_changes", { event: "*", schema: "public", table: "site_settings", filter: "key=eq.watch_disabled" }, (payload: any) => {
+        const val = payload.new?.value;
+        if (val) setWatchDisabled(!!val.value);
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
   // Load active profile
   useEffect(() => {
     const stored = localStorage.getItem("lyneflix_active_profile");
