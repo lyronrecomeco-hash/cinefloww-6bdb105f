@@ -60,6 +60,7 @@ const SettingsPage = () => {
         { key: "site_name", value: { value: siteName } },
         { key: "site_description", value: { value: siteDescription } },
         { key: "maintenance_mode", value: { value: maintenanceMode } },
+        { key: "watch_disabled", value: { value: watchDisabled } },
         { key: "watch_together_enabled", value: { value: watchTogetherEnabled } },
       ];
 
