@@ -16,7 +16,7 @@ interface SeasonsModalProps {
   onClose: () => void;
 }
 
-const SeasonsModal = forwardRef<HTMLDivElement, SeasonsModalProps>(({ seriesId, seriesTitle, seasons, imdbId, onClose }, ref) => {
+const SeasonsModal = forwardRef<HTMLDivElement, SeasonsModalProps>(({ seriesId, seriesTitle, seasons, imdbId, watchDisabled, onClose }, ref) => {
   const navigate = useNavigate();
   const validSeasons = seasons.filter((s) => s.season_number > 0);
   const [selectedSeason, setSelectedSeason] = useState(validSeasons[0]?.season_number ?? 1);
