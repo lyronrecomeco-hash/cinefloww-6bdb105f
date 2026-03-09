@@ -142,6 +142,11 @@ const SeasonsModal = forwardRef<HTMLDivElement, SeasonsModalProps>(({ seriesId, 
 
           {/* Episodes */}
           <div className="flex-1 overflow-y-auto scrollbar-hide p-4 sm:p-6 space-y-2 sm:space-y-3">
+            {watchDisabled && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 mb-3">
+                <span className="text-amber-400 text-xs sm:text-sm">⚠️ O servidor está temporariamente inativo para manutenções e correções, em breve estará disponível.</span>
+              </div>
+            )}
             {loading ? (
               <div className="flex justify-center py-10">
                 <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
