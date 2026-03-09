@@ -12,10 +12,11 @@ interface SeasonsModalProps {
   seriesTitle: string;
   seasons: { season_number: number; name: string; episode_count: number; poster_path: string | null; air_date: string | null }[];
   imdbId?: string | null;
+  watchDisabled?: boolean;
   onClose: () => void;
 }
 
-const SeasonsModal = forwardRef<HTMLDivElement, SeasonsModalProps>(({ seriesId, seriesTitle, seasons, imdbId, onClose }, ref) => {
+const SeasonsModal = forwardRef<HTMLDivElement, SeasonsModalProps>(({ seriesId, seriesTitle, seasons, imdbId, watchDisabled, onClose }, ref) => {
   const navigate = useNavigate();
   const validSeasons = seasons.filter((s) => s.season_number > 0);
   const [selectedSeason, setSelectedSeason] = useState(validSeasons[0]?.season_number ?? 1);
@@ -141,6 +142,11 @@ const SeasonsModal = forwardRef<HTMLDivElement, SeasonsModalProps>(({ seriesId, 
 
           {/* Episodes */}
           <div className="flex-1 overflow-y-auto scrollbar-hide p-4 sm:p-6 space-y-2 sm:space-y-3">
+            {watchDisabled && (
+              <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 mb-3">
+                <span className="text-amber-400 text-xs sm:text-sm">⚠️ O servidor está temporariamente inativo para manutenções e correções, em breve estará disponível.</span>
+              </div>
+            )}
             {loading ? (
               <div className="flex justify-center py-10">
                 <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
@@ -154,6 +160,7 @@ const SeasonsModal = forwardRef<HTMLDivElement, SeasonsModalProps>(({ seriesId, 
                     key={ep.id}
                     episode={ep}
                     progress={prog}
+                    disabled={watchDisabled}
                     onPlay={() => handleEpisodePlay(ep.season_number, ep.episode_number)}
                   />
                 );
@@ -191,8 +198,9 @@ SeasonsModal.displayName = "SeasonsModal";
 const EpisodeCard = forwardRef<HTMLDivElement, {
   episode: TMDBEpisode;
   progress?: { progress: number; duration: number; completed: boolean };
+  disabled?: boolean;
   onPlay: () => void;
-}>(({ episode, progress, onPlay }, ref) => {
+}>(({ episode, progress, disabled, onPlay }, ref) => {
   const progressPct = progress && progress.duration > 0
     ? Math.min(100, (progress.progress / progress.duration) * 100)
     : 0;
@@ -206,9 +214,10 @@ const EpisodeCard = forwardRef<HTMLDivElement, {
   };
 
   return (
-    <div ref={ref} className={`flex gap-2.5 sm:gap-4 p-2 sm:p-3 rounded-xl sm:rounded-2xl border transition-all group cursor-pointer ${
-      isWatched ? "bg-white/[0.01] border-white/5 opacity-40" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-white/10"
-    }`} onClick={onPlay}>
+    <div ref={ref} className={`flex gap-2.5 sm:gap-4 p-2 sm:p-3 rounded-xl sm:rounded-2xl border transition-all group ${
+      disabled ? "opacity-50 cursor-not-allowed bg-white/[0.01] border-white/5" :
+      isWatched ? "bg-white/[0.01] border-white/5 opacity-40 cursor-pointer" : "bg-white/[0.03] border-white/5 hover:bg-white/[0.06] hover:border-white/10 cursor-pointer"
+    }`} onClick={disabled ? undefined : onPlay}>
       {/* Thumbnail */}
       <div className="flex-shrink-0 w-20 sm:w-36 aspect-video rounded-lg sm:rounded-xl overflow-hidden bg-muted relative">
         {episode.still_path ? (
