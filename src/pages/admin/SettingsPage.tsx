@@ -19,6 +19,7 @@ const SettingsPage = () => {
   const [siteName, setSiteName] = useState("Cineflow");
   const [siteDescription, setSiteDescription] = useState("");
   const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [watchDisabled, setWatchDisabled] = useState(false);
   const [watchTogetherEnabled, setWatchTogetherEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
