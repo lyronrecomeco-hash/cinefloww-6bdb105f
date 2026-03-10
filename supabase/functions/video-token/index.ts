@@ -263,22 +263,53 @@ Deno.serve(async (req) => {
         });
       };
 
+      console.log("[stream] Real URL:", realUrl.substring(0, 100));
+
       if (isHlsUrl) {
-        const resp = await fetch(realUrl, { headers: fetchHeaders, redirect: "follow" });
-        if (!resp.ok) {
+        console.log("[stream] Fetching HLS manifest...");
+        try {
+          const resp = await fetch(realUrl, { headers: fetchHeaders, redirect: "follow" });
+          console.log("[stream] HLS response status:", resp.status, "url:", (resp.url || realUrl).substring(0, 80));
+          if (!resp.ok) {
+            const errBody = await resp.text().catch(() => "");
+            console.error("[stream] HLS upstream error:", resp.status, errBody.substring(0, 200));
+            
+            // Try mp4 variant as fallback
+            const mp4Url = realUrl.replace(/\.m3u8$/, ".mp4");
+            console.log("[stream] Trying MP4 fallback:", mp4Url.substring(0, 80));
+            const mp4Resp = await fetch(mp4Url, { method: "HEAD", headers: fetchHeaders, redirect: "follow" });
+            const mp4Final = mp4Resp.url || mp4Url;
+            await mp4Resp.text().catch(() => {});
+            
+            if (mp4Resp.ok || mp4Resp.status === 302 || mp4Resp.status === 301) {
+              console.log("[stream] MP4 redirect to:", mp4Final.substring(0, 80));
+              return new Response(null, {
+                status: 302,
+                headers: {
+                  ...corsHeaders,
+                  "Location": mp4Final,
+                  "Cache-Control": "no-store, private",
+                  "Referrer-Policy": "no-referrer",
+                },
+              });
+            }
+            
+            return new Response("Upstream error", { status: 502, headers: corsHeaders });
+          }
+          return rewriteManifest(realUrl, resp);
+        } catch (e) {
+          console.error("[stream] HLS fetch exception:", e);
           return new Response("Upstream error", { status: 502, headers: corsHeaders });
         }
-        return rewriteManifest(realUrl, resp);
       }
 
       // Non-HLS content (MP4, etc.)
-      // Edge functions can't reliably stream large files. Follow redirects to find
-      // the final URL, then check if it's actually HLS. If not, redirect browser.
+      console.log("[stream] Fetching non-HLS (HEAD):", realUrl.substring(0, 80));
       const headResp = await fetch(realUrl, { method: "HEAD", headers: fetchHeaders, redirect: "follow" });
       const finalUrl = headResp.url || realUrl;
       const upstreamCT = headResp.headers.get("content-type") || "";
-      // Consume body to prevent resource leak
       await headResp.text().catch(() => {});
+      console.log("[stream] HEAD result:", headResp.status, "ct:", upstreamCT, "final:", finalUrl.substring(0, 80));
 
       // Check if the redirected URL is actually HLS
       const isActuallyHls = upstreamCT.includes("mpegurl") || finalUrl.includes(".m3u8");
@@ -287,14 +318,14 @@ Deno.serve(async (req) => {
         const hlsHeaders = { ...fetchHeaders, "Referer": new URL(finalUrl).origin + "/" };
         const resp = await fetch(finalUrl, { headers: hlsHeaders, redirect: "follow" });
         if (!resp.ok) {
+          const errBody = await resp.text().catch(() => "");
+          console.error("[stream] Redirected HLS error:", resp.status, errBody.substring(0, 200));
           return new Response("Upstream error", { status: 502, headers: corsHeaders });
         }
         return rewriteManifest(finalUrl, resp);
       }
 
       // MP4/other: redirect browser to the final URL.
-      // Token was already validated above, so the user is authorized.
-      // no-referrer prevents the target from seeing our domain.
       console.log("[stream] Redirecting to final URL:", finalUrl.substring(0, 80));
       return new Response(null, {
         status: 302,
