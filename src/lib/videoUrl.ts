@@ -90,20 +90,10 @@ export async function signVideoUrl(rawUrl: string): Promise<string> {
     return toFirstPartyUrl(rawUrl);
   }
   
-  // On preview/dev: use video-token proxy for CORS bypass
-  try {
-    const { data, error } = await supabase.functions.invoke("video-token", {
-      body: { video_url: rawUrl },
-    });
-    if (error || !data?.stream_url) {
-      console.warn("[videoUrl] Sign failed, using raw URL:", error);
-      return rawUrl;
-    }
-    return data.stream_url;
-  } catch (e) {
-    console.warn("[videoUrl] Sign error:", e);
-    return rawUrl;
-  }
+  // On preview/dev: return raw URL directly
+  // Player must use referrerpolicy="no-referrer" and NO crossOrigin attribute
+  // (same pattern as TV live streams that work without proxy)
+  return rawUrl;
 }
 
 /** Legacy compat */
