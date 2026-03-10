@@ -261,7 +261,7 @@ const PlayerPage = () => {
     apiFallbackUrlRef.current = null;
 
     try {
-      // 1) Call extract-video to get the best URL from CineVeo API
+      // Call extract-video — it probes server-side and returns the best working URL
       const { data, error: fnErr } = await supabase.functions.invoke("extract-video", {
         body: { tmdb_id: tmdbId, content_type: params.type === "movie" ? "movie" : "tv", season, episode },
       });
@@ -269,30 +269,33 @@ const PlayerPage = () => {
       if (!fnErr && data?.url) {
         const resolvedUrl = data.url as string;
         const provider = data.provider || "cineveo-api";
+        const vType: "mp4" | "m3u8" = data.type === "mp4" ? "mp4" : "m3u8";
 
-        // CineVeo requires Referer header — must proxy through video-token
-        const baseUrl = resolvedUrl.replace(/\.(m3u8|mp4)$/, "");
-        const m3u8Raw = baseUrl + ".m3u8";
+        // On production: use Vercel rewrites; on preview: use raw URL with no-referrer
+        const finalUrl = await signVideoUrl(resolvedUrl);
         
-        const m3u8Signed = await signVideoUrl(m3u8Raw);
+        // Build fallback variants (mp4 ↔ m3u8)
+        const baseUrl = resolvedUrl.replace(/\.(m3u8|mp4)$/, "");
+        const altType: "mp4" | "m3u8" = vType === "m3u8" ? "mp4" : "m3u8";
+        const altUrl = await signVideoUrl(baseUrl + "." + altType);
 
         const sources: VideoSource[] = [
-          { url: m3u8Signed, quality: "auto", provider, type: "m3u8" },
+          { url: finalUrl, quality: "auto", provider, type: vType },
+          { url: altUrl, quality: "auto", provider, type: altType },
         ];
 
-        console.log("[Player] Source (m3u8 proxied):", m3u8Signed.substring(0, 100));
+        console.log(`[Player] Source (${vType}):`, finalUrl.substring(0, 100));
         setBankSources(sources);
       } else {
-        // Fallback: build direct m3u8 URL via proxy
-        const baseUrl = params.type === "movie"
+        // Fallback: build direct URL
+        const base = params.type === "movie"
           ? buildMovieUrl(tmdbId)
           : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
         
-        const m3u8Url = baseUrl.replace(/\.mp4$/, ".m3u8");
-        const m3u8Signed = await signVideoUrl(m3u8Url);
-        
+        const m3u8 = base.replace(/\.mp4$/, ".m3u8");
         setBankSources([
-          { url: m3u8Signed, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
+          { url: m3u8, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
+          { url: base, quality: "auto", provider: "cineveo-direct", type: "mp4" },
         ]);
       }
       setBankLoading(false);

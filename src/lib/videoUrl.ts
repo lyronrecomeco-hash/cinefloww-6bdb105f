@@ -90,7 +90,9 @@ export async function signVideoUrl(rawUrl: string): Promise<string> {
     return toFirstPartyUrl(rawUrl);
   }
   
-  // On preview/dev: return raw URL directly (player uses no-referrer policy)
+  // On preview/dev: return raw URL directly
+  // Player must use referrerpolicy="no-referrer" and NO crossOrigin attribute
+  // (same pattern as TV live streams that work without proxy)
   return rawUrl;
 }
 
