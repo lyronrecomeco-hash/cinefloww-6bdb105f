@@ -261,7 +261,7 @@ const PlayerPage = () => {
     apiFallbackUrlRef.current = null;
 
     try {
-      // Call extract-video — it probes server-side and returns the final streaming URL
+      // Call extract-video — it probes server-side and returns the best working URL
       const { data, error: fnErr } = await supabase.functions.invoke("extract-video", {
         body: { tmdb_id: tmdbId, content_type: params.type === "movie" ? "movie" : "tv", season, episode },
       });
@@ -271,30 +271,31 @@ const PlayerPage = () => {
         const provider = data.provider || "cineveo-api";
         const vType: "mp4" | "m3u8" = data.type === "mp4" ? "mp4" : "m3u8";
 
-        // Use signVideoUrl for production (Vercel rewrites) or raw URL for preview
+        // On production: use Vercel rewrites; on preview: use raw URL with no-referrer
         const finalUrl = await signVideoUrl(resolvedUrl);
+        
+        // Build fallback variants (mp4 ↔ m3u8)
+        const baseUrl = resolvedUrl.replace(/\.(m3u8|mp4)$/, "");
+        const altType: "mp4" | "m3u8" = vType === "m3u8" ? "mp4" : "m3u8";
+        const altUrl = await signVideoUrl(baseUrl + "." + altType);
 
         const sources: VideoSource[] = [
           { url: finalUrl, quality: "auto", provider, type: vType },
+          { url: altUrl, quality: "auto", provider, type: altType },
         ];
-
-        // Also add mp4 variant as fallback if primary is m3u8
-        if (vType === "m3u8") {
-          const mp4Variant = resolvedUrl.replace(/\.m3u8$/, ".mp4");
-          sources.push({ url: await signVideoUrl(mp4Variant), quality: "auto", provider, type: "mp4" });
-        }
 
         console.log(`[Player] Source (${vType}):`, finalUrl.substring(0, 100));
         setBankSources(sources);
       } else {
         // Fallback: build direct URL
-        const baseUrl = params.type === "movie"
+        const base = params.type === "movie"
           ? buildMovieUrl(tmdbId)
           : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
         
+        const m3u8 = base.replace(/\.mp4$/, ".m3u8");
         setBankSources([
-          { url: baseUrl.replace(/\.mp4$/, ".m3u8"), quality: "auto", provider: "cineveo-direct", type: "m3u8" },
-          { url: baseUrl, quality: "auto", provider: "cineveo-direct", type: "mp4" },
+          { url: m3u8, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
+          { url: base, quality: "auto", provider: "cineveo-direct", type: "mp4" },
         ]);
       }
       setBankLoading(false);
