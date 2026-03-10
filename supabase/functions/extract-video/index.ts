@@ -1,8 +1,6 @@
 /**
  * extract-video: Video link resolution via CineVeo.
- * Priority: 1) M3U shard index (has correct internal IDs)  2) Direct URL fallback
- * Note: CineVeo catalog API does NOT support per-item lookup by tmdb_id.
- * The API is used only for full catalog sync (generate-catalog/sync-catalog).
+ * Probes URLs server-side to follow redirects and return final streaming URLs.
  */
 
 const corsHeaders = {
@@ -26,8 +24,7 @@ async function timedFetch(url: string, timeoutMs: number, init?: RequestInit): P
   }
 }
 
-// ── Layer 1: M3U Shard Index (PRIMARY — has correct internal CineVeo IDs) ──
-
+// ── Layer 1: M3U Shard Index ──
 async function m3uLookup(tmdbId: number, cType: string, s?: number, e?: number): Promise<{ url: string; type: string; provider: string } | null> {
   const base = Deno.env.get("SUPABASE_URL");
   if (!base) return null;
@@ -53,15 +50,74 @@ async function m3uLookup(tmdbId: number, cType: string, s?: number, e?: number):
   return null;
 }
 
-// ── Layer 2: Direct URL fallback (uses TMDB ID — works for most content) ──
-
+// ── Layer 2: Direct URL fallback ──
 function directUrl(tmdbId: number, cType: string, s?: number, e?: number): string {
   if (cType === "movie") return `${CINEVEO_BASE}/movie/${CUSER}/${CPASS}/${tmdbId}.mp4`;
   return `${CINEVEO_BASE}/series/${CUSER}/${CPASS}/${tmdbId}/${s || 1}/${e || 1}.mp4`;
 }
 
-// ── Handler ──
+// ── Probe: follow redirects server-side to find the real streaming URL ──
+async function probeUrl(url: string): Promise<{ finalUrl: string; type: "mp4" | "m3u8"; isHls: boolean }> {
+  const headers: Record<string, string> = {
+    "User-Agent": UA,
+    "Accept": "*/*",
+  };
+  try {
+    headers["Referer"] = new URL(url).origin + "/";
+  } catch {}
 
+  // Try m3u8 first, then mp4
+  const variants = [
+    url.replace(/\.mp4$/, ".m3u8"),
+    url,
+  ];
+  // Deduplicate
+  const unique = [...new Set(variants)];
+
+  for (const tryUrl of unique) {
+    try {
+      const resp = await timedFetch(tryUrl, 8000, {
+        headers: { ...headers, "Referer": new URL(tryUrl).origin + "/" },
+        redirect: "follow",
+      });
+
+      if (!resp.ok) {
+        await resp.text().catch(() => {});
+        continue;
+      }
+
+      const ct = resp.headers.get("content-type") || "";
+      const finalUrl = resp.url || tryUrl;
+      const isHls = ct.includes("mpegurl") || finalUrl.includes(".m3u8");
+
+      if (isHls) {
+        // Verify it's a real m3u8 manifest
+        const body = await resp.text();
+        if (body.includes("#EXTM3U") || body.includes("#EXT-X-")) {
+          console.log(`[extract] Probe OK (HLS): ${finalUrl.substring(0, 80)}`);
+          return { finalUrl, type: "m3u8", isHls: true };
+        }
+        continue;
+      }
+
+      // MP4 or other binary — check content-length
+      await resp.text().catch(() => {});
+      const cl = parseInt(resp.headers.get("content-length") || "0", 10);
+      if (cl > 10000 || ct.includes("video") || ct.includes("octet-stream")) {
+        console.log(`[extract] Probe OK (MP4): ${finalUrl.substring(0, 80)}, size=${cl}`);
+        return { finalUrl, type: "mp4", isHls: false };
+      }
+    } catch (e) {
+      console.log(`[extract] Probe failed for ${tryUrl.substring(0, 60)}:`, e);
+    }
+  }
+
+  // Could not verify — return original with m3u8 preference
+  const m3u8Url = url.replace(/\.mp4$/, ".m3u8");
+  return { finalUrl: m3u8Url, type: "m3u8", isHls: false };
+}
+
+// ── Handler ──
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -81,20 +137,24 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Layer 1: M3U shard (has correct internal IDs)
+    // Layer 1: M3U shard
     const m3u = await m3uLookup(tmdbId, cType, season, episode);
-    if (m3u) {
-      console.log(`[extract] M3U hit tmdb=${tmdbId} url=${m3u.url.substring(0, 80)}`);
-      return new Response(JSON.stringify({ ...m3u, cached: false }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const candidateUrl = m3u?.url || directUrl(tmdbId, cType, season, episode);
+    const provider = m3u?.provider || "cineveo-direct";
 
-    // Layer 2: Direct URL with TMDB ID
-    const dUrl = directUrl(tmdbId, cType, season, episode);
-    const dType = dUrl.includes(".m3u8") ? "m3u8" : "mp4";
-    console.log(`[extract] Direct fallback tmdb=${tmdbId}`);
-    return new Response(JSON.stringify({ url: dUrl, type: dType, provider: "cineveo-direct", cached: false }), {
+    console.log(`[extract] Candidate tmdb=${tmdbId}: ${candidateUrl.substring(0, 80)} (${provider})`);
+
+    // Probe: follow redirects to find real stream
+    const probed = await probeUrl(candidateUrl);
+    
+    console.log(`[extract] Final tmdb=${tmdbId}: ${probed.finalUrl.substring(0, 80)} (${probed.type})`);
+
+    return new Response(JSON.stringify({
+      url: probed.finalUrl,
+      type: probed.type,
+      provider,
+      cached: false,
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
