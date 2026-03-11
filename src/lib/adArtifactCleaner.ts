@@ -97,6 +97,20 @@ export function initAdArtifactCleaner() {
 
   cleanArtifacts();
 
+  // Also actively clean version button on every mutation
+  function cleanVersionButton() {
+    const btn = document.getElementById("lyneflix-version");
+    if (!btn) return;
+    btn.childNodes.forEach((node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const text = node.textContent?.trim();
+        if (text && ARTIFACT_PATTERN.test(text)) {
+          try { node.parentNode?.removeChild(node); } catch {}
+        }
+      }
+    });
+  }
+
   const observer = new MutationObserver((mutations) => {
     let removed = 0;
     for (const m of mutations) {
@@ -107,6 +121,7 @@ export function initAdArtifactCleaner() {
       }
     }
     if (removed > 0) setTimeout(cleanArtifacts, 200);
+    cleanVersionButton();
   });
 
   observer.observe(document.body, { childList: true, subtree: true });
@@ -115,6 +130,7 @@ export function initAdArtifactCleaner() {
   let sweepCount = 0;
   const sweepInterval = setInterval(() => {
     cleanArtifacts();
+    cleanVersionButton();
     sweepCount++;
     if (sweepCount >= 30) clearInterval(sweepInterval);
   }, 2000);

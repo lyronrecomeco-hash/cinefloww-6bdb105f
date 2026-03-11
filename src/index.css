@@ -323,3 +323,18 @@ img {
     padding-top: env(safe-area-inset-top);
   }
 }
+
+/* Version text protection — hide any injected text nodes inside version button */
+.version-clean {
+  overflow: hidden;
+}
+.version-text-protected {
+  isolation: isolate;
+  position: relative;
+  z-index: 1;
+}
+/* Hide stray text nodes injected by ad scripts next to version */
+#lyneflix-version::before,
+#lyneflix-version::after {
+  content: none !important;
+}
