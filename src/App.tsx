@@ -76,8 +76,8 @@ const queryClient = new QueryClient({
 });
 
 const PageLoader = () => (
-  <div className="min-h-screen bg-background flex items-center justify-center">
-    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+  <div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center">
+    <div className="w-10 h-10 rounded-full border-[3px] border-white/10 border-t-primary animate-spin" />
   </div>
 );
 
