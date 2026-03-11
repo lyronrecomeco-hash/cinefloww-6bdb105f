@@ -99,17 +99,34 @@
   <body>
     <div id="root"></div>
     <script>
-      // Cache nuke v536 — clear stale caches once, NO reload loop
+      // Cache nuke v537 — clear stale caches once + force single refresh
       (function(){
-        var CV='lyneflix_cache_version',VER='536';
+        var CV='lyneflix_cache_version',VER='537',RK='lyneflix_cache_reload_537';
         if(localStorage.getItem(CV)===VER)return;
+
+        var jobs=[];
         if('serviceWorker' in navigator){
-          navigator.serviceWorker.getRegistrations().then(function(r){
-            r.forEach(function(reg){reg.unregister()});
-          });
+          jobs.push(
+            navigator.serviceWorker.getRegistrations()
+              .then(function(r){ return Promise.all(r.map(function(reg){ return reg.unregister(); })); })
+              .catch(function(){})
+          );
         }
-        if('caches' in window){caches.keys().then(function(n){n.forEach(function(k){caches.delete(k)})});}
-        localStorage.setItem(CV,VER);
+        if('caches' in window){
+          jobs.push(
+            caches.keys()
+              .then(function(n){ return Promise.all(n.map(function(k){ return caches.delete(k); })); })
+              .catch(function(){})
+          );
+        }
+
+        Promise.all(jobs).finally(function(){
+          localStorage.setItem(CV,VER);
+          if(!sessionStorage.getItem(RK)){
+            sessionStorage.setItem(RK,'1');
+            window.location.reload();
+          }
+        });
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>

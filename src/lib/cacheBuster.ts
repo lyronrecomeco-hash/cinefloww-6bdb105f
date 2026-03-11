@@ -4,13 +4,18 @@
  */
 
 const LOCAL_KEY = "lyneflix_cache_version";
+const APP_CACHE_VERSION = "537";
 const CHECK_TIMEOUT_MS = 2000; // 2s max — if Cloud is slow, skip silently
+
+const toVersionNumber = (v: string) => {
+  const n = Number(String(v).replace(/[^\d]/g, ""));
+  return Number.isFinite(n) ? n : Number.NaN;
+};
 
 export async function checkCacheVersion(): Promise<void> {
   try {
     const { supabase } = await import("@/integrations/supabase/client");
 
-    // Race against timeout — if DB takes >3s, skip silently
     const result = await Promise.race([
       supabase
         .from("site_settings")
@@ -31,13 +36,21 @@ export async function checkCacheVersion(): Promise<void> {
         ? (val as any).v ?? (val as any).version ?? JSON.stringify(val)
         : val
     );
-    const localVersion = localStorage.getItem(LOCAL_KEY);
 
-    if (localVersion === remoteVersion) return;
+    const localVersion = localStorage.getItem(LOCAL_KEY) ?? APP_CACHE_VERSION;
+    const remoteNum = toVersionNumber(remoteVersion);
+    const localNum = toVersionNumber(localVersion);
+
+    const remoteIsNewer =
+      Number.isFinite(remoteNum) && Number.isFinite(localNum)
+        ? remoteNum > localNum
+        : remoteVersion !== localVersion;
+
+    // Nunca forçar "downgrade" de versão local para evitar loop de cache
+    if (!remoteIsNewer) return;
 
     console.log(`[CacheBuster] ${localVersion} → ${remoteVersion} — clearing caches…`);
 
-    // Unregister ALL service workers — Monetag SW with scope '/' caches stale HTML
     if ("serviceWorker" in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
       await Promise.all(registrations.map((r) => r.unregister()));
@@ -54,3 +67,4 @@ export async function checkCacheVersion(): Promise<void> {
     // Non-blocking — silently skip if Cloud is slow/down
   }
 }
+

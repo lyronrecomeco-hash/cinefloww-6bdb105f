@@ -37,8 +37,17 @@ const Footer = forwardRef<HTMLElement>((_, ref) => {
       );
 
       const localNum = CURRENT_VERSION.replace("V-", "");
-      if (remoteVersion === localNum) {
-        // Already up to date — brief flash green
+      const parseVersion = (v: string) => Number(String(v).replace(/[^\d]/g, ""));
+      const remoteNum = parseVersion(remoteVersion);
+      const localVerNum = parseVersion(localNum);
+
+      const hasNewerRemote =
+        Number.isFinite(remoteNum) && Number.isFinite(localVerNum)
+          ? remoteNum > localVerNum
+          : remoteVersion !== localNum;
+
+      if (!hasNewerRemote) {
+        // Already up to date (or local is newer) — brief flash green
         const el = document.getElementById("lyneflix-version");
         if (el) { el.style.color = "#22c55e"; setTimeout(() => { el.style.color = ""; }, 1500); }
       } else {
