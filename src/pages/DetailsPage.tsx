@@ -524,7 +524,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
           title={getDisplayTitle(detail)}
           subtitle={type === "tv" ? `${detail.number_of_seasons} Temporadas` : undefined}
           onSelect={handleAudioSelect}
-          onClose={() => setShowAudioModal(false)}
+          onClose={() => { setShowAudioModal(false); setNavigatingToPlayer(false); }}
         />
       )}
       {showTrailer && trailer && (
