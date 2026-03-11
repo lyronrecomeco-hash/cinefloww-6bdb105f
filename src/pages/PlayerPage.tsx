@@ -87,12 +87,27 @@ const PlayerPage = () => {
 
   useEffect(() => { if (roomCodeParam && activeProfileId && !watchRoom.room) watchRoom.joinRoom(roomCodeParam); }, [roomCodeParam, activeProfileId]);
 
+  // Resume prompt — check once when video loads
+  useEffect(() => {
+    if (resumeChecked.current || !tmdbId || state.duration === 0) return;
+    resumeChecked.current = true;
+    const ct = contentType === "movie" ? "movie" : "series";
+    getWatchProgress(Number(tmdbId), ct, season ? Number(season) : undefined, episode ? Number(episode) : undefined).then((prog) => {
+      if (!prog) return;
+      // Don't prompt if completed or near end (last 60s) or near start (<30s)
+      const nearEnd = prog.duration_seconds > 0 && (prog.duration_seconds - prog.progress_seconds) < 60;
+      if (prog.completed || nearEnd || prog.progress_seconds < 30) return;
+      setResumeTime(prog.progress_seconds);
+      setShowResumePrompt(true);
+    });
+  }, [tmdbId, contentType, season, episode, state.duration]);
+
   // Next episode computation
   useEffect(() => {
     const tmdb = tmdbId ? Number(tmdbId) : null;
     const s = season ? Number(season) : null;
     const e = episode ? Number(episode) : null;
-    if (!tmdb || !s || !e || contentType === "movie") { setNextEpUrl(null); return; }
+    if (!tmdb || !s || !e || contentType === "movie") { setNextEpUrl(null); setNextEpInfo(null); return; }
     let cancelled = false;
     getSeasonDetails(tmdb, s).then((seasonData) => {
       if (cancelled) return;
@@ -102,15 +117,16 @@ const PlayerPage = () => {
         const p = new URLSearchParams({ title, audio: audioParam, s: String(s), e: String(nextEp.episode_number) });
         if (imdbId) p.set("imdb", imdbId);
         setNextEpUrl(`/player/${contentType}/${slug}?${p.toString()}`);
-      } else setNextEpUrl(null);
-    }).catch(() => { if (!cancelled) setNextEpUrl(null); });
+        setNextEpInfo(nextEp);
+      } else { setNextEpUrl(null); setNextEpInfo(null); }
+    }).catch(() => { if (!cancelled) { setNextEpUrl(null); setNextEpInfo(null); } });
     return () => { cancelled = true; };
   }, [tmdbId, season, episode, contentType, title, audioParam, imdbId, params.id]);
 
   useEffect(() => {
     if (nextEpUrl && state.duration > 0) {
       const remaining = state.duration - state.currentTime;
-      if (remaining <= 10 && remaining > 0 && !showNextEp) setShowNextEp(true);
+      if (remaining <= 30 && remaining > 0 && !showNextEp) setShowNextEp(true);
     }
   }, [state.currentTime, state.duration, nextEpUrl, showNextEp]);
 
