@@ -341,6 +341,13 @@ export function usePlayerEngine(config: EngineConfig) {
 
       video.preload = "auto";
 
+      // For direct CineVeo URLs (non-proxied), remove crossOrigin and use no-referrer
+      const isDirect = finalUrl.includes("cineveo.lat") || finalUrl.includes("cineveo.site") || finalUrl.includes("brstream");
+      if (isDirect) {
+        video.removeAttribute("crossorigin");
+        video.setAttribute("referrerpolicy", "no-referrer");
+      }
+
       // Progress restore runs in background — don't block playback for it
       const savedTime = 0;
 
