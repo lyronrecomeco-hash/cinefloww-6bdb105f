@@ -85,9 +85,15 @@ const Index = () => {
 
     // Load catalog rows separately (non-blocking)
     fetchCatalogRow("dorama", 20).then(items => setDoramas(mapToTMDB(items.filter(i => i.poster_path)))).catch(() => {});
-    fetchCatalogRow("anime", 20).then(items => setAnimes(mapToTMDB(items.filter(i => i.poster_path)))).catch(() => {});
 
-    // Animes from CineVeo API (dedicated endpoint)
+    // Animes: TMDB as primary source (guaranteed), CineVeo as enhancement
+    race(discoverSeries(1, { with_genres: "16", sort_by: "popularity.desc", with_original_language: "ja" }), empty)
+      .then(data => {
+        const tmdbAnimes = data.results.filter(m => m.poster_path);
+        if (tmdbAnimes.length > 0) setAnimes(tmdbAnimes);
+      }).catch(() => {});
+
+    // Try CineVeo as override (better catalog)
     fetch("https://cineveo.lat/api/catalog.php?username=lyneflix-vods&password=uVljs2d&type=animes&page=1")
       .then(r => r.json())
       .then(json => {
@@ -108,14 +114,7 @@ const Index = () => {
             }));
           if (cineveoAnimes.length > 0) setAnimes(cineveoAnimes);
         }
-      }).catch(() => {
-        // Fallback to TMDB
-        race(discoverSeries(1, { with_genres: "16", sort_by: "popularity.desc", with_original_language: "ja" }), empty)
-          .then(data => {
-            const tmdbAnimes = data.results.filter(m => m.poster_path);
-            if (tmdbAnimes.length > 0) setAnimes(tmdbAnimes);
-          }).catch(() => {});
-      });
+      }).catch(() => {});
 
     // Recently added — fetch latest from all catalog types
     Promise.all([
