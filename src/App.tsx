@@ -59,6 +59,7 @@ const QrxpPage = lazy(() => import("./pages/QrxpPage"));
 const SupportPage = lazy(() => import("./pages/SupportPage"));
 const TicketsPage = lazy(() => import("./pages/admin/TicketsPage"));
 const AvatarDownloadPage = lazy(() => import("./pages/AvatarDownloadPage"));
+const LynePlayPage = lazy(() => import("./pages/LynePlayPage"));
 const EmbedPlayer = lazy(() => import("./pages/EmbedPlayer"));
 
 const queryClient = new QueryClient({
@@ -117,6 +118,7 @@ const App = () => (
             <Route path="/qrxp" element={<QrxpPage />} />
             <Route path="/suporte" element={<SupportPage />} />
             <Route path="/avatar-baixar" element={<AvatarDownloadPage />} />
+            <Route path="/lyneplay" element={<LynePlayPage />} />
             <Route path="/embed" element={<EmbedPlayer />} />
             <Route path="/embed/movie/:tmdbId" element={<EmbedPlayer />} />
             <Route path="/embed/tv/:tmdbId/:season/:episode" element={<EmbedPlayer />} />
