@@ -417,9 +417,11 @@ export function usePlayerEngine(config: EngineConfig) {
         if (size > 0 && loadTime > 0) updateNetworkSpeed(size, loadTime);
       }
 
-      // OPT 6: After 30s of playback, increase backBufferLength for smoother seeking
-      if (video.currentTime > 30 && hls.config) {
+      // After 10s of playback, increase buffers for smooth experience
+      if (video.currentTime > 10 && hls.config) {
         (hls.config as any).backBufferLength = 30;
+        (hls.config as any).maxBufferLength = 60;
+        (hls.config as any).maxMaxBufferLength = 300;
       }
     });
 
