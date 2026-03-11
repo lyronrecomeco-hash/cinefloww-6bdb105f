@@ -103,12 +103,13 @@ const Footer = forwardRef<HTMLElement>((_, ref) => {
 
         <button
           id="lyneflix-version"
+          data-version-btn="true"
           onClick={checkVersion}
           disabled={checking}
           className="text-muted-foreground/50 hover:text-primary/70 text-[11px] sm:text-xs transition-colors cursor-pointer inline-flex items-center gap-1.5 py-1 px-3 rounded-full border border-white/5 hover:border-white/10"
           title="Clique para verificar atualizações"
         >
-          {CURRENT_VERSION}
+          <span data-version-text="true">{CURRENT_VERSION}</span>
           {checking && <RefreshCw className="w-3 h-3 animate-spin" />}
         </button>
       </div>
