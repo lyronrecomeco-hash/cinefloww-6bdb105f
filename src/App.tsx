@@ -15,6 +15,7 @@ const MoviesPage = lazy(() => import("./pages/MoviesPage"));
 const SeriesPage = lazy(() => import("./pages/SeriesPage"));
 const DoramasPage = lazy(() => import("./pages/DoramasPage"));
 const ReleasesPage = lazy(() => import("./pages/ReleasesPage"));
+const AnimesPage = lazy(() => import("./pages/AnimesPage"));
 const ComingSoonPage = lazy(() => import("./pages/ComingSoonPage"));
 const PlayerPage = lazy(() => import("./pages/PlayerPage"));
 const ApiRedirect = lazy(() => import("./pages/ApiRedirect"));
