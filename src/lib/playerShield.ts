@@ -237,7 +237,16 @@ export function initPlayerShield() {
 
   // Always activate on production, partial on dev
   const h = window.location.hostname;
-  const isProd = !h.includes("localhost") && !h.includes("127.0.0.1");
+  const isProd = !h.includes("localhost") && !h.includes("127.0.0.1") && !h.endsWith(".lovable.app") && !h.endsWith(".lovableproject.com");
+
+  // If embedded inside same-origin parent (e.g. /lyneplay demo), skip all protection
+  let isInternalDemo = false;
+  try {
+    if (window.self !== window.top && window.top?.location?.pathname?.startsWith("/lyneplay")) {
+      isInternalDemo = true;
+    }
+  } catch {}
+  if (isInternalDemo) return;
 
   if (!isPlayerRoute) return;
 
