@@ -17,20 +17,12 @@ export default defineConfig(({ mode }) => ({
     mode === "development" && componentTagger(),
     VitePWA({
       registerType: "autoUpdate",
+      selfDestroying: true,
       includeAssets: ["favicon.ico", "robots.txt"],
       workbox: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,jpg,webp,woff,woff2}"],
-        navigateFallbackDenylist: [/^\/~oauth/],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/image\.tmdb\.org\/.*/i,
-            handler: "CacheFirst",
-            options: {
-              cacheName: "tmdb-images",
-              expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 7 },
-            },
-          },
-        ],
+        globPatterns: [],
+        navigateFallback: null,
+        runtimeCaching: [],
       },
       manifest: {
         name: "LyneFlix - Filmes e Séries",

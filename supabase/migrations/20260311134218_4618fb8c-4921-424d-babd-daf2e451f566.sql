@@ -1,0 +1,1 @@
+UPDATE public.site_settings SET value = '{"v": "534", "version": "534"}'::jsonb, updated_at = now() WHERE key = 'cache_version';
