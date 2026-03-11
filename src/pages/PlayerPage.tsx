@@ -411,7 +411,7 @@ const PlayerPage = () => {
 
       {/* Next Episode popup — Netflix style */}
       {showNextEp && nextEpUrl && (
-        <div className="absolute bottom-20 sm:bottom-24 right-4 sm:right-8 z-30 animate-fade-in">
+        <div className="absolute bottom-28 sm:bottom-24 right-3 left-3 sm:left-auto sm:right-8 z-40 animate-fade-in">
           <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl max-w-xs overflow-hidden">
             {/* Episode thumbnail */}
             {nextEpInfo?.still_path && (
