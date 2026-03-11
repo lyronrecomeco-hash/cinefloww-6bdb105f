@@ -42,7 +42,7 @@ const DISMISS_KEY = "lyneflix_verse_dismissed_";
 
 function getTimeWindow(): "morning" | "afternoon" | "night" {
   const h = new Date().getHours();
-  if (h >= 5 && h < 12) return "morning";
+  if (h >= 4 && h < 12) return "morning";
   if (h >= 12 && h < 18) return "afternoon";
   return "night";
 }
