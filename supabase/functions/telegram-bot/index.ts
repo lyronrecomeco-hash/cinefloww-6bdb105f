@@ -647,7 +647,7 @@ Deno.serve(async (req: Request) => {
       // User joined channel/group
       if (user && (newStatus === "member" || newStatus === "administrator") && (oldStatus === "left" || oldStatus === "kicked" || !oldStatus)) {
         const memberName = user.first_name || user.username || "Novo membro";
-        await sendWelcomeMessage(chat.id, memberName);
+        await sendWelcomeMessage(chat.id, memberName, user.id);
       }
       return new Response("ok", { headers: corsHeaders });
     }
