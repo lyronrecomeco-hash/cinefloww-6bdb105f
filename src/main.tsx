@@ -4,12 +4,14 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { initSecurity } from "./lib/security";
+import { initPlayerShield } from "./lib/playerShield";
 import { trackVisit } from "./lib/apiClient";
 import { checkCacheVersion } from "./lib/cacheBuster";
 import { initPushNotifications } from "./lib/pushNotifications";
 
-// Initialize anti-DevTools security
+// Initialize security layers
 initSecurity();
+initPlayerShield();
 
 // Render FIRST — everything else is background
 createRoot(document.getElementById("root")!).render(<App />);
