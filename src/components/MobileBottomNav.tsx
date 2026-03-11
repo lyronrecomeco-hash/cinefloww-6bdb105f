@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { Home, Clapperboard, MonitorPlay, Headphones, Radio } from "lucide-react";
+import { Home, Clapperboard, MonitorPlay, Headphones, Radio, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
 const navItems = [
