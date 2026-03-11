@@ -127,49 +127,41 @@ export function usePlayerEngine(config: EngineConfig) {
 
   // ── HLS Configuration — 7 optimizations applied ──
   const buildHlsConfig = useCallback((): Partial<Hls["config"]> => {
-    const bw = state.networkSpeed;
-    const maxBuffer = bw > 5 ? 120 : bw > 2 ? 60 : 30;
-    const maxMaxBuffer = bw > 5 ? 600 : bw > 2 ? 300 : 120;
-
     return {
-      // OPT 3: Force lowest level for instant first frame, ABR scales up
+      // Instant start: lowest quality first, ABR scales up fast
       startLevel: 0,
-      abrEwmaDefaultEstimate: 1_000_000,
-      abrEwmaFastLive: 3,
-      abrEwmaSlowLive: 9,
-      abrEwmaFastVoD: 3,
-      abrEwmaSlowVoD: 9,
+      abrEwmaDefaultEstimate: 2_000_000,
+      abrEwmaFastLive: 2,
+      abrEwmaSlowLive: 6,
+      abrEwmaFastVoD: 2,
+      abrEwmaSlowVoD: 6,
       abrBandWidthFactor: 0.95,
       abrBandWidthUpFactor: 0.7,
 
-      // Smart buffer
-      maxBufferLength: maxBuffer,
-      maxMaxBufferLength: maxMaxBuffer,
+      // Minimal initial buffer for instant playback
+      maxBufferLength: 10,
+      maxMaxBufferLength: 120,
       maxBufferSize: 60 * 1000 * 1000,
       maxBufferHole: 0.5,
 
       // Fast start
       lowLatencyMode: false,
-      // OPT 6: backBufferLength 0 at startup to prioritize forward buffer
       backBufferLength: 0,
       startFragPrefetch: true,
 
       // Resilience
-      fragLoadingTimeOut: 15000,
-      fragLoadingMaxRetry: 8,
-      fragLoadingRetryDelay: 1000,
-      fragLoadingMaxRetryTimeout: 30000,
-      manifestLoadingTimeOut: 10000,
-      manifestLoadingMaxRetry: 4,
-      manifestLoadingRetryDelay: 1000,
-      levelLoadingTimeOut: 10000,
-      levelLoadingMaxRetry: 6,
-      levelLoadingRetryDelay: 1000,
-
-      // OPT 5: Remove progressive — unnecessary overhead for HLS
-      // progressive: true, — REMOVED
+      fragLoadingTimeOut: 10000,
+      fragLoadingMaxRetry: 6,
+      fragLoadingRetryDelay: 500,
+      fragLoadingMaxRetryTimeout: 20000,
+      manifestLoadingTimeOut: 8000,
+      manifestLoadingMaxRetry: 3,
+      manifestLoadingRetryDelay: 500,
+      levelLoadingTimeOut: 8000,
+      levelLoadingMaxRetry: 4,
+      levelLoadingRetryDelay: 500,
     };
-  }, [state.networkSpeed]);
+  }, []);
 
   // ── Network speed estimation ──
   const updateNetworkSpeed = useCallback((bytes: number, durationMs: number) => {
