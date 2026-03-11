@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
-import { signVideoUrl } from "@/lib/videoUrl";
+import { signVideoUrl, buildMovieUrl, buildEpisodeUrl } from "@/lib/videoUrl";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
 
 // ── Types ──
@@ -315,11 +315,19 @@ export function usePlayerEngine(config: EngineConfig) {
 
         const { data, error: fnErr } = await supabase.functions.invoke("extract-video", { body });
         if (cancelledRef.current) return;
-        if (fnErr) throw fnErr;
-        if (!data?.url) throw new Error("Conteúdo não encontrado");
-
-        videoData = { url: data.url, type: data.type || "mp4" };
-        setCachedUrl(tmdbId, contentType, season, episode, videoData.url, videoData.type);
+        
+        if (fnErr || !data?.url) {
+          // FALLBACK: Build URL directly from CineVeo pattern
+          console.warn("[Engine] extract-video failed, trying direct URL fallback");
+          const tmdbNum = Number(tmdbId);
+          const directUrl = contentType === "movie"
+            ? buildMovieUrl(tmdbNum)
+            : buildEpisodeUrl(tmdbNum, Number(season || 1), Number(episode || 1));
+          videoData = { url: directUrl, type: "mp4" };
+        } else {
+          videoData = { url: data.url, type: data.type || "mp4" };
+          setCachedUrl(tmdbId, contentType, season, episode, videoData.url, videoData.type);
+        }
       }
 
       if (cancelledRef.current) return;

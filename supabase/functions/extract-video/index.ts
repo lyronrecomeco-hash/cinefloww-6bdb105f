@@ -67,23 +67,32 @@ function findMovie(items: CineveoItem[], tmdbId: number): string | null {
 // ── Find episode stream_url in a list of items ──
 function findEpisode(items: CineveoItem[], tmdbId: number, season: number, episode: number): string | null {
   const item = items.find(i => i.tmdb_id === tmdbId);
-  if (!item?.episodes || item.episodes.length === 0) return null;
+  if (!item) return null;
 
-  // Try exact match first
-  const exact = item.episodes.find(e => e.season === season && e.episode === episode);
-  if (exact) return exact.stream_url;
+  // If item has episodes array, try to match
+  if (item.episodes && item.episodes.length > 0) {
+    // Try exact match first
+    const exact = item.episodes.find(e => e.season === season && e.episode === episode);
+    if (exact) return exact.stream_url;
 
-  // If episode numbers are 0 (API quirk), match by index within season
-  const seasonEps = item.episodes.filter(e => e.season === season);
-  if (seasonEps.length > 0 && seasonEps[0].episode === 0) {
-    // Episodes numbered 0 — use positional index (episode 1 = index 0)
-    const idx = episode - 1;
-    if (idx >= 0 && idx < seasonEps.length) return seasonEps[idx].stream_url;
+    // If episode numbers are 0 (API quirk), match by index within season
+    const seasonEps = item.episodes.filter(e => e.season === season);
+    if (seasonEps.length > 0 && seasonEps[0].episode === 0) {
+      const idx = episode - 1;
+      if (idx >= 0 && idx < seasonEps.length) return seasonEps[idx].stream_url;
+    }
+
+    // Fallback: if only one season exists and episodes match by count
+    if (seasonEps.length === 0 && item.episodes.length >= episode) {
+      return item.episodes[episode - 1]?.stream_url || null;
+    }
   }
 
-  // Fallback: if only one season exists and episodes match by count
-  if (seasonEps.length === 0 && item.episodes.length >= episode) {
-    return item.episodes[episode - 1]?.stream_url || null;
+  // CRITICAL FALLBACK: If no episodes data but item has stream_url, return it
+  // This handles series where CineVeo only provides a single stream_url
+  if (item.stream_url) {
+    console.log(`[extract] Using item.stream_url fallback for tmdb=${tmdbId}`);
+    return item.stream_url;
   }
 
   return null;
