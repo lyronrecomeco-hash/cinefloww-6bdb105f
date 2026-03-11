@@ -520,21 +520,44 @@ const PlayerPage = () => {
               onClick={seek}
               onMouseMove={onProgressHover}
               onMouseLeave={() => setHoverTime(null)}
+              onTouchStart={(e) => {
+                setTouchSeeking(true);
+                const rect = e.currentTarget.getBoundingClientRect();
+                const touch = e.touches[0];
+                const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+                setHoverTime(pct * state.duration);
+                setHoverX(touch.clientX - rect.left);
+              }}
+              onTouchMove={(e) => {
+                if (!touchSeeking) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const touch = e.touches[0];
+                const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+                setHoverTime(pct * state.duration);
+                setHoverX(touch.clientX - rect.left);
+              }}
+              onTouchEnd={() => {
+                if (touchSeeking && hoverTime !== null) {
+                  controls.seekTo(hoverTime);
+                }
+                setTouchSeeking(false);
+                setHoverTime(null);
+              }}
             >
               {hoverTime !== null && (
                 <div
                   className="absolute -top-9 -translate-x-1/2 px-2.5 py-1 rounded-lg bg-black/90 backdrop-blur-sm border border-white/10 text-[11px] font-mono text-white pointer-events-none"
-                  style={{ left: hoverX }}
+                  style={{ left: Math.max(20, Math.min(hoverX, (containerRef.current?.clientWidth || 300) - 40)) }}
                 >
                   {fmt(hoverTime)}
                 </div>
               )}
-              <div className="relative w-full h-1.5 group-hover/bar:h-2.5 rounded-full bg-white/15 transition-all duration-200 overflow-hidden">
+              <div className={`relative w-full ${touchSeeking ? "h-3" : "h-1.5 group-hover/bar:h-2.5"} rounded-full bg-white/15 transition-all duration-200 overflow-hidden`}>
                 <div className="absolute inset-y-0 left-0 bg-white/10 rounded-full transition-all" style={{ width: `${bufferPct}%` }} />
                 <div className="absolute inset-y-0 left-0 rounded-full transition-all bg-gradient-to-r from-primary via-primary to-primary/80" style={{ width: `${progressPct}%` }} />
               </div>
               <div
-                className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-primary shadow-[0_0_12px_rgba(var(--primary),0.5)] border-2 border-white scale-0 group-hover/bar:scale-100 transition-transform duration-150"
+                className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-primary shadow-[0_0_12px_rgba(var(--primary),0.5)] border-2 border-white ${touchSeeking ? "scale-100" : "scale-0 group-hover/bar:scale-100"} transition-transform duration-150`}
                 style={{ left: `calc(${progressPct}% - 8px)` }}
               />
             </div>
