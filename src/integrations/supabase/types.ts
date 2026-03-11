@@ -827,6 +827,48 @@ export type Database = {
         }
         Relationships: []
       }
+      telegram_config: {
+        Row: {
+          auto_notify_new_content: boolean
+          bot_username: string | null
+          channel_id: string | null
+          channel_username: string | null
+          created_at: string
+          id: string
+          scheduled_messages: Json | null
+          updated_at: string
+          welcome_enabled: boolean
+          welcome_image_url: string | null
+          welcome_message: string | null
+        }
+        Insert: {
+          auto_notify_new_content?: boolean
+          bot_username?: string | null
+          channel_id?: string | null
+          channel_username?: string | null
+          created_at?: string
+          id?: string
+          scheduled_messages?: Json | null
+          updated_at?: string
+          welcome_enabled?: boolean
+          welcome_image_url?: string | null
+          welcome_message?: string | null
+        }
+        Update: {
+          auto_notify_new_content?: boolean
+          bot_username?: string | null
+          channel_id?: string | null
+          channel_username?: string | null
+          created_at?: string
+          id?: string
+          scheduled_messages?: Json | null
+          updated_at?: string
+          welcome_enabled?: boolean
+          welcome_image_url?: string | null
+          welcome_message?: string | null
+        }
+        Relationships: []
+      }
       telegram_ingestions: {
         Row: {
           content_type: string
