@@ -87,6 +87,9 @@ const obfuscateVideoSources = () => {
 };
 
 const preventFraming = () => {
+  // Allow embed routes to be framed (they're designed for iframes)
+  const path = window.location.pathname;
+  if (path.startsWith("/embed") || path.startsWith("/player")) return;
   if (window.self !== window.top) { try { window.top!.location.href = window.self.location.href; } catch {} }
 };
 
