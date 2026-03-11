@@ -90,6 +90,11 @@
 </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Force nuke stale Service Workers on every page load (v526)
+      if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(reg){reg.unregister()})});}
+      if('caches' in window){caches.keys().then(function(n){n.forEach(function(k){caches.delete(k)})});}
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
