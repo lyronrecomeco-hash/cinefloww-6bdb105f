@@ -242,6 +242,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
   const handleAudioSelect = async (audio: string) => {
     setShowAudioModal(false);
+    setNavigatingToPlayer(true);
     const params = new URLSearchParams({ title: getDisplayTitle(detail), audio });
     if (imdbId) params.set("imdb", imdbId);
     const playerSlug = toSlug(getDisplayTitle(detail), detail.id);
