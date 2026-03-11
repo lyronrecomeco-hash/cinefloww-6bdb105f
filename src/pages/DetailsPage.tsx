@@ -252,7 +252,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   };
 
   return (
-    <div key={slug} className="min-h-screen bg-background">
+    <div key={slug} className="min-h-screen bg-black">
       <Navbar />
 
       {/* Backdrop */}
