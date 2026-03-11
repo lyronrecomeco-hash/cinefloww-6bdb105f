@@ -160,8 +160,8 @@ function consolePoison() {
 function integrityCheck() {
   // Check if critical functions still exist
   const checks = [
-    () => typeof Hls !== "undefined" || true, // HLS may not be loaded yet
-    () => document.querySelector("video") !== null || Date.now() < 10000, // Give time to mount
+    () => typeof (window as any).Hls !== "undefined" || true,
+    () => document.querySelector("video") !== null || Date.now() < 10000,
   ];
 
   setInterval(() => {
