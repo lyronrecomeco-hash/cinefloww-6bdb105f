@@ -15,7 +15,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const CINEVEO_API = "https://cinetvembed.cineveo.site/api/catalog.php";
+const CINEVEO_API = "https://cineveo.lat/api/catalog.php";
 const CINEVEO_USER = "lyneflix-vods";
 const CINEVEO_PASS = "uVljs2d";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -115,9 +115,10 @@ function selfChain(body: Record<string, unknown>) {
 // ── Count mode: fast API probe ──
 
 async function handleCount(): Promise<any> {
-  const [moviesRes, seriesRes] = await Promise.all([
+  const [moviesRes, seriesRes, animesRes] = await Promise.all([
     fetchApiPage("movies", 1),
     fetchApiPage("series", 1),
+    fetchApiPage("animes", 1),
   ]);
 
   return {
@@ -131,8 +132,13 @@ async function handleCount(): Promise<any> {
       total_items: seriesRes.totalItems || seriesRes.items.length,
       sample_page_size: seriesRes.items.length,
     },
-    total_items: (moviesRes.totalItems || 0) + (seriesRes.totalItems || 0),
-    total_pages: (moviesRes.totalPages || 0) + (seriesRes.totalPages || 0),
+    animes: {
+      total_pages: animesRes.totalPages || 0,
+      total_items: animesRes.totalItems || animesRes.items.length,
+      sample_page_size: animesRes.items.length,
+    },
+    total_items: (moviesRes.totalItems || 0) + (seriesRes.totalItems || 0) + (animesRes.totalItems || 0),
+    total_pages: (moviesRes.totalPages || 0) + (seriesRes.totalPages || 0) + (animesRes.totalPages || 0),
   };
 }
 
@@ -235,9 +241,16 @@ async function handleCrawl(supabase: any, body: any): Promise<any> {
     return { done: false, movies_done: true, movies_batches: currentBatchCount };
   }
 
-  // Both done → build
-  await saveProgress(supabase, { phase: "building", movies_batches: moviesBatches, series_batches: currentBatchCount });
-  selfChain({ phase: "build", movies_batches: moviesBatches, series_batches: currentBatchCount });
+  if (apiType === "series") {
+    await saveProgress(supabase, { phase: "crawling", type: "animes", page: 1, movies_batches: moviesBatches, series_batches: currentBatchCount });
+    selfChain({ phase: "crawl", type: "animes", page: 1, batch: 0, movies_batches: moviesBatches, series_batches: currentBatchCount });
+    return { done: false, series_done: true, series_batches: currentBatchCount };
+  }
+
+  // All three done → build
+  const seriesBatchesVal = body.series_batches || 0;
+  await saveProgress(supabase, { phase: "building", movies_batches: moviesBatches, series_batches: seriesBatchesVal, animes_batches: currentBatchCount });
+  selfChain({ phase: "build", movies_batches: moviesBatches, series_batches: seriesBatchesVal, animes_batches: currentBatchCount });
   return { done: false, phase: "building" };
 }
 
@@ -246,6 +259,7 @@ async function handleCrawl(supabase: any, body: any): Promise<any> {
 async function handleBuild(supabase: any, body: any): Promise<any> {
   const moviesBatches = body.movies_batches || 0;
   const seriesBatches = body.series_batches || 0;
+  const animesBatches = body.animes_batches || 0;
 
   await saveProgress(supabase, { phase: "building", step: "reading_batches" });
 
@@ -262,11 +276,12 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
   const reads: Promise<CrawledItem[]>[] = [];
   for (let i = 0; i < moviesBatches; i++) reads.push(readBatch(`_sync/movies_${i}.json`));
   for (let i = 0; i < seriesBatches; i++) reads.push(readBatch(`_sync/series_${i}.json`));
+  for (let i = 0; i < animesBatches; i++) reads.push(readBatch(`_sync/animes_${i}.json`));
 
   const batches = await Promise.all(reads);
   const allItems = batches.flat();
 
-  console.log(`[sync] Read ${allItems.length} items from ${moviesBatches + seriesBatches} batches`);
+  console.log(`[sync] Read ${allItems.length} items from ${moviesBatches + seriesBatches + animesBatches} batches`);
 
   // Deduplicate
   const seen = new Map<string, CrawledItem>();
@@ -427,6 +442,7 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
   const cleanups: Promise<any>[] = [];
   for (let i = 0; i < moviesBatches; i++) cleanups.push(supabase.storage.from("catalog").remove([`_sync/movies_${i}.json`]));
   for (let i = 0; i < seriesBatches; i++) cleanups.push(supabase.storage.from("catalog").remove([`_sync/series_${i}.json`]));
+  for (let i = 0; i < animesBatches; i++) cleanups.push(supabase.storage.from("catalog").remove([`_sync/animes_${i}.json`]));
   await Promise.allSettled(cleanups);
 
   // Done — no DB writes, everything is in Storage

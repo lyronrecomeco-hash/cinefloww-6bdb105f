@@ -30,7 +30,7 @@ const navItems = [
   { label: "Início", path: "/" },
   { label: "Filmes", path: "/filmes" },
   { label: "Séries", path: "/series" },
-  { label: "Lançamentos", path: "/lancamentos" },
+  { label: "Animes", path: "/animes" },
   { label: "Em Breve", path: "/em-breve" },
   { label: "Minha Lista", path: "/minha-lista" },
 ];

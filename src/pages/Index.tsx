@@ -86,14 +86,35 @@ const Index = () => {
     fetchCatalogRow("dorama", 20).then(items => setDoramas(mapToTMDB(items.filter(i => i.poster_path)))).catch(() => {});
     fetchCatalogRow("anime", 20).then(items => setAnimes(mapToTMDB(items.filter(i => i.poster_path)))).catch(() => {});
 
-    // Animes from TMDB (always fetch as reliable source)
-    race(discoverSeries(1, { with_genres: "16", sort_by: "popularity.desc", with_original_language: "ja" }), empty)
-      .then(data => {
-        const tmdbAnimes = data.results.filter(m => m.poster_path);
-        if (tmdbAnimes.length > 0) {
-          setAnimes(tmdbAnimes);
+    // Animes from CineVeo API (dedicated endpoint)
+    fetch("https://cineveo.lat/api/catalog.php?username=lyneflix-vods&password=uVljs2d&type=animes&page=1")
+      .then(r => r.json())
+      .then(json => {
+        if (json.success && json.data) {
+          const cineveoAnimes = json.data
+            .filter((d: any) => d.poster)
+            .slice(0, 20)
+            .map((d: any) => ({
+              id: d.tmdb_id,
+              name: d.title,
+              poster_path: d.poster,
+              backdrop_path: d.backdrop || null,
+              overview: d.synopsis || "",
+              vote_average: 0,
+              first_air_date: d.year ? `${d.year}-01-01` : undefined,
+              genre_ids: [],
+              media_type: "tv" as "movie" | "tv",
+            }));
+          if (cineveoAnimes.length > 0) setAnimes(cineveoAnimes);
         }
-      }).catch(() => {});
+      }).catch(() => {
+        // Fallback to TMDB
+        race(discoverSeries(1, { with_genres: "16", sort_by: "popularity.desc", with_original_language: "ja" }), empty)
+          .then(data => {
+            const tmdbAnimes = data.results.filter(m => m.poster_path);
+            if (tmdbAnimes.length > 0) setAnimes(tmdbAnimes);
+          }).catch(() => {});
+      });
 
     // Recently added — fetch latest from all catalog types
     Promise.all([
@@ -124,8 +145,8 @@ const Index = () => {
         {recentlyAdded.length > 0 && <ContentRow title="Últimos Adicionados" movies={recentlyAdded} icon={<Clock className="w-4 h-4" />} />}
         <ContentRow title="Filmes Populares" movies={popularMovies} icon={<Film className="w-4 h-4" />} loading={loading} />
         <ContentRow title="Séries Populares" movies={popularSeries} icon={<Tv className="w-4 h-4" />} loading={loading} />
-        {doramas.length > 0 && <ContentRow title="Doramas" movies={doramas} icon={<Heart className="w-4 h-4" />} />}
         {animes.length > 0 && <ContentRow title="Animes" movies={animes} icon={<Sparkles className="w-4 h-4" />} />}
+        {doramas.length > 0 && <ContentRow title="Doramas" movies={doramas} icon={<Heart className="w-4 h-4" />} />}
       </div>
 
       <Footer />

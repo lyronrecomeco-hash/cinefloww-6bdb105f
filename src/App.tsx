@@ -15,8 +15,10 @@ const MoviesPage = lazy(() => import("./pages/MoviesPage"));
 const SeriesPage = lazy(() => import("./pages/SeriesPage"));
 const DoramasPage = lazy(() => import("./pages/DoramasPage"));
 const ReleasesPage = lazy(() => import("./pages/ReleasesPage"));
+const AnimesPage = lazy(() => import("./pages/AnimesPage"));
 const ComingSoonPage = lazy(() => import("./pages/ComingSoonPage"));
 const PlayerPage = lazy(() => import("./pages/PlayerPage"));
+const PrototypePlayer = lazy(() => import("./pages/PrototypePlayer"));
 const ApiRedirect = lazy(() => import("./pages/ApiRedirect"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const DmcaPage = lazy(() => import("./pages/DmcaPage"));
@@ -91,12 +93,13 @@ const App = () => (
             <Route path="/series" element={<SeriesPage />} />
             <Route path="/doramas" element={<DoramasPage />} />
             <Route path="/lancamentos" element={<ReleasesPage />} />
+            <Route path="/animes" element={<AnimesPage />} />
             <Route path="/em-breve" element={<ComingSoonPage />} />
             <Route path="/minha-lista" element={<MyListPage />} />
             <Route path="/filme/:id" element={<DetailsPage type="movie" />} />
             <Route path="/serie/:id" element={<DetailsPage type="tv" />} />
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />
-            <Route path="/player" element={<PlayerPage />} />
+            <Route path="/player" element={<PrototypePlayer />} />
             <Route path="/player/:type/:id" element={<PlayerPage />} />
             <Route path="/lynetv" element={<TVPage />} />
             <Route path="/lynetv/:channelId" element={<TVPage />} />
