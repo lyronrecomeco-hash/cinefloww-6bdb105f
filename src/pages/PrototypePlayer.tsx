@@ -217,6 +217,7 @@ const PrototypePlayer = () => {
         className="w-full h-full object-contain"
         playsInline
         preload="auto"
+        // @ts-ignore
         referrerPolicy="no-referrer"
       />
 
