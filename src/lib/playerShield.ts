@@ -229,9 +229,11 @@ function blockSourceView() {
 export function initPlayerShield() {
   if (typeof window === "undefined") return;
 
-  // Only activate on player routes
+  // Only activate on actual player/embed routes — NOT on /lyneplay docs
   const path = window.location.pathname;
-  const isPlayerRoute = path.startsWith("/player") || path.startsWith("/embed");
+  const isPlayerRoute =
+    (path.startsWith("/player") || path.startsWith("/embed")) &&
+    !path.startsWith("/lyneplay");
 
   // Always activate on production, partial on dev
   const h = window.location.hostname;
