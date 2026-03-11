@@ -101,7 +101,7 @@
     <script>
       // Cache nuke v534 — unregister ALL service workers (including PWA + Monetag) to prevent stale HTML caching
       (function(){
-        var CV='lyneflix_cache_version',VER='534';
+        var CV='lyneflix_cache_version',VER='535';
         if(localStorage.getItem(CV)===VER)return;
         // Unregister ALL service workers — PWA Workbox SW precaches old CSS/JS and serves stale pages on navigation
         if('serviceWorker' in navigator){
