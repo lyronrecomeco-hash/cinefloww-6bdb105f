@@ -100,13 +100,23 @@ export const initSecurity = () => {
   const isDev = h === "localhost" || h.includes("127.0.0.1") || h.endsWith(".lovable.app") || h.endsWith(".lovableproject.com") || h.endsWith(".app") || h.endsWith(".dev");
   if (isDev) return;
 
+  const path = window.location.pathname;
+  const isPlayerRoute = path.startsWith("/player") || path.startsWith("/embed");
+
   document.addEventListener("keydown", blockKeys, true);
   document.addEventListener("contextmenu", blockContextMenu, true);
 
-  const intervalId = setInterval(detectDevTools, 500);
-  const debugInterval = setInterval(consoleDetect, 3000);
+  let intervalId: ReturnType<typeof setInterval> | undefined;
+  let debugInterval: ReturnType<typeof setInterval> | undefined;
 
-  disableConsole();
+  // Only run aggressive detection (size/console traps) on non-player pages
+  // Player/embed routes rely on playerShield.ts for protection
+  if (!isPlayerRoute) {
+    intervalId = setInterval(detectDevTools, 500);
+    debugInterval = setInterval(consoleDetect, 3000);
+    disableConsole();
+  }
+
   disableTextSelection();
   if (import.meta.env.PROD) blockCopyPaste();
   obfuscateVideoSources();
