@@ -54,6 +54,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [showAdGate, setShowAdGate] = useState(false);
   const [adGateCallback, setAdGateCallback] = useState<(() => void) | null>(null);
+  const [navigatingToPlayer, setNavigatingToPlayer] = useState(false);
 
   // Check watch_disabled setting
   useEffect(() => {
@@ -241,6 +242,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
   const handleAudioSelect = async (audio: string) => {
     setShowAudioModal(false);
+    setNavigatingToPlayer(true);
     const params = new URLSearchParams({ title: getDisplayTitle(detail), audio });
     if (imdbId) params.set("imdb", imdbId);
     const playerSlug = toSlug(getDisplayTitle(detail), detail.id);
@@ -551,6 +553,13 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
           }}
           onClose={() => setShowAdGate(false)}
         />
+      )}
+
+      {/* Black overlay during player transition — prevents blue flash */}
+      {navigatingToPlayer && (
+        <div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center">
+          <div className="w-12 h-12 rounded-full border-[3px] border-white/10 border-t-primary animate-spin" />
+        </div>
       )}
     </div>
   );
