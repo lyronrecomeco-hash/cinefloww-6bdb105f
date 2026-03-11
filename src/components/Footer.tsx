@@ -6,7 +6,7 @@ import PartnersModal from "@/components/PartnersModal";
 import { WifiOff, Handshake, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
-const CURRENT_VERSION = "V-524";
+const CURRENT_VERSION = "V-525";
 const LOCAL_KEY = "lyneflix_cache_version";
 
 const Footer = forwardRef<HTMLElement>((_, ref) => {
@@ -29,10 +29,11 @@ const Footer = forwardRef<HTMLElement>((_, ref) => {
         return;
       }
 
+      const val = data.value as Record<string, unknown> | string;
       const remoteVersion = String(
-        typeof data.value === "object" && data.value !== null && "v" in (data.value as Record<string, unknown>)
-          ? (data.value as Record<string, string>).v
-          : data.value
+        typeof val === "object" && val !== null
+          ? (val as any).v ?? (val as any).version ?? JSON.stringify(val)
+          : val
       );
 
       const localNum = CURRENT_VERSION.replace("V-", "");

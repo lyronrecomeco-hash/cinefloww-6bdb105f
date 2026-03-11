@@ -25,10 +25,11 @@ export async function checkCacheVersion(): Promise<void> {
 
     if (!data?.value) return;
 
+    const val = data.value as Record<string, unknown> | string;
     const remoteVersion = String(
-      typeof data.value === "object" && data.value !== null && "v" in (data.value as Record<string, unknown>)
-        ? (data.value as Record<string, string>).v
-        : data.value
+      typeof val === "object" && val !== null
+        ? (val as any).v ?? (val as any).version ?? JSON.stringify(val)
+        : val
     );
     const localVersion = localStorage.getItem(LOCAL_KEY);
 
