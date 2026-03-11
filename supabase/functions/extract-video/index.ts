@@ -1,7 +1,8 @@
 /**
- * extract-video: Video link resolution via CineVeo.
- * For HLS: fetches manifest server-side and returns inline (avoids CORS issues).
- * For MP4: returns redirect URL for direct browser playback.
+ * extract-video: Real-time CineVeo API lookup.
+ * Searches the CineVeo catalog API by tmdb_id and returns the stream_url directly.
+ * Supports: movies, series, animes.
+ * No proxy, no token — raw URL for direct player consumption.
  */
 
 const corsHeaders = {
@@ -10,87 +11,134 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-const CINEVEO_BASE = "https://cinetvembed.cineveo.site";
+const CINEVEO_API = "https://cineveo.lat/api/catalog.php";
 const CUSER = "lyneflix-vods";
 const CPASS = "uVljs2d";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
-async function timedFetch(url: string, timeoutMs: number, init?: RequestInit): Promise<Response> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+// ── Types ──
+interface CineveoEpisode {
+  id_link: number;
+  season: number;
+  episode: number;
+  language: string;
+  quality: string;
+  stream_url: string;
+}
+
+interface CineveoItem {
+  id: number;
+  tmdb_id: number;
+  title: string;
+  type: string;
+  stream_url?: string;
+  episodes_count?: number;
+  episodes?: CineveoEpisode[];
+}
+
+interface ApiPage {
+  data: CineveoItem[];
+  totalPages: number;
+}
+
+// ── Fetch a single API page ──
+async function fetchApiPage(apiType: string, page: number): Promise<ApiPage | null> {
   try {
-    return await fetch(url, { ...init, signal: ctrl.signal });
-  } finally {
+    const url = `${CINEVEO_API}?username=${CUSER}&password=${CPASS}&type=${apiType}&page=${page}`;
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": UA } });
     clearTimeout(t);
-  }
-}
-
-// ── M3U Shard Index ──
-async function m3uLookup(tmdbId: number, cType: string, s?: number, e?: number): Promise<{ url: string; type: string; provider: string } | null> {
-  const base = Deno.env.get("SUPABASE_URL");
-  if (!base) return null;
-  const kind = cType === "movie" ? "movie" : "series";
-  const bucket = Math.abs(tmdbId) % 100;
-  try {
-    const res = await timedFetch(
-      `${base}/storage/v1/object/public/catalog/m3u-index/${kind}/${bucket}.json`,
-      3000,
-      { headers: { "User-Agent": UA } }
-    );
     if (!res.ok) return null;
-    const data = await res.json();
-    const row = data?.items?.[String(tmdbId)];
-    if (!row) return null;
-    if (row.url) return { url: row.url, type: row.type || "m3u8", provider: "cineveo-m3u" };
-    const key = s && e ? `${s}:${e}` : null;
-    if (key && row.episodes?.[key]?.url) {
-      return { url: row.episodes[key].url, type: row.episodes[key].type || "m3u8", provider: "cineveo-m3u" };
-    }
-    if (row.default?.url) return { url: row.default.url, type: row.default.type || "m3u8", provider: "cineveo-m3u" };
-  } catch (_e) { /* skip */ }
+    const json = await res.json();
+    if (!json.success) return null;
+    return { data: json.data || [], totalPages: json.pagination?.total_pages || 0 };
+  } catch {
+    return null;
+  }
+}
+
+// ── Find movie stream_url in a list of items ──
+function findMovie(items: CineveoItem[], tmdbId: number): string | null {
+  const item = items.find(i => i.tmdb_id === tmdbId);
+  return item?.stream_url || null;
+}
+
+// ── Find episode stream_url in a list of items ──
+function findEpisode(items: CineveoItem[], tmdbId: number, season: number, episode: number): string | null {
+  const item = items.find(i => i.tmdb_id === tmdbId);
+  if (!item?.episodes || item.episodes.length === 0) return null;
+
+  // Try exact match first
+  const exact = item.episodes.find(e => e.season === season && e.episode === episode);
+  if (exact) return exact.stream_url;
+
+  // If episode numbers are 0 (API quirk), match by index within season
+  const seasonEps = item.episodes.filter(e => e.season === season);
+  if (seasonEps.length > 0 && seasonEps[0].episode === 0) {
+    // Episodes numbered 0 — use positional index (episode 1 = index 0)
+    const idx = episode - 1;
+    if (idx >= 0 && idx < seasonEps.length) return seasonEps[idx].stream_url;
+  }
+
+  // Fallback: if only one season exists and episodes match by count
+  if (seasonEps.length === 0 && item.episodes.length >= episode) {
+    return item.episodes[episode - 1]?.stream_url || null;
+  }
+
   return null;
 }
 
-// ── Direct URL fallback ──
-function directUrl(tmdbId: number, cType: string, s?: number, e?: number): string {
-  if (cType === "movie") return `${CINEVEO_BASE}/movie/${CUSER}/${CPASS}/${tmdbId}`;
-  return `${CINEVEO_BASE}/series/${CUSER}/${CPASS}/${tmdbId}/${s || 1}/${e || 1}`;
-}
+// ── Search API pages in parallel batches ──
+async function searchApi(
+  tmdbId: number,
+  apiType: string,
+  isMovie: boolean,
+  season?: number,
+  episode?: number,
+): Promise<{ url: string; type: string } | null> {
+  // Fetch page 1 to get total and check
+  const p1 = await fetchApiPage(apiType, 1);
+  if (!p1 || p1.data.length === 0) return null;
 
-function fetchHeaders(url: string): Record<string, string> {
-  let referer = "";
-  try { referer = new URL(url).origin + "/"; } catch {}
-  return { "User-Agent": UA, "Referer": referer, "Accept": "*/*" };
-}
+  const url1 = isMovie
+    ? findMovie(p1.data, tmdbId)
+    : findEpisode(p1.data, tmdbId, season || 1, episode || 1);
+  if (url1) {
+    return { url: url1, type: url1.endsWith(".m3u8") ? "m3u8" : "mp4" };
+  }
 
-// ── Probe URL: try m3u8 first, then mp4, return working URL + type ──
-async function probeUrls(baseUrl: string): Promise<{ url: string; type: "mp4" | "m3u8"; status: number } | null> {
-  const variants = [baseUrl + ".m3u8", baseUrl + ".mp4"];
-  
-  for (const tryUrl of variants) {
-    try {
-      const resp = await timedFetch(tryUrl, 8000, {
-        method: "HEAD",
-        headers: fetchHeaders(tryUrl),
-        redirect: "follow",
-      });
-      const finalUrl = resp.url || tryUrl;
-      await resp.text().catch(() => {});
-      
-      if (resp.ok || resp.status === 302 || resp.status === 301) {
-        const isHls = finalUrl.includes(".m3u8") || (resp.headers.get("content-type") || "").includes("mpegurl");
-        console.log(`[extract] Probe OK: ${tryUrl.substring(0, 60)} → ${resp.status}`);
-        return { url: finalUrl, type: isHls ? "m3u8" : "mp4", status: resp.status };
-      }
-      console.log(`[extract] Probe fail: ${tryUrl.substring(0, 60)} → ${resp.status}`);
-    } catch (e) {
-      console.log(`[extract] Probe error: ${tryUrl.substring(0, 60)}`, e);
+  const totalPages = p1.totalPages;
+  if (totalPages <= 1) return null;
+
+  // Search remaining pages in parallel batches of 50
+  const BATCH = 50;
+  for (let start = 2; start <= totalPages; start += BATCH) {
+    const end = Math.min(start + BATCH - 1, totalPages);
+    const promises: Promise<string | null>[] = [];
+
+    for (let p = start; p <= end; p++) {
+      promises.push(
+        fetchApiPage(apiType, p).then(res => {
+          if (!res) return null;
+          return isMovie
+            ? findMovie(res.data, tmdbId)
+            : findEpisode(res.data, tmdbId, season || 1, episode || 1);
+        })
+      );
+    }
+
+    const results = await Promise.all(promises);
+    const match = results.find(r => r !== null);
+    if (match) {
+      return { url: match, type: match.endsWith(".m3u8") ? "m3u8" : "mp4" };
     }
   }
+
   return null;
 }
 
-// ── Handler ──
+// ── Main handler ──
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -110,43 +158,41 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    // Get candidate URL from M3U index or build direct
-    const m3u = await m3uLookup(tmdbId, cType, season, episode);
-    let candidateBase: string;
-    const provider = m3u?.provider || "cineveo-direct";
-    
-    if (m3u?.url) {
-      // Strip extension to get base
-      candidateBase = m3u.url.replace(/\.(m3u8|mp4)$/, "");
+    const isMovie = cType === "movie";
+    let result: { url: string; type: string } | null = null;
+
+    console.log(`[extract] tmdb=${tmdbId} type=${cType} s=${season} e=${episode}`);
+
+    if (isMovie) {
+      // Search movies catalog
+      result = await searchApi(tmdbId, "movies", true);
     } else {
-      candidateBase = directUrl(tmdbId, cType, season, episode);
+      // Try animes first (smaller catalog ~37 pages), then series (~87 pages)
+      result = await searchApi(tmdbId, "animes", false, season, episode);
+      if (!result) {
+        result = await searchApi(tmdbId, "series", false, season, episode);
+      }
     }
 
-    console.log(`[extract] tmdb=${tmdbId} base=${candidateBase.substring(0, 80)}`);
-
-    // Probe to find a working URL
-    const probed = await probeUrls(candidateBase);
-    
-    if (probed) {
-      console.log(`[extract] Resolved: ${probed.url.substring(0, 80)} (${probed.type})`);
+    if (result) {
+      console.log(`[extract] Found: ${result.url.substring(0, 80)} (${result.type})`);
       return new Response(JSON.stringify({
-        url: probed.url,
-        type: probed.type,
-        provider,
+        url: result.url,
+        type: result.type,
+        provider: "cineveo-api",
         cached: false,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Nothing worked — return mp4 URL as best guess
-    const fallbackUrl = candidateBase + ".mp4";
-    console.log(`[extract] All probes failed, returning fallback: ${fallbackUrl.substring(0, 80)}`);
+    // Not found in any catalog
+    console.log(`[extract] Not found in CineVeo API for tmdb=${tmdbId}`);
     return new Response(JSON.stringify({
-      url: fallbackUrl,
-      type: "mp4",
-      provider,
-      cached: false,
+      url: null,
+      type: null,
+      provider: null,
+      error: "Conteúdo não encontrado no catálogo",
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
