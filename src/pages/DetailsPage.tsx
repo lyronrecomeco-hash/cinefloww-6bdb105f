@@ -193,7 +193,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-black flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -201,7 +201,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
   if (!detail) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-black flex items-center justify-center">
         <Navbar />
         <div className="text-center">
           <h1 className="font-display text-2xl font-bold mb-2">Conteúdo não encontrado</h1>
@@ -252,7 +252,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   };
 
   return (
-    <div key={slug} className="min-h-screen bg-background">
+    <div key={slug} className="min-h-screen bg-black">
       <Navbar />
 
       {/* Backdrop */}

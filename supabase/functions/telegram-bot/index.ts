@@ -9,6 +9,8 @@ const TMDB_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI1MDFiOWNkYjllNDQ0NjkxMDJiODk
 const TMDB_BASE = "https://api.themoviedb.org/3";
 const TMDB_IMG = "https://image.tmdb.org/t/p";
 
+const SITE_URL = "https://lyneflix.online";
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
 interface UserSession {
@@ -47,7 +49,7 @@ async function getTMDBDetails(id: number, type: "movie" | "tv"): Promise<any> {
 }
 
 // --- Telegram helpers ---
-async function sendMessage(chatId: number, text: string, replyMarkup?: any): Promise<number | null> {
+async function sendMessage(chatId: number | string, text: string, replyMarkup?: any): Promise<number | null> {
   const body: any = { chat_id: chatId, text, parse_mode: "HTML" };
   if (replyMarkup) body.reply_markup = replyMarkup;
   const res = await fetch(`${TELEGRAM_API}/sendMessage`, {
@@ -59,7 +61,7 @@ async function sendMessage(chatId: number, text: string, replyMarkup?: any): Pro
   return data.result?.message_id || null;
 }
 
-async function sendPhoto(chatId: number, photoUrl: string, caption: string, replyMarkup?: any): Promise<number | null> {
+async function sendPhoto(chatId: number | string, photoUrl: string, caption: string, replyMarkup?: any): Promise<number | null> {
   const body: any = { chat_id: chatId, photo: photoUrl, caption, parse_mode: "HTML" };
   if (replyMarkup) body.reply_markup = replyMarkup;
   const res = await fetch(`${TELEGRAM_API}/sendPhoto`, {
@@ -152,27 +154,202 @@ function formatSize(bytes: number | null): string {
   return `${(bytes / 1e6).toFixed(0)} MB`;
 }
 
-// --- AI-powered name extraction from caption/text ---
 function extractNameFromText(text: string): { name: string; synopsis: string } {
-  // Split by double newlines or first line vs rest
   const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
-  
   if (lines.length === 0) return { name: "", synopsis: "" };
-  
-  // First meaningful line is usually the title
   let name = lines[0];
-  // Remove common prefixes like emoji, "Nome:", "Título:" etc
   name = name.replace(/^(🎬|📺|🎥|📽|nome:|título:|title:|film:|movie:|serie:|series:)\s*/i, "").trim();
-  // Remove year in parentheses from name to keep it clean for TMDB search
   name = name.replace(/\s*\(\d{4}\)\s*$/, "").trim();
-  
-  // Rest is synopsis
   const synopsis = lines.slice(1).join("\n").trim();
-  
   return { name, synopsis };
 }
 
-// --- Main handlers ---
+function slugify(text: string, id: number): string {
+  const slug = text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+  return `${slug}-${id}`;
+}
+
+// ==========================================
+// CHANNEL FEATURES: Welcome + Auto-Notify
+// ==========================================
+
+async function getChannelConfig() {
+  const { data } = await supabase
+    .from("telegram_config")
+    .select("*")
+    .limit(1)
+    .maybeSingle();
+  return data;
+}
+
+async function sendWelcomeMessage(chatId: number | string, memberName: string) {
+  const config = await getChannelConfig();
+  if (!config || !config.welcome_enabled) return;
+
+  const message = (config.welcome_message || "Bem-vindo! 🎬")
+    .replace("{name}", memberName)
+    .replace("{nome}", memberName);
+
+  const imageUrl = config.welcome_image_url;
+
+  const buttons = {
+    inline_keyboard: [
+      [{ text: "🎬 Acessar LyneFlix", url: SITE_URL }],
+    ],
+  };
+
+  if (imageUrl) {
+    await sendPhoto(chatId, imageUrl, message, buttons);
+  } else {
+    await sendMessage(chatId, message, buttons);
+  }
+}
+
+async function notifyNewContent(content: any) {
+  const config = await getChannelConfig();
+  if (!config || !config.auto_notify_new_content || !config.channel_id) return;
+
+  const channelId = config.channel_id;
+  const isMovie = content.content_type === "movie";
+  const typeLabel = isMovie ? "Filme" : "Série";
+  const typeEmoji = isMovie ? "🎬" : "📺";
+  const title = content.title || content.original_title || "Título desconhecido";
+  const year = content.release_date ? content.release_date.substring(0, 4) : "";
+  const overview = content.overview ? content.overview.substring(0, 200) + (content.overview.length > 200 ? "..." : "") : "";
+  const rating = content.vote_average ? `⭐ ${Number(content.vote_average).toFixed(1)}` : "";
+  
+  const slug = slugify(title, content.tmdb_id);
+  const detailUrl = `${SITE_URL}/${isMovie ? "filme" : "serie"}/${slug}`;
+
+  const caption = `🔥 <b>Se liga pessoal, ${typeLabel.toLowerCase()} novo na área, se liga só:</b>\n\n` +
+    `${typeEmoji} <b>${title}</b>${year ? ` (${year})` : ""}\n` +
+    (rating ? `${rating}\n` : "") +
+    (overview ? `\n📝 ${overview}\n` : "") +
+    `\n🔗 <b>Assistir agora:</b> ${detailUrl}`;
+
+  const buttons = {
+    inline_keyboard: [
+      [{ text: `▶️ Assistir ${title}`, url: detailUrl }],
+      [{ text: "🏠 Ir para LyneFlix", url: SITE_URL }],
+    ],
+  };
+
+  const posterPath = content.poster_path;
+  if (posterPath) {
+    const posterUrl = posterPath.startsWith("http") ? posterPath : `${TMDB_IMG}/w500${posterPath}`;
+    await sendPhoto(channelId, posterUrl, caption, buttons);
+  } else {
+    await sendMessage(channelId, caption, buttons);
+  }
+}
+
+// ==========================================
+// API ACTIONS (called from admin panel)
+// ==========================================
+
+async function handleApiAction(action: string, body: any): Promise<Response> {
+  switch (action) {
+    case "getChats": {
+      // Get bot's updates to find chats
+      const res = await fetch(`${TELEGRAM_API}/getUpdates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ limit: 100 }),
+      });
+      const data = await res.json();
+      const chats = new Map();
+      if (data.result) {
+        for (const update of data.result) {
+          const msg = update.message || update.channel_post || update.my_chat_member?.chat;
+          if (msg) {
+            const chat = msg.chat || msg;
+            if (chat && (chat.type === "channel" || chat.type === "supergroup" || chat.type === "group")) {
+              chats.set(chat.id, {
+                id: chat.id,
+                title: chat.title || "Sem nome",
+                type: chat.type,
+                username: chat.username || null,
+              });
+            }
+          }
+        }
+      }
+      return new Response(JSON.stringify({ chats: Array.from(chats.values()) }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    case "testWelcome": {
+      const { channel_id, message, image_url } = body;
+      if (!channel_id) {
+        return new Response(JSON.stringify({ error: "channel_id required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const buttons = {
+        inline_keyboard: [
+          [{ text: "🎬 Acessar LyneFlix", url: SITE_URL }],
+        ],
+      };
+
+      const text = message || "🎬 Mensagem de teste da LyneFlix!";
+      
+      try {
+        if (image_url) {
+          await sendPhoto(channel_id, image_url, text, buttons);
+        } else {
+          await sendMessage(channel_id, text, buttons);
+        }
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    case "notifyContent": {
+      // Manually trigger notification for a specific content
+      const { content } = body;
+      if (!content) {
+        return new Response(JSON.stringify({ error: "content required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      await notifyNewContent(content);
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    case "getBotInfo": {
+      const res = await fetch(`${TELEGRAM_API}/getMe`);
+      const data = await res.json();
+      return new Response(JSON.stringify(data), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    default:
+      return new Response(JSON.stringify({ error: "Unknown action" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+  }
+}
+
+// --- Main handlers (ingestor bot) ---
 async function handleCommand(chatId: number, userId: number, text: string) {
   const cmd = text.split(" ")[0].toLowerCase();
   const args = text.substring(cmd.length).trim();
@@ -180,12 +357,9 @@ async function handleCommand(chatId: number, userId: number, text: string) {
   switch (cmd) {
     case "/start":
       await sendMessage(chatId,
-        "🎬 <b>Bot de Ingestão LyneFlix</b>\n\n" +
-        "Encaminhe um vídeo de outro chat para começar o cadastro.\n" +
-        "Envie junto nome e sinopse na legenda!\n\n" +
+        "🎬 <b>Bot LyneFlix</b>\n\n" +
+        "Bot oficial de gestão da LyneFlix.\n\n" +
         "📌 <b>Comandos:</b>\n" +
-        "/pendentes — Lista conteúdos pendentes\n" +
-        "/buscar [nome] — Busca por nome\n" +
         "/status — Resumo do sistema\n" +
         "/apis — Status dos provedores\n" +
         "/addapi [nome] [url] — Adicionar provedor\n" +
@@ -205,89 +379,29 @@ async function handleCommand(chatId: number, userId: number, text: string) {
       break;
     }
 
-    case "/pendentes": {
-      const { data, count } = await supabase
-        .from("telegram_ingestions")
-        .select("id, title, content_type, status, created_at", { count: "exact" })
-        .eq("status", "pending")
-        .order("created_at", { ascending: false })
-        .limit(10);
-      if (!data?.length) {
-        await sendMessage(chatId, "✅ Nenhum conteúdo pendente.");
-        return;
-      }
-      let msg = `📋 <b>Pendentes (${count}):</b>\n\n`;
-      data.forEach((d, i) => {
-        const icon = d.content_type === "movie" ? "🎬" : "📺";
-        msg += `${i + 1}. ${icon} <b>${d.title}</b>\n   ID: <code>${d.id.slice(0, 8)}</code>\n\n`;
-      });
-      await sendMessage(chatId, msg);
-      break;
-    }
-
-    case "/buscar": {
-      if (!args) { await sendMessage(chatId, "Use: /buscar [nome]"); return; }
-      const { data } = await supabase
-        .from("telegram_ingestions")
-        .select("id, title, content_type, status")
-        .ilike("title", `%${args}%`)
-        .limit(10);
-      if (!data?.length) {
-        await sendMessage(chatId, `🔍 Nenhum resultado para "${args}".`);
-        return;
-      }
-      let msg = `🔍 <b>Resultados para "${args}":</b>\n\n`;
-      data.forEach((d, i) => {
-        const icon = d.content_type === "movie" ? "🎬" : "📺";
-        const statusIcon = d.status === "pending" ? "⏳" : d.status === "confirmed" ? "✅" : "📦";
-        msg += `${i + 1}. ${icon} ${statusIcon} <b>${d.title}</b>\n   ID: <code>${d.id.slice(0, 8)}</code> | ${d.status}\n\n`;
-      });
-      await sendMessage(chatId, msg);
-      break;
-    }
-
     case "/status": {
-      const [{ count: pending }, { count: confirmed }, { count: processed }] = await Promise.all([
-        supabase.from("telegram_ingestions").select("id", { count: "exact", head: true }).eq("status", "pending"),
-        supabase.from("telegram_ingestions").select("id", { count: "exact", head: true }).eq("status", "confirmed"),
-        supabase.from("telegram_ingestions").select("id", { count: "exact", head: true }).eq("status", "processed"),
-      ]);
-      
-      // Also show catalog stats
       const [{ count: totalContent }, { count: cachedVideos }] = await Promise.all([
         supabase.from("content").select("id", { count: "exact", head: true }),
         supabase.from("video_cache").select("id", { count: "exact", head: true }).gt("expires_at", new Date().toISOString()),
       ]);
       
+      const config = await getChannelConfig();
+      
       await sendMessage(chatId,
         "📊 <b>Status do Sistema:</b>\n\n" +
-        `<b>Ingestão:</b>\n` +
-        `⏳ Pendentes: <b>${pending || 0}</b>\n` +
-        `✅ Confirmados: <b>${confirmed || 0}</b>\n` +
-        `📦 Processados: <b>${processed || 0}</b>\n\n` +
         `<b>Catálogo:</b>\n` +
         `📚 Total conteúdo: <b>${totalContent || 0}</b>\n` +
         `🔗 Links cacheados: <b>${cachedVideos || 0}</b>\n` +
-        `📈 Cobertura: <b>${totalContent ? ((cachedVideos || 0) / (totalContent as number) * 100).toFixed(1) : 0}%</b>`
+        `📈 Cobertura: <b>${totalContent ? ((cachedVideos || 0) / (totalContent as number) * 100).toFixed(1) : 0}%</b>\n\n` +
+        `<b>Canal Telegram:</b>\n` +
+        `📢 Canal: ${config?.channel_username || "Não configurado"}\n` +
+        `🤖 Bot: ${config?.bot_username || "Não configurado"}\n` +
+        `🔔 Auto-notificações: ${config?.auto_notify_new_content ? "✅ Ativas" : "❌ Desativadas"}\n` +
+        `👋 Boas-vindas: ${config?.welcome_enabled ? "✅ Ativado" : "❌ Desativado"}`
       );
       break;
     }
 
-    case "/excluir": {
-      if (!args) { await sendMessage(chatId, "Use: /excluir [ID]"); return; }
-      const { data } = await supabase
-        .from("telegram_ingestions")
-        .select("id, title")
-        .ilike("id", `${args}%`)
-        .limit(1)
-        .maybeSingle();
-      if (!data) { await sendMessage(chatId, "❌ ID não encontrado."); return; }
-      await supabase.from("telegram_ingestions").delete().eq("id", data.id);
-      await sendMessage(chatId, `🗑 <b>${data.title}</b> removido.`);
-      break;
-    }
-
-    // --- SCRAPING COMMANDS ---
     case "/apis": {
       const { data: providers } = await supabase
         .from("scraping_providers")
@@ -321,17 +435,10 @@ async function handleCommand(chatId: number, userId: number, text: string) {
     }
 
     case "/addapi": {
-      // Format: /addapi Nome|url_base|movie_template|tv_template
       if (!args) {
         await sendMessage(chatId,
           "📝 <b>Formato:</b>\n" +
-          "<code>/addapi Nome|https://url.com|/embed/movie/{tmdb_id}|/embed/tv/{tmdb_id}/{season}/{episode}</code>\n\n" +
-          "Templates disponíveis:\n" +
-          "<code>{tmdb_id}</code> — ID do TMDB\n" +
-          "<code>{imdb_id}</code> — ID do IMDb\n" +
-          "<code>{season}</code> — Temporada\n" +
-          "<code>{episode}</code> — Episódio\n" +
-          "<code>{slug}</code> — Slug do título"
+          "<code>/addapi Nome|https://url.com|/embed/movie/{tmdb_id}|/embed/tv/{tmdb_id}/{season}/{episode}</code>"
         );
         return;
       }
@@ -343,7 +450,6 @@ async function handleCommand(chatId: number, userId: number, text: string) {
 
       const [name, baseUrl, movieTemplate, tvTemplate] = parts;
       
-      // Get max priority
       const { data: maxP } = await supabase
         .from("scraping_providers")
         .select("priority")
@@ -365,30 +471,24 @@ async function handleCommand(chatId: number, userId: number, text: string) {
 
       await sendMessage(chatId,
         `✅ <b>Provedor "${name}" adicionado!</b>\n\n` +
-        `🔗 ${baseUrl}\n` +
-        `📊 Prioridade: ${newPriority}\n\n` +
-        `Use /apis para ver todos.`
+        `🔗 ${baseUrl}\n📊 Prioridade: ${newPriority}\n\nUse /apis para ver todos.`
       );
       break;
     }
 
     case "/raspar": {
-      // Check if already running
       const sessionId = `scrape_${Date.now()}`;
       
-      // Save session marker
       await supabase.from("site_settings").upsert(
         { key: `scrape_session_${sessionId}`, value: { cancelled: false, started: new Date().toISOString() } as any },
         { onConflict: "key" }
       );
       
-      // Store active session for /raspar_parar
       await supabase.from("site_settings").upsert(
         { key: "active_scrape_session", value: { session_id: sessionId } as any },
         { onConflict: "key" }
       );
 
-      // Get stats
       const [{ count: total }, { count: cached }] = await Promise.all([
         supabase.from("content").select("id", { count: "exact", head: true }),
         supabase.from("video_cache").select("id", { count: "exact", head: true }).gt("expires_at", new Date().toISOString()),
@@ -398,13 +498,10 @@ async function handleCommand(chatId: number, userId: number, text: string) {
 
       await sendMessage(chatId,
         `🚀 <b>Iniciando raspagem!</b>\n\n` +
-        `📚 Catálogo: ${total}\n` +
-        `🔗 Cacheados: ${cached}\n` +
-        `❓ Faltando: ${missing}\n\n` +
-        `Enviando logs em tempo real...\nUse /raspar_parar para cancelar.`
+        `📚 Catálogo: ${total}\n🔗 Cacheados: ${cached}\n❓ Faltando: ${missing}\n\n` +
+        `Use /raspar_parar para cancelar.`
       );
 
-      // Trigger smart-scraper
       fetch(`${SUPABASE_URL}/functions/v1/smart-scraper`, {
         method: "POST",
         headers: {
@@ -430,7 +527,7 @@ async function handleCommand(chatId: number, userId: number, text: string) {
           { key: `scrape_session_${sessionId}`, value: { cancelled: true } as any },
           { onConflict: "key" }
         );
-        await sendMessage(chatId, "⏹ <b>Sinal de parada enviado.</b>\nA raspagem será interrompida no próximo lote.");
+        await sendMessage(chatId, "⏹ <b>Sinal de parada enviado.</b>");
       } else {
         await sendMessage(chatId, "❌ Nenhuma raspagem ativa.");
       }
@@ -442,372 +539,12 @@ async function handleCommand(chatId: number, userId: number, text: string) {
   }
 }
 
-async function handleMessage(chatId: number, userId: number, message: any) {
-  const video = message.video || message.document;
-  const isForwarded = message.forward_date || message.forward_from || message.forward_from_chat;
-
-  // Handle forwarded video (with or without caption containing name/synopsis)
-  if (video) {
-    const uniqueId = video.file_unique_id;
-    const { data: existing } = await supabase
-      .from("telegram_ingestions")
-      .select("id, title")
-      .eq("telegram_unique_id", uniqueId)
-      .maybeSingle();
-
-    if (existing) {
-      await sendMessage(chatId, `⚠️ Este arquivo já foi cadastrado como "<b>${existing.title}</b>".`);
-      return;
-    }
-
-    const fileData = {
-      telegram_file_id: video.file_id,
-      telegram_unique_id: uniqueId,
-      file_size: video.file_size || 0,
-      duration: video.duration || 0,
-      resolution: video.width ? `${video.width}x${video.height}` : null,
-      file_name: video.file_name || null,
-      mime_type: video.mime_type || null,
-    };
-
-    const caption = message.caption || "";
-    const fileName = video.file_name || "";
-    const cleanName = fileName.replace(/\.\w{2,4}$/, "").replace(/[._]/g, " ").trim();
-
-    const session: UserSession = { step: "confirm_name", data: fileData, lastMsgIds: [] };
-
-    // If user sent caption with text, extract name + synopsis from it
-    if (caption) {
-      const extracted = extractNameFromText(caption);
-      session.data.extracted_name = extracted.name;
-      session.data.extracted_synopsis = extracted.synopsis;
-      
-      const msg = `📥 <b>Vídeo recebido!</b>\n\n` +
-        `📁 ${fileName || "Sem nome"} | 💾 ${formatSize(video.file_size)} | ⏱ ${formatDuration(video.duration)}\n\n` +
-        `🔍 Nome detectado: <b>${extracted.name}</b>\n\n` +
-        `✅ Confirma esse nome?`;
-
-      const msgId = await sendMessage(chatId, msg, {
-        inline_keyboard: [
-          [{ text: "✅ Confirmar", callback_data: "name_confirm" }],
-          [{ text: "❌ Não, quero digitar", callback_data: "name_reject" }],
-        ],
-      });
-      if (msgId) session.lastMsgIds.push(msgId);
-    } else if (cleanName) {
-      // No caption but has file name
-      session.data.extracted_name = cleanName;
-      const msg = `📥 <b>Vídeo recebido!</b>\n\n` +
-        `📁 ${fileName} | 💾 ${formatSize(video.file_size)} | ⏱ ${formatDuration(video.duration)}\n\n` +
-        `🔍 Nome detectado: <b>${cleanName}</b>\n\n` +
-        `✅ Confirma esse nome?`;
-
-      const msgId = await sendMessage(chatId, msg, {
-        inline_keyboard: [
-          [{ text: "✅ Confirmar", callback_data: "name_confirm" }],
-          [{ text: "❌ Não, quero digitar", callback_data: "name_reject" }],
-        ],
-      });
-      if (msgId) session.lastMsgIds.push(msgId);
-    } else {
-      // No info at all
-      session.step = "ask_title";
-      const msgId = await sendMessage(chatId,
-        `📥 <b>Vídeo recebido!</b>\n\n` +
-        `📁 Sem nome | 💾 ${formatSize(video.file_size)} | ⏱ ${formatDuration(video.duration)}\n\n` +
-        `📝 <b>Informe o nome do conteúdo:</b>`
-      );
-      if (msgId) session.lastMsgIds.push(msgId);
-    }
-
-    // Track user's message for cleanup
-    if (message.message_id) session.lastMsgIds.push(message.message_id);
-    await setSession(chatId, session);
-    return;
-  }
-
-  // Handle session flow
-  const session = await getSession(chatId);
-  if (!session) {
-    if (message.text?.startsWith("/")) {
-      await handleCommand(chatId, userId, message.text);
-    } else {
-      await sendMessage(chatId, "Encaminhe um vídeo para começar ou use /start.");
-    }
-    return;
-  }
-
-  // Track user message for deletion
-  if (message.message_id) session.lastMsgIds.push(message.message_id);
-
-  const text = message.text?.trim() || "";
-
-  switch (session.step) {
-    case "ask_title":
-      session.data.extracted_name = text;
-      // Go straight to TMDB search
-      await searchAndShowTMDB(chatId, session, text);
-      break;
-
-    case "ask_synopsis":
-      session.data.synopsis = text;
-      session.step = "ask_type";
-      await clearAndSend(chatId, session, "🎭 <b>É um filme ou série?</b>", {
-        inline_keyboard: [
-          [
-            { text: "🎬 Filme", callback_data: "type_movie" },
-            { text: "📺 Série", callback_data: "type_series" },
-          ],
-        ],
-      });
-      await setSession(chatId, session);
-      break;
-
-    case "ask_season":
-      session.data.season = parseInt(text) || 1;
-      session.step = "ask_episode";
-      await clearAndSend(chatId, session, "📝 <b>Episódio:</b>");
-      await setSession(chatId, session);
-      break;
-
-    case "ask_episode":
-      session.data.episode = parseInt(text) || 1;
-      session.step = "ask_ep_title";
-      await clearAndSend(chatId, session, "📝 <b>Título do episódio (opcional — envie . para pular):</b>");
-      await setSession(chatId, session);
-      break;
-
-    case "ask_ep_title":
-      session.data.episode_title = text === "." ? null : text;
-      await showConfirmation(chatId, session);
-      break;
-
-    case "manual_search":
-      await searchAndShowTMDB(chatId, session, text);
-      break;
-
-    default:
-      await clearAndSend(chatId, session, "❓ Algo deu errado. Use /cancelar e tente novamente.");
-      await setSession(chatId, session);
-  }
-}
-
-// --- Shared TMDB search + display ---
-async function searchAndShowTMDB(chatId: number, session: UserSession, query: string) {
-  await clearAndSend(chatId, session, `🔍 Buscando "<b>${query}</b>" no TMDB...`);
-
-  const results = await searchTMDB(query);
-  if (results.length > 0) {
-    const top = results.slice(0, 3);
-    session.data.tmdb_results = top;
-    session.step = "pick_tmdb";
-
-    let msg = "🎬 <b>Resultados TMDB:</b>\n\n";
-    const buttons: any[][] = [];
-    top.forEach((r: any, i: number) => {
-      const title = r.title || r.name || "?";
-      const year = (r.release_date || r.first_air_date || "").substring(0, 4);
-      const type = r.media_type === "tv" || r.name ? "📺" : "🎬";
-      const rating = r.vote_average ? `⭐ ${r.vote_average.toFixed(1)}` : "";
-      msg += `${i + 1}. ${type} <b>${title}</b> (${year}) ${rating}\n`;
-      if (r.overview) msg += `   ${r.overview.substring(0, 80)}...\n`;
-      msg += "\n";
-      buttons.push([{ text: `${i + 1}. ${title} (${year})`, callback_data: `tmdb_pick_${i}` }]);
-    });
-    buttons.push([{ text: "✏️ Buscar manualmente", callback_data: "tmdb_manual" }]);
-    buttons.push([{ text: "❌ Cancelar", callback_data: "confirm_cancel" }]);
-
-    const posterPath = top[0].poster_path;
-    if (posterPath) {
-      await clearAndSendPhoto(chatId, session, `${TMDB_IMG}/w300${posterPath}`, msg, { inline_keyboard: buttons });
-    } else {
-      await clearAndSend(chatId, session, msg, { inline_keyboard: buttons });
-    }
-  } else {
-    session.step = "manual_search";
-    await clearAndSend(chatId, session, "❌ Nenhum resultado no TMDB.\n\n📝 <b>Tente outro nome:</b>");
-  }
-  await setSession(chatId, session);
-}
-
-async function showConfirmation(chatId: number, session: UserSession) {
-  const d = session.data;
-  const typeIcon = d.content_type === "movie" ? "🎬 Filme" : "📺 Série";
-  const year = d.tmdb_year || "";
-
-  let msg = `⚠️ <b>CONFIRMAR CADASTRO</b>\n\n` +
-    `📌 Nome: <b>${d.title}</b>${year ? ` (${year})` : ""}\n` +
-    `🎭 Tipo: ${typeIcon}\n`;
-
-  if (d.content_type === "series") {
-    msg += `📺 T${d.season || "?"}E${d.episode || "?"}\n`;
-    if (d.episode_title) msg += `📝 Título ep.: ${d.episode_title}\n`;
-  }
-
-  if (d.tmdb_runtime) msg += `⏱ Duração TMDB: ${formatDuration(d.tmdb_runtime * 60)}\n`;
-  if (d.tmdb_rating) msg += `⭐ Nota: ${d.tmdb_rating}\n`;
-
-  msg += `\n📝 Sinopse: ${(d.synopsis || "").substring(0, 150)}${(d.synopsis || "").length > 150 ? "..." : ""}\n\n` +
-    `📁 Arquivo: ${formatSize(d.file_size)} | ⏱ ${formatDuration(d.duration)}\n`;
-  
-  if (d.tmdb_id) msg += `🔗 TMDB ID: <code>${d.tmdb_id}</code>\n`;
-
-  msg += `\n<b>Deseja enviar para processamento?</b>`;
-
-  session.step = "confirm";
-
-  const posterPath = d.tmdb_poster;
-  if (posterPath) {
-    await clearAndSendPhoto(chatId, session, `${TMDB_IMG}/w300${posterPath}`, msg, {
-      inline_keyboard: [
-        [{ text: "✅ Confirmar envio", callback_data: "confirm_yes" }],
-        [{ text: "✏️ Editar informações", callback_data: "confirm_edit" }],
-        [{ text: "❌ Cancelar", callback_data: "confirm_cancel" }],
-      ],
-    });
-  } else {
-    await clearAndSend(chatId, session, msg, {
-      inline_keyboard: [
-        [{ text: "✅ Confirmar envio", callback_data: "confirm_yes" }],
-        [{ text: "✏️ Editar informações", callback_data: "confirm_edit" }],
-        [{ text: "❌ Cancelar", callback_data: "confirm_cancel" }],
-      ],
-    });
-  }
-  await setSession(chatId, session);
-}
-
 async function handleCallback(chatId: number, userId: number, callbackData: string, callbackQueryId: string) {
   await fetch(`${TELEGRAM_API}/answerCallbackQuery`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ callback_query_id: callbackQueryId }),
   });
-
-  const session = await getSession(chatId);
-  if (!session) {
-    await sendMessage(chatId, "Sessão expirada. Encaminhe o vídeo novamente.");
-    return;
-  }
-
-  // --- Name confirmation flow ---
-  if (callbackData === "name_confirm") {
-    const name = session.data.extracted_name;
-    if (session.data.extracted_synopsis) {
-      session.data.synopsis = session.data.extracted_synopsis;
-    }
-    // Search TMDB with confirmed name
-    await searchAndShowTMDB(chatId, session, name);
-    return;
-  }
-
-  if (callbackData === "name_reject") {
-    session.step = "ask_title";
-    await clearAndSend(chatId, session, "📝 <b>Informe o nome correto:</b>");
-    await setSession(chatId, session);
-    return;
-  }
-
-  // --- TMDB pick ---
-  if (callbackData.startsWith("tmdb_pick_")) {
-    const idx = parseInt(callbackData.replace("tmdb_pick_", ""));
-    const results = session.data.tmdb_results || [];
-    const picked = results[idx];
-    if (!picked) {
-      await clearAndSend(chatId, session, "❌ Opção inválida.");
-      await setSession(chatId, session);
-      return;
-    }
-
-    const mediaType = picked.media_type === "tv" || picked.name ? "tv" : "movie";
-    const details = await getTMDBDetails(picked.id, mediaType);
-
-    session.data.title = details?.title || details?.name || picked.title || picked.name;
-    session.data.synopsis = session.data.extracted_synopsis || details?.overview || picked.overview || "";
-    session.data.content_type = mediaType === "tv" ? "series" : "movie";
-    session.data.tmdb_id = picked.id;
-    session.data.tmdb_poster = details?.poster_path || picked.poster_path;
-    session.data.tmdb_backdrop = details?.backdrop_path || picked.backdrop_path;
-    session.data.tmdb_year = (details?.release_date || details?.first_air_date || "").substring(0, 4);
-    session.data.tmdb_runtime = details?.runtime || null;
-    session.data.tmdb_rating = details?.vote_average ? details.vote_average.toFixed(1) : null;
-    session.data.tmdb_seasons = details?.number_of_seasons || null;
-
-    if (mediaType === "tv") {
-      session.step = "ask_season";
-      await clearAndSend(chatId, session,
-        `✅ <b>${session.data.title}</b> (${session.data.tmdb_year}) selecionado!\n\n📝 <b>Temporada:</b>`
-      );
-      await setSession(chatId, session);
-    } else {
-      await showConfirmation(chatId, session);
-    }
-    return;
-  }
-
-  if (callbackData === "tmdb_manual") {
-    session.step = "manual_search";
-    await clearAndSend(chatId, session, "🔍 <b>Digite o nome para buscar no TMDB:</b>");
-    await setSession(chatId, session);
-    return;
-  }
-
-  if (callbackData === "type_movie") {
-    session.data.content_type = "movie";
-    await showConfirmation(chatId, session);
-  } else if (callbackData === "type_series") {
-    session.data.content_type = "series";
-    session.step = "ask_season";
-    await clearAndSend(chatId, session, "📝 <b>Temporada:</b>");
-    await setSession(chatId, session);
-  } else if (callbackData === "confirm_yes") {
-    const d = session.data;
-    const { error } = await supabase.from("telegram_ingestions").insert({
-      title: d.title,
-      synopsis: d.synopsis,
-      content_type: d.content_type,
-      season: d.season || null,
-      episode: d.episode || null,
-      episode_title: d.episode_title || null,
-      telegram_file_id: d.telegram_file_id,
-      telegram_unique_id: d.telegram_unique_id,
-      file_size: d.file_size,
-      duration: d.duration,
-      resolution: d.resolution,
-      file_name: d.file_name,
-      mime_type: d.mime_type,
-      status: "pending",
-      telegram_user_id: userId,
-      tmdb_id: d.tmdb_id || null,
-      tmdb_poster: d.tmdb_poster || null,
-      tmdb_backdrop: d.tmdb_backdrop || null,
-      tmdb_year: d.tmdb_year || null,
-      tmdb_rating: d.tmdb_rating ? parseFloat(d.tmdb_rating) : null,
-    });
-
-    await deleteMessages(chatId, session.lastMsgIds);
-    await setSession(chatId, null);
-
-    if (error) {
-      await sendMessage(chatId, `❌ Erro ao salvar: ${error.message}`);
-    } else {
-      const poster = d.tmdb_poster ? `${TMDB_IMG}/w200${d.tmdb_poster}` : null;
-      const msg = `✅ <b>${d.title}</b>${d.tmdb_year ? ` (${d.tmdb_year})` : ""} cadastrado!\n\nStatus: ⏳ Pendente\nEncaminhe outro vídeo para continuar.`;
-      if (poster) {
-        await sendPhoto(chatId, poster, msg);
-      } else {
-        await sendMessage(chatId, msg);
-      }
-    }
-  } else if (callbackData === "confirm_edit") {
-    session.step = "ask_title";
-    await clearAndSend(chatId, session, "📝 <b>Informe o nome do conteúdo:</b>");
-    await setSession(chatId, session);
-  } else if (callbackData === "confirm_cancel") {
-    await deleteMessages(chatId, session.lastMsgIds);
-    await setSession(chatId, null);
-    await sendMessage(chatId, "❌ Cadastro cancelado.");
-  }
 
   // --- Provider management callbacks ---
   if (callbackData.startsWith("toggle_provider_")) {
@@ -829,39 +566,97 @@ async function handleCallback(chatId: number, userId: number, callbackData: stri
   if (callbackData === "reset_provider_stats") {
     await supabase.from("scraping_providers")
       .update({ success_count: 0, fail_count: 0, health_status: "unknown" })
-      .neq("id", "00000000-0000-0000-0000-000000000000"); // update all
+      .neq("id", "00000000-0000-0000-0000-000000000000");
     await sendMessage(chatId, "🔄 Contadores resetados!");
   }
 }
+
+// ==========================================
+// MAIN HTTP HANDLER
+// ==========================================
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
+  const url = new URL(req.url);
+  const action = url.searchParams.get("action");
+
+  // --- GET requests (setup, API actions) ---
   if (req.method === "GET") {
-    const url = new URL(req.url);
     if (url.searchParams.get("setup") === "true") {
       const webhookUrl = `${SUPABASE_URL}/functions/v1/telegram-bot`;
       const res = await fetch(`${TELEGRAM_API}/setWebhook`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: webhookUrl }),
+        body: JSON.stringify({ url: webhookUrl, allowed_updates: ["message", "callback_query", "chat_member", "my_chat_member"] }),
       });
       const data = await res.json();
       return new Response(JSON.stringify({ webhook: data }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    return new Response(JSON.stringify({ status: "ok" }), {
+
+    // API actions from admin panel (GET)
+    if (action) {
+      return await handleApiAction(action, {});
+    }
+
+    return new Response(JSON.stringify({ status: "ok", bot: "LyneFlix Bot" }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
+  // --- POST requests ---
   try {
-    const update = await req.json();
+    const bodyText = await req.text();
+    let body: any;
+    try {
+      body = JSON.parse(bodyText);
+    } catch {
+      return new Response(JSON.stringify({ error: "Invalid JSON" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // API actions from admin panel (POST)
+    if (action) {
+      return await handleApiAction(action, body);
+    }
+
+    // --- Telegram webhook update ---
+    const update = body;
     const message = update.message || update.edited_message;
     const callback = update.callback_query;
+    const chatMember = update.chat_member;
+
+    // Handle new chat members (welcome message)
+    if (chatMember) {
+      const newStatus = chatMember.new_chat_member?.status;
+      const oldStatus = chatMember.old_chat_member?.status;
+      const chat = chatMember.chat;
+      const user = chatMember.new_chat_member?.user;
+
+      // User joined channel/group
+      if (user && (newStatus === "member" || newStatus === "administrator") && (oldStatus === "left" || oldStatus === "kicked" || !oldStatus)) {
+        const memberName = user.first_name || user.username || "Novo membro";
+        await sendWelcomeMessage(chat.id, memberName);
+      }
+      return new Response("ok", { headers: corsHeaders });
+    }
+
+    // Handle new_chat_members in messages (groups)
+    if (message?.new_chat_members) {
+      for (const member of message.new_chat_members) {
+        if (!member.is_bot) {
+          const memberName = member.first_name || member.username || "Novo membro";
+          await sendWelcomeMessage(message.chat.id, memberName);
+        }
+      }
+      return new Response("ok", { headers: corsHeaders });
+    }
 
     let chatId: number;
     let userId: number;
@@ -876,10 +671,13 @@ Deno.serve(async (req: Request) => {
       return new Response("ok", { headers: corsHeaders });
     }
 
-    const authorized = await isAuthorized(userId);
-    if (!authorized) {
-      await sendMessage(chatId, "🚫 <b>Acesso negado.</b>\n\nVocê não está autorizado a usar este bot.");
-      return new Response("ok", { headers: corsHeaders });
+    // Only check authorization for private chats (bot commands)
+    if (message?.chat?.type === "private" || callback?.message?.chat?.type === "private") {
+      const authorized = await isAuthorized(userId);
+      if (!authorized) {
+        await sendMessage(chatId, "🚫 <b>Acesso negado.</b>\n\nVocê não está autorizado a usar este bot.");
+        return new Response("ok", { headers: corsHeaders });
+      }
     }
 
     if (callback) {
@@ -887,8 +685,6 @@ Deno.serve(async (req: Request) => {
     } else if (message) {
       if (message.text?.startsWith("/")) {
         await handleCommand(chatId, userId, message.text);
-      } else {
-        await handleMessage(chatId, userId, message);
       }
     }
 
