@@ -241,9 +241,16 @@ async function handleCrawl(supabase: any, body: any): Promise<any> {
     return { done: false, movies_done: true, movies_batches: currentBatchCount };
   }
 
-  // Both done → build
-  await saveProgress(supabase, { phase: "building", movies_batches: moviesBatches, series_batches: currentBatchCount });
-  selfChain({ phase: "build", movies_batches: moviesBatches, series_batches: currentBatchCount });
+  if (apiType === "series") {
+    await saveProgress(supabase, { phase: "crawling", type: "animes", page: 1, movies_batches: moviesBatches, series_batches: currentBatchCount });
+    selfChain({ phase: "crawl", type: "animes", page: 1, batch: 0, movies_batches: moviesBatches, series_batches: currentBatchCount });
+    return { done: false, series_done: true, series_batches: currentBatchCount };
+  }
+
+  // All three done → build
+  const seriesBatchesVal = body.series_batches || 0;
+  await saveProgress(supabase, { phase: "building", movies_batches: moviesBatches, series_batches: seriesBatchesVal, animes_batches: currentBatchCount });
+  selfChain({ phase: "build", movies_batches: moviesBatches, series_batches: seriesBatchesVal, animes_batches: currentBatchCount });
   return { done: false, phase: "building" };
 }
 
