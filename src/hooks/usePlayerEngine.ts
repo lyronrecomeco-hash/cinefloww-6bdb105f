@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import Hls from "hls.js";
 import { supabase } from "@/integrations/supabase/client";
-import { signVideoUrl } from "@/lib/videoUrl";
+import { signVideoUrl, buildMovieUrl, buildEpisodeUrl } from "@/lib/videoUrl";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
 
 // ── Types ──
