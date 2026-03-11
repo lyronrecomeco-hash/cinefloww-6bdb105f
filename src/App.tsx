@@ -81,6 +81,12 @@ const PageLoader = () => (
   </div>
 );
 
+const PlayerLoader = () => (
+  <div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center">
+    <div className="w-12 h-12 rounded-full border-[3px] border-white/10 border-t-primary animate-spin" />
+  </div>
+);
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
