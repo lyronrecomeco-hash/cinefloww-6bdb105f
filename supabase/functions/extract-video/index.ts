@@ -49,11 +49,32 @@ async function fetchApiPage(apiType: string, page: number): Promise<ApiPage | nu
     const t = setTimeout(() => ctrl.abort(), 8000);
     const res = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": UA } });
     clearTimeout(t);
-    if (!res.ok) return null;
-    const json = await res.json();
-    if (!json.success) return null;
-    return { data: json.data || [], totalPages: json.pagination?.total_pages || 0 };
-  } catch {
+    if (!res.ok) {
+      console.log(`[extract] API responded ${res.status} for ${apiType} page ${page}`);
+      return null;
+    }
+    const text = await res.text();
+    let json: any;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      console.log(`[extract] API returned non-JSON for ${apiType} page ${page}: ${text.substring(0, 200)}`);
+      return null;
+    }
+    if (!json.success) {
+      console.log(`[extract] API success=false for ${apiType} page ${page}: ${JSON.stringify(json).substring(0, 200)}`);
+      return null;
+    }
+    const items = json.data || [];
+    if (page === 1) {
+      console.log(`[extract] ${apiType} p1: ${items.length} items, totalPages=${json.pagination?.total_pages || 0}`);
+      if (items.length > 0) {
+        console.log(`[extract] First item tmdb_id=${items[0].tmdb_id} title="${items[0].title}"`);
+      }
+    }
+    return { data: items, totalPages: json.pagination?.total_pages || 0 };
+  } catch (err) {
+    console.log(`[extract] API fetch error for ${apiType} page ${page}: ${err}`);
     return null;
   }
 }

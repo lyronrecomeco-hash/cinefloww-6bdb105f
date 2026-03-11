@@ -341,6 +341,13 @@ export function usePlayerEngine(config: EngineConfig) {
 
       video.preload = "auto";
 
+      // For direct CineVeo URLs (non-proxied), remove crossOrigin and use no-referrer
+      const isDirect = finalUrl.includes("cineveo.lat") || finalUrl.includes("cineveo.site") || finalUrl.includes("brstream");
+      if (isDirect) {
+        video.removeAttribute("crossorigin");
+        video.setAttribute("referrerpolicy", "no-referrer");
+      }
+
       // Progress restore runs in background — don't block playback for it
       const savedTime = 0;
 
@@ -367,8 +374,7 @@ export function usePlayerEngine(config: EngineConfig) {
         }, { once: true });
       }
 
-      retryCountRef.current = 0;
-      patch({ retryCount: 0 });
+      // Don't reset retry count here — only reset on successful playback
     } catch (err: unknown) {
       if (!cancelledRef.current) {
         console.error("[Engine] Load error:", err);
@@ -463,7 +469,7 @@ export function usePlayerEngine(config: EngineConfig) {
     const video = videoRef.current;
     if (!video) return;
 
-    const onPlay = () => { patch({ playing: true, loading: false }); resetStallDetection(); };
+    const onPlay = () => { patch({ playing: true, loading: false }); resetStallDetection(); retryCountRef.current = 0; patch({ retryCount: 0 }); };
     const onPause = () => { patch({ playing: false }); resetStallDetection(); };
     const onTimeUpdate = () => {
       const ct = video.currentTime;
