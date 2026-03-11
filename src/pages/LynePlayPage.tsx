@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Play, Copy, Check, ExternalLink, Zap, Shield, Globe, Layers, Code2, Terminal, Braces, ArrowRight, Cpu, Radio } from "lucide-react";
+import { Play, Copy, Check, Zap, Shield, Globe, Layers, Code2, Terminal, Braces, ArrowRight, Cpu, Radio } from "lucide-react";
 
 const LynePlayPage = () => {
   const [copiedEmbed, setCopiedEmbed] = useState(false);
@@ -10,7 +10,7 @@ const LynePlayPage = () => {
 
   const BASE = "https://lyneflix.online";
 
-  // Demo: Overflow (anime) — tmdb 95897
+  // Demo: Overflow — tmdb 95897
   const DEMO_TMDB = 95897;
   const DEMO_TYPE = "tv";
   const DEMO_SEASON = 1;
@@ -72,21 +72,13 @@ const { url, type } = await res.json();
               <p className="text-[9px] text-muted-foreground uppercase tracking-[0.25em] font-semibold">Player as a Service</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={scrollToIntegration}
-              className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Code2 className="w-4 h-4" />
-              Docs
-            </button>
-            <a
-              href="/"
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white/[0.04] backdrop-blur-xl border border-white/[0.08] text-sm font-medium text-muted-foreground hover:text-foreground hover:border-primary/30 transition-all"
-            >
-              LyneFlix <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          </div>
+          <button
+            onClick={scrollToIntegration}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary/10 border border-primary/20 text-primary text-sm font-semibold hover:bg-primary/20 transition-all"
+          >
+            <Code2 className="w-4 h-4" />
+            Documentação
+          </button>
         </div>
       </header>
 
@@ -154,7 +146,7 @@ const { url, type } = await res.json();
         </div>
       </section>
 
-      {/* ── Live Preview ── */}
+      {/* ── Live Preview — uses /embed which now matches /player exactly ── */}
       <section id="preview" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-20">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-lg shadow-green-500/40" />
@@ -169,7 +161,7 @@ const { url, type } = await res.json();
           />
         </div>
         <p className="text-[10px] text-muted-foreground/40 mt-2.5 text-center font-mono">
-          Overflow — Preview do player embarcado
+          Overflow: Transbordando — Preview do player embarcado
         </p>
       </section>
 
@@ -218,7 +210,6 @@ const { url, type } = await res.json();
           {/* Embed Tab */}
           {activeTab === "embed" && (
             <div className="max-w-3xl mx-auto space-y-5">
-              {/* Code Card */}
               <div className="rounded-2xl border border-white/[0.06] overflow-hidden bg-white/[0.02] backdrop-blur-xl">
                 <div className="flex items-center justify-between px-4 py-3 bg-white/[0.02] border-b border-white/[0.06]">
                   <div className="flex items-center gap-2.5">
@@ -242,7 +233,6 @@ const { url, type } = await res.json();
                 </pre>
               </div>
 
-              {/* Steps */}
               <div className="grid grid-cols-3 gap-3">
                 {[
                   { n: "1", t: "Cole o iframe", d: "Adicione no HTML do seu site" },
@@ -264,7 +254,6 @@ const { url, type } = await res.json();
           {/* API Tab */}
           {activeTab === "api" && (
             <div className="max-w-3xl mx-auto space-y-5">
-              {/* Endpoint */}
               <div className="rounded-2xl border border-white/[0.06] overflow-hidden bg-white/[0.02] backdrop-blur-xl">
                 <div className="flex items-center justify-between px-4 py-3 bg-white/[0.02] border-b border-white/[0.06]">
                   <div className="flex items-center gap-2.5">
@@ -286,7 +275,6 @@ const { url, type } = await res.json();
                 </pre>
               </div>
 
-              {/* Response */}
               <div className="rounded-2xl border border-white/[0.06] overflow-hidden bg-white/[0.02] backdrop-blur-xl">
                 <div className="flex items-center justify-between px-4 py-3 bg-white/[0.02] border-b border-white/[0.06]">
                   <div className="flex items-center gap-2.5">
@@ -308,7 +296,6 @@ const { url, type } = await res.json();
                 </pre>
               </div>
 
-              {/* Use cases */}
               <div className="grid sm:grid-cols-2 gap-3">
                 <div className="p-4 rounded-2xl bg-white/[0.03] backdrop-blur-xl border border-white/[0.06]">
                   <div className="w-9 h-9 rounded-xl bg-primary/10 border border-primary/15 flex items-center justify-center mb-3">
@@ -341,9 +328,9 @@ const { url, type } = await res.json();
             <div className="w-7 h-7 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center">
               <Play className="w-3 h-3 text-primary-foreground fill-current" />
             </div>
-            <span className="text-[10px] text-muted-foreground">LynePlay · Powered by LyneFlix</span>
+            <span className="text-[10px] text-muted-foreground">LynePlay · Player as a Service</span>
           </div>
-          <span className="text-[9px] text-muted-foreground/20 font-mono">v3.1</span>
+          <span className="text-[9px] text-muted-foreground/20 font-mono">v3.2</span>
         </div>
       </footer>
     </div>
