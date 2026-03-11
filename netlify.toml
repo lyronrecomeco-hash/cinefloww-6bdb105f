@@ -1,0 +1,194 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# SPA fallback
+[[redirects]]
+  from = "/sitemap.xml"
+  to = "/sitemap.xml"
+  status = 200
+
+[[redirects]]
+  from = "/robots.txt"
+  to = "/robots.txt"
+  status = 200
+
+# ── Video proxies ──
+[[redirects]]
+  from = "/vd/*"
+  to = "https://cdf.lyneflix.online/vd/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/v/a/*"
+  to = "https://cdn.cineveo.site/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/v/b/*"
+  to = "https://watch.brstream.cc/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/v/c/*"
+  to = "https://vods.playcnvs.com/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/v/e/movie/*"
+  to = "https://cineveo.lat/movie/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/v/e/series/*"
+  to = "https://cineveo.lat/series/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/v/cv/*"
+  to = "https://cineveo.lat/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/v/tv/*"
+  to = "https://www2.embedtv.best/:splat"
+  status = 200
+  force = true
+
+# ── Backend proxies (Supabase) ──
+[[redirects]]
+  from = "/b/rest/*"
+  to = "https://mfcnkltcdvitxczjwoer.supabase.co/rest/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/b/storage/*"
+  to = "https://mfcnkltcdvitxczjwoer.supabase.co/storage/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/b/functions/*"
+  to = "https://mfcnkltcdvitxczjwoer.supabase.co/functions/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/b/realtime/*"
+  to = "https://mfcnkltcdvitxczjwoer.supabase.co/realtime/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/b/auth/*"
+  to = "https://mfcnkltcdvitxczjwoer.supabase.co/auth/:splat"
+  status = 200
+  force = true
+
+# ── API endpoints ──
+[[redirects]]
+  from = "/embed/api"
+  to = "https://mfcnkltcdvitxczjwoer.supabase.co/functions/v1/embed-api"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/player/session"
+  to = "https://mfcnkltcdvitxczjwoer.supabase.co/functions/v1/player-session"
+  status = 200
+  force = true
+
+# ── SPA fallback (must be last) ──
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# ── Custom headers ──
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.woff"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.woff2"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.png"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.jpg"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.webp"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+    Content-Type = "application/javascript"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/v/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "private, no-store"
+    X-Content-Type-Options = "nosniff"
+
+[[headers]]
+  for = "/vd/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "public, max-age=31536000, immutable"
+    X-Content-Type-Options = "nosniff"
+    Access-Control-Allow-Origin = "*"
+
+[[headers]]
+  for = "/b/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    Cache-Control = "private, no-store"
