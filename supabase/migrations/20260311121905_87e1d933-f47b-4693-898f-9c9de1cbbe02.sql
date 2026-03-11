@@ -1,0 +1,1 @@
+UPDATE public.telegram_config SET auto_notify_new_content = true WHERE id = '4efe414e-756f-4d5c-a354-72cd1c9c5c7d';
