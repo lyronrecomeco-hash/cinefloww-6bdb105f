@@ -376,19 +376,61 @@ const PlayerPage = () => {
         </div>
       )}
 
-      {/* Next Episode popup */}
-      {showNextEp && nextEpUrl && (
-        <div className="absolute bottom-20 sm:bottom-24 right-4 sm:right-8 z-30 animate-fade-in">
-          <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl p-4 sm:p-5 shadow-2xl max-w-xs">
-            <p className="text-[10px] sm:text-xs text-muted-foreground mb-2 uppercase tracking-wider font-semibold">Próximo episódio</p>
-            <p className="text-sm sm:text-base font-bold text-foreground mb-3">
-              {season && episode ? `T${season} • E${Number(episode) + 1}` : "Próximo"}
+      {/* Resume prompt */}
+      {showResumePrompt && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in">
+          <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl p-5 sm:p-6 shadow-2xl max-w-sm mx-4">
+            <p className="text-sm sm:text-base font-bold text-foreground mb-1">Continuar assistindo?</p>
+            <p className="text-xs sm:text-sm text-muted-foreground mb-4">
+              Você parou em <span className="text-primary font-semibold">{fmt(resumeTime)}</span>
             </p>
             <div className="flex gap-2">
-              <button onClick={goNextEpisode} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all">
-                <Play className="w-4 h-4 fill-current" /> Reproduzir
+              <button
+                onClick={() => { controls.seekTo(resumeTime); setShowResumePrompt(false); }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all"
+              >
+                <Play className="w-4 h-4 fill-current" /> Continuar
               </button>
-              <button onClick={() => setShowNextEp(false)} className="px-3 py-2.5 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/20 transition-colors">✕</button>
+              <button
+                onClick={() => setShowResumePrompt(false)}
+                className="px-4 py-2.5 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/20 transition-colors"
+              >
+                Do início
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Next Episode popup — Netflix style */}
+      {showNextEp && nextEpUrl && (
+        <div className="absolute bottom-20 sm:bottom-24 right-4 sm:right-8 z-30 animate-fade-in">
+          <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl max-w-xs overflow-hidden">
+            {/* Episode thumbnail */}
+            {nextEpInfo?.still_path && (
+              <div className="w-full aspect-video relative">
+                <img
+                  src={posterUrl(nextEpInfo.still_path, "w300")}
+                  alt={nextEpInfo.name}
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-card/95 to-transparent" />
+              </div>
+            )}
+            <div className="p-4 sm:p-5">
+              <p className="text-[10px] sm:text-xs text-muted-foreground mb-1 uppercase tracking-wider font-semibold">Próximo episódio</p>
+              <p className="text-sm sm:text-base font-bold text-foreground mb-1">
+                {season && episode ? `T${season} • E${Number(episode) + 1}` : "Próximo"}
+              </p>
+              {nextEpInfo?.name && (
+                <p className="text-xs text-muted-foreground mb-3 line-clamp-1">{nextEpInfo.name}</p>
+              )}
+              <div className="flex gap-2">
+                <button onClick={goNextEpisode} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all">
+                  <Play className="w-4 h-4 fill-current" /> Reproduzir
+                </button>
+                <button onClick={() => setShowNextEp(false)} className="px-3 py-2.5 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/20 transition-colors">✕</button>
+              </div>
             </div>
           </div>
         </div>
