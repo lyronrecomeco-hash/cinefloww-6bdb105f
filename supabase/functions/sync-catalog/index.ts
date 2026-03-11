@@ -259,6 +259,7 @@ async function handleCrawl(supabase: any, body: any): Promise<any> {
 async function handleBuild(supabase: any, body: any): Promise<any> {
   const moviesBatches = body.movies_batches || 0;
   const seriesBatches = body.series_batches || 0;
+  const animesBatches = body.animes_batches || 0;
 
   await saveProgress(supabase, { phase: "building", step: "reading_batches" });
 
@@ -275,11 +276,12 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
   const reads: Promise<CrawledItem[]>[] = [];
   for (let i = 0; i < moviesBatches; i++) reads.push(readBatch(`_sync/movies_${i}.json`));
   for (let i = 0; i < seriesBatches; i++) reads.push(readBatch(`_sync/series_${i}.json`));
+  for (let i = 0; i < animesBatches; i++) reads.push(readBatch(`_sync/animes_${i}.json`));
 
   const batches = await Promise.all(reads);
   const allItems = batches.flat();
 
-  console.log(`[sync] Read ${allItems.length} items from ${moviesBatches + seriesBatches} batches`);
+  console.log(`[sync] Read ${allItems.length} items from ${moviesBatches + seriesBatches + animesBatches} batches`);
 
   // Deduplicate
   const seen = new Map<string, CrawledItem>();
