@@ -145,8 +145,8 @@ const Index = () => {
         {recentlyAdded.length > 0 && <ContentRow title="Últimos Adicionados" movies={recentlyAdded} icon={<Clock className="w-4 h-4" />} />}
         <ContentRow title="Filmes Populares" movies={popularMovies} icon={<Film className="w-4 h-4" />} loading={loading} />
         <ContentRow title="Séries Populares" movies={popularSeries} icon={<Tv className="w-4 h-4" />} loading={loading} />
-        {doramas.length > 0 && <ContentRow title="Doramas" movies={doramas} icon={<Heart className="w-4 h-4" />} />}
         {animes.length > 0 && <ContentRow title="Animes" movies={animes} icon={<Sparkles className="w-4 h-4" />} />}
+        {doramas.length > 0 && <ContentRow title="Doramas" movies={doramas} icon={<Heart className="w-4 h-4" />} />}
       </div>
 
       <Footer />

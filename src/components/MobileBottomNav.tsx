@@ -7,8 +7,8 @@ const navItems = [
   { label: "Início", path: "/", icon: Home },
   { label: "Filmes", path: "/filmes", icon: Clapperboard },
   { label: "Séries", path: "/series", icon: MonitorPlay },
+  { label: "Animes", path: "/animes", icon: Sparkles },
   { label: "Ao Vivo", path: "/lynetv", icon: Radio, isLive: true },
-  { label: "Support", path: "/suporte", icon: Headphones, supportBadge: true },
 ];
 
 const MobileBottomNav = () => {

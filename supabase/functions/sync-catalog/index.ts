@@ -15,7 +15,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const CINEVEO_API = "https://cinetvembed.cineveo.site/api/catalog.php";
+const CINEVEO_API = "https://cineveo.lat/api/catalog.php";
 const CINEVEO_USER = "lyneflix-vods";
 const CINEVEO_PASS = "uVljs2d";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";

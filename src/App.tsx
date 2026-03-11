@@ -92,6 +92,7 @@ const App = () => (
             <Route path="/series" element={<SeriesPage />} />
             <Route path="/doramas" element={<DoramasPage />} />
             <Route path="/lancamentos" element={<ReleasesPage />} />
+            <Route path="/animes" element={<AnimesPage />} />
             <Route path="/em-breve" element={<ComingSoonPage />} />
             <Route path="/minha-lista" element={<MyListPage />} />
             <Route path="/filme/:id" element={<DetailsPage type="movie" />} />
