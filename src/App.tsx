@@ -81,6 +81,12 @@ const PageLoader = () => (
   </div>
 );
 
+const PlayerLoader = () => (
+  <div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center">
+    <div className="w-12 h-12 rounded-full border-[3px] border-white/10 border-t-primary animate-spin" />
+  </div>
+);
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -103,8 +109,8 @@ const App = () => (
             <Route path="/filme/:id" element={<DetailsPage type="movie" />} />
             <Route path="/serie/:id" element={<DetailsPage type="tv" />} />
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />
-            <Route path="/player" element={<PlayerPage />} />
-            <Route path="/player/:type/:id" element={<PlayerPage />} />
+            <Route path="/player" element={<Suspense fallback={<PlayerLoader />}><PlayerPage /></Suspense>} />
+            <Route path="/player/:type/:id" element={<Suspense fallback={<PlayerLoader />}><PlayerPage /></Suspense>} />
             <Route path="/lynetv" element={<TVPage />} />
             <Route path="/lynetv/:channelId" element={<TVPage />} />
             {/* <Route path="/download" element={<TVDownloadPage />} /> */}
