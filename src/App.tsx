@@ -86,7 +86,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      {/* MaintenanceModal removed */}
+      <SpeedInsights />
       <BrowserRouter>
         <MobileBottomNav />
         <Suspense fallback={<PageLoader />}>
