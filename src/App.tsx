@@ -123,6 +123,7 @@ const App = () => (
             <Route path="/embed" element={<EmbedPlayer />} />
             <Route path="/embed/movie/:tmdbId" element={<EmbedPlayer />} />
             <Route path="/embed/tv/:tmdbId/:season/:episode" element={<EmbedPlayer />} />
+            <Route path="/embed/v2" element={<UniversalEmbed />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
