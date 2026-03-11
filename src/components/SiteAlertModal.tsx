@@ -16,11 +16,13 @@ interface SiteAlert {
 }
 
 const DISMISSED_KEY = "cineflow_alert_dismissed_";
+const PERMANENT_KEY = "cineflow_alert_permanent_";
 
 const SiteAlertModal = () => {
   const [alerts, setAlerts] = useState<SiteAlert[]>([]);
   const [currentAlert, setCurrentAlert] = useState<SiteAlert | null>(null);
   const [visible, setVisible] = useState(false);
+  const [neverShow, setNeverShow] = useState(false);
 
   const fetchAlerts = useCallback(async () => {
     const { data } = await supabase
@@ -47,6 +49,8 @@ const SiteAlertModal = () => {
     const checkAlerts = () => {
       for (const alert of alerts) {
         if (!alert.active) continue;
+        // Check permanent dismiss
+        if (localStorage.getItem(PERMANENT_KEY + alert.id) === "true") continue;
         const key = DISMISSED_KEY + alert.id;
         const lastDismissed = localStorage.getItem(key);
         if (lastDismissed) {
@@ -67,9 +71,13 @@ const SiteAlertModal = () => {
   const handleDismiss = () => {
     if (currentAlert) {
       localStorage.setItem(DISMISSED_KEY + currentAlert.id, Date.now().toString());
+      if (neverShow) {
+        localStorage.setItem(PERMANENT_KEY + currentAlert.id, "true");
+      }
     }
     setVisible(false);
     setCurrentAlert(null);
+    setNeverShow(false);
   };
 
   const handleButtonClick = () => {
@@ -106,6 +114,18 @@ const SiteAlertModal = () => {
           <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
             {currentAlert.message}
           </p>
+
+          <label className="flex items-center gap-2 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={neverShow}
+              onChange={(e) => setNeverShow(e.target.checked)}
+              className="w-4 h-4 rounded border-white/20 bg-white/5 text-primary focus:ring-primary/50 accent-primary"
+            />
+            <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+              Não desejo mais receber este aviso
+            </span>
+          </label>
 
           <div className="flex gap-3 pt-2">
             <button

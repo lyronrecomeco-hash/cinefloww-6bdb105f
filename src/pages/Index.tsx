@@ -4,6 +4,7 @@ import Navbar from "@/components/Navbar";
 import HeroSlider from "@/components/HeroSlider";
 import ContentRow from "@/components/ContentRow";
 import Footer from "@/components/Footer";
+import DailyVerseModal from "@/components/DailyVerseModal";
 import { fetchCatalogRow } from "@/lib/catalogFetcher";
 import {
   TMDBMovie,
