@@ -150,6 +150,7 @@ const Index = () => {
       </div>
 
       <Footer />
+      <DailyVerseModal />
     </div>
   );
 };
