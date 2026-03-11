@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Home, Clapperboard, MonitorPlay, Radio, Sparkles } from "lucide-react";
+import { Home, Clapperboard, MonitorPlay, Radio, Sparkles, HelpCircle } from "lucide-react";
 
 const navItems = [
   { label: "Início", path: "/", icon: Home },
@@ -7,6 +7,7 @@ const navItems = [
   { label: "Séries", path: "/series", icon: MonitorPlay },
   { label: "Animes", path: "/animes", icon: Sparkles },
   { label: "Ao Vivo", path: "/lynetv", icon: Radio, isLive: true },
+  { label: "Suporte", path: "/suporte", icon: HelpCircle },
 ];
 
 const MobileBottomNav = () => {

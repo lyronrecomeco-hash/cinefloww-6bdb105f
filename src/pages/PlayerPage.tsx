@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { fromSlug, toSlug } from "@/lib/slugify";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
-import { getSeasonDetails } from "@/services/tmdb";
+import { getSeasonDetails, posterUrl, TMDBEpisode } from "@/services/tmdb";
 import { useWatchRoom } from "@/hooks/useWatchRoom";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { usePlayerEngine, prefetchVideoUrl } from "@/hooks/usePlayerEngine";
@@ -56,10 +56,17 @@ const PlayerPage = () => {
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState(0);
   const [seekIndicator, setSeekIndicator] = useState<{ side: "left" | "right"; seconds: number } | null>(null);
+  const [touchSeeking, setTouchSeeking] = useState(false);
 
   // Next episode
   const [nextEpUrl, setNextEpUrl] = useState<string | null>(null);
   const [showNextEp, setShowNextEp] = useState(false);
+  const [nextEpInfo, setNextEpInfo] = useState<TMDBEpisode | null>(null);
+
+  // Resume prompt
+  const [showResumePrompt, setShowResumePrompt] = useState(false);
+  const [resumeTime, setResumeTime] = useState(0);
+  const resumeChecked = useRef(false);
 
   // Watch Together
   const roomCodeParam = searchParams.get("room") || null;
@@ -87,12 +94,27 @@ const PlayerPage = () => {
 
   useEffect(() => { if (roomCodeParam && activeProfileId && !watchRoom.room) watchRoom.joinRoom(roomCodeParam); }, [roomCodeParam, activeProfileId]);
 
+  // Resume prompt — check once when video loads
+  useEffect(() => {
+    if (resumeChecked.current || !tmdbId || state.duration === 0) return;
+    resumeChecked.current = true;
+    const ct = contentType === "movie" ? "movie" : "series";
+    getWatchProgress(Number(tmdbId), ct, season ? Number(season) : undefined, episode ? Number(episode) : undefined).then((prog) => {
+      if (!prog) return;
+      // Don't prompt if completed or near end (last 60s) or near start (<30s)
+      const nearEnd = prog.duration_seconds > 0 && (prog.duration_seconds - prog.progress_seconds) < 60;
+      if (prog.completed || nearEnd || prog.progress_seconds < 30) return;
+      setResumeTime(prog.progress_seconds);
+      setShowResumePrompt(true);
+    });
+  }, [tmdbId, contentType, season, episode, state.duration]);
+
   // Next episode computation
   useEffect(() => {
     const tmdb = tmdbId ? Number(tmdbId) : null;
     const s = season ? Number(season) : null;
     const e = episode ? Number(episode) : null;
-    if (!tmdb || !s || !e || contentType === "movie") { setNextEpUrl(null); return; }
+    if (!tmdb || !s || !e || contentType === "movie") { setNextEpUrl(null); setNextEpInfo(null); return; }
     let cancelled = false;
     getSeasonDetails(tmdb, s).then((seasonData) => {
       if (cancelled) return;
@@ -102,15 +124,16 @@ const PlayerPage = () => {
         const p = new URLSearchParams({ title, audio: audioParam, s: String(s), e: String(nextEp.episode_number) });
         if (imdbId) p.set("imdb", imdbId);
         setNextEpUrl(`/player/${contentType}/${slug}?${p.toString()}`);
-      } else setNextEpUrl(null);
-    }).catch(() => { if (!cancelled) setNextEpUrl(null); });
+        setNextEpInfo(nextEp);
+      } else { setNextEpUrl(null); setNextEpInfo(null); }
+    }).catch(() => { if (!cancelled) { setNextEpUrl(null); setNextEpInfo(null); } });
     return () => { cancelled = true; };
   }, [tmdbId, season, episode, contentType, title, audioParam, imdbId, params.id]);
 
   useEffect(() => {
     if (nextEpUrl && state.duration > 0) {
       const remaining = state.duration - state.currentTime;
-      if (remaining <= 10 && remaining > 0 && !showNextEp) setShowNextEp(true);
+      if (remaining <= 30 && remaining > 0 && !showNextEp) setShowNextEp(true);
     }
   }, [state.currentTime, state.duration, nextEpUrl, showNextEp]);
 
@@ -360,19 +383,61 @@ const PlayerPage = () => {
         </div>
       )}
 
-      {/* Next Episode popup */}
-      {showNextEp && nextEpUrl && (
-        <div className="absolute bottom-20 sm:bottom-24 right-4 sm:right-8 z-30 animate-fade-in">
-          <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl p-4 sm:p-5 shadow-2xl max-w-xs">
-            <p className="text-[10px] sm:text-xs text-muted-foreground mb-2 uppercase tracking-wider font-semibold">Próximo episódio</p>
-            <p className="text-sm sm:text-base font-bold text-foreground mb-3">
-              {season && episode ? `T${season} • E${Number(episode) + 1}` : "Próximo"}
+      {/* Resume prompt */}
+      {showResumePrompt && (
+        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm animate-fade-in">
+          <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl p-5 sm:p-6 shadow-2xl max-w-sm mx-4">
+            <p className="text-sm sm:text-base font-bold text-foreground mb-1">Continuar assistindo?</p>
+            <p className="text-xs sm:text-sm text-muted-foreground mb-4">
+              Você parou em <span className="text-primary font-semibold">{fmt(resumeTime)}</span>
             </p>
             <div className="flex gap-2">
-              <button onClick={goNextEpisode} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all">
-                <Play className="w-4 h-4 fill-current" /> Reproduzir
+              <button
+                onClick={() => { controls.seekTo(resumeTime); setShowResumePrompt(false); }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all"
+              >
+                <Play className="w-4 h-4 fill-current" /> Continuar
               </button>
-              <button onClick={() => setShowNextEp(false)} className="px-3 py-2.5 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/20 transition-colors">✕</button>
+              <button
+                onClick={() => setShowResumePrompt(false)}
+                className="px-4 py-2.5 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/20 transition-colors"
+              >
+                Do início
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Next Episode popup — Netflix style */}
+      {showNextEp && nextEpUrl && (
+        <div className="absolute bottom-20 sm:bottom-24 right-4 sm:right-8 z-30 animate-fade-in">
+          <div className="bg-card/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl max-w-xs overflow-hidden">
+            {/* Episode thumbnail */}
+            {nextEpInfo?.still_path && (
+              <div className="w-full aspect-video relative">
+                <img
+                  src={posterUrl(nextEpInfo.still_path, "w300")}
+                  alt={nextEpInfo.name}
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-card/95 to-transparent" />
+              </div>
+            )}
+            <div className="p-4 sm:p-5">
+              <p className="text-[10px] sm:text-xs text-muted-foreground mb-1 uppercase tracking-wider font-semibold">Próximo episódio</p>
+              <p className="text-sm sm:text-base font-bold text-foreground mb-1">
+                {season && episode ? `T${season} • E${Number(episode) + 1}` : "Próximo"}
+              </p>
+              {nextEpInfo?.name && (
+                <p className="text-xs text-muted-foreground mb-3 line-clamp-1">{nextEpInfo.name}</p>
+              )}
+              <div className="flex gap-2">
+                <button onClick={goNextEpisode} className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all">
+                  <Play className="w-4 h-4 fill-current" /> Reproduzir
+                </button>
+                <button onClick={() => setShowNextEp(false)} className="px-3 py-2.5 rounded-xl bg-white/10 text-sm font-medium hover:bg-white/20 transition-colors">✕</button>
+              </div>
             </div>
           </div>
         </div>
@@ -462,21 +527,44 @@ const PlayerPage = () => {
               onClick={seek}
               onMouseMove={onProgressHover}
               onMouseLeave={() => setHoverTime(null)}
+              onTouchStart={(e) => {
+                setTouchSeeking(true);
+                const rect = e.currentTarget.getBoundingClientRect();
+                const touch = e.touches[0];
+                const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+                setHoverTime(pct * state.duration);
+                setHoverX(touch.clientX - rect.left);
+              }}
+              onTouchMove={(e) => {
+                if (!touchSeeking) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                const touch = e.touches[0];
+                const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+                setHoverTime(pct * state.duration);
+                setHoverX(touch.clientX - rect.left);
+              }}
+              onTouchEnd={() => {
+                if (touchSeeking && hoverTime !== null) {
+                  controls.seekTo(hoverTime);
+                }
+                setTouchSeeking(false);
+                setHoverTime(null);
+              }}
             >
               {hoverTime !== null && (
                 <div
                   className="absolute -top-9 -translate-x-1/2 px-2.5 py-1 rounded-lg bg-black/90 backdrop-blur-sm border border-white/10 text-[11px] font-mono text-white pointer-events-none"
-                  style={{ left: hoverX }}
+                  style={{ left: Math.max(20, Math.min(hoverX, (containerRef.current?.clientWidth || 300) - 40)) }}
                 >
                   {fmt(hoverTime)}
                 </div>
               )}
-              <div className="relative w-full h-1.5 group-hover/bar:h-2.5 rounded-full bg-white/15 transition-all duration-200 overflow-hidden">
+              <div className={`relative w-full ${touchSeeking ? "h-3" : "h-1.5 group-hover/bar:h-2.5"} rounded-full bg-white/15 transition-all duration-200 overflow-hidden`}>
                 <div className="absolute inset-y-0 left-0 bg-white/10 rounded-full transition-all" style={{ width: `${bufferPct}%` }} />
                 <div className="absolute inset-y-0 left-0 rounded-full transition-all bg-gradient-to-r from-primary via-primary to-primary/80" style={{ width: `${progressPct}%` }} />
               </div>
               <div
-                className="absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-primary shadow-[0_0_12px_rgba(var(--primary),0.5)] border-2 border-white scale-0 group-hover/bar:scale-100 transition-transform duration-150"
+                className={`absolute top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-primary shadow-[0_0_12px_rgba(var(--primary),0.5)] border-2 border-white ${touchSeeking ? "scale-100" : "scale-0 group-hover/bar:scale-100"} transition-transform duration-150`}
                 style={{ left: `calc(${progressPct}% - 8px)` }}
               />
             </div>
