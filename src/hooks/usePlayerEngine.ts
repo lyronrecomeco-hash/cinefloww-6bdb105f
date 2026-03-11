@@ -130,7 +130,7 @@ export function usePlayerEngine(config: EngineConfig) {
     return {
       // Instant start: lowest quality first, ABR scales up aggressively
       startLevel: 0,
-      abrEwmaDefaultEstimate: 3_000_000,
+      abrEwmaDefaultEstimate: 5_000_000, // Assume fast connection initially
       abrEwmaFastLive: 2,
       abrEwmaSlowLive: 4,
       abrEwmaFastVoD: 2,
@@ -138,28 +138,29 @@ export function usePlayerEngine(config: EngineConfig) {
       abrBandWidthFactor: 0.95,
       abrBandWidthUpFactor: 0.8,
 
-      // Ultra-minimal initial buffer — play ASAP
-      maxBufferLength: 5,
+      // Ultra-minimal initial buffer — play ASAP (2s enough for first frame)
+      maxBufferLength: 3,
       maxMaxBufferLength: 120,
       maxBufferSize: 60 * 1000 * 1000,
-      maxBufferHole: 0.3,
+      maxBufferHole: 0.5,
 
       // Fast start
       lowLatencyMode: false,
       backBufferLength: 0,
       startFragPrefetch: true,
+      enableWorker: true,
 
-      // Resilience with faster timeouts
-      fragLoadingTimeOut: 8000,
+      // Faster timeouts for quicker failure detection
+      fragLoadingTimeOut: 6000,
       fragLoadingMaxRetry: 6,
-      fragLoadingRetryDelay: 300,
-      fragLoadingMaxRetryTimeout: 15000,
-      manifestLoadingTimeOut: 6000,
+      fragLoadingRetryDelay: 200,
+      fragLoadingMaxRetryTimeout: 12000,
+      manifestLoadingTimeOut: 5000,
       manifestLoadingMaxRetry: 3,
-      manifestLoadingRetryDelay: 300,
-      levelLoadingTimeOut: 6000,
+      manifestLoadingRetryDelay: 200,
+      levelLoadingTimeOut: 5000,
       levelLoadingMaxRetry: 4,
-      levelLoadingRetryDelay: 300,
+      levelLoadingRetryDelay: 200,
     };
   }, []);
 
