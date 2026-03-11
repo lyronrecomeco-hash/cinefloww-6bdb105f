@@ -3,7 +3,7 @@
  * Route: /embed?tmdb=X&type=movie|tv&title=Y&s=1&e=1
  * This is PrototypePlayer stripped to essentials for external embed use.
  */
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useParams } from "react-router-dom";
 import { usePlayerEngine } from "@/hooks/usePlayerEngine";
 import { useState, useRef, useCallback, useEffect } from "react";
 import {
@@ -15,16 +15,21 @@ const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 const EmbedPlayer = () => {
   const [params] = useSearchParams();
+  const pathParams = useParams<{ tmdbId?: string; season?: string; episode?: string }>();
   const containerRef = useRef<HTMLDivElement>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Support both query params and path params: /embed?tmdb=X or /embed/movie/X or /embed/tv/X/S/E
+  const tmdbId = pathParams.tmdbId || params.get("tmdb");
   const title = params.get("title") || "";
-  const season = params.get("s");
-  const episode = params.get("e");
+  const season = pathParams.season || params.get("s");
+  const episode = pathParams.episode || params.get("e");
+  // Detect type from path: if we have season/episode path params, it's TV
+  const contentType = pathParams.season ? "tv" : (params.get("type") || "movie");
 
   const { videoRef, state, controls } = usePlayerEngine({
-    tmdbId: params.get("tmdb"),
-    contentType: params.get("type") || "movie",
+    tmdbId,
+    contentType,
     season,
     episode,
   });
