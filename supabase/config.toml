@@ -62,3 +62,6 @@ verify_jwt = false
 
 [functions.embed-api]
 verify_jwt = false
+
+[functions.player-session]
+verify_jwt = false

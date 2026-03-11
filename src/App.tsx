@@ -61,6 +61,7 @@ const TicketsPage = lazy(() => import("./pages/admin/TicketsPage"));
 const AvatarDownloadPage = lazy(() => import("./pages/AvatarDownloadPage"));
 const LynePlayPage = lazy(() => import("./pages/LynePlayPage"));
 const EmbedPlayer = lazy(() => import("./pages/EmbedPlayer"));
+const UniversalEmbed = lazy(() => import("./pages/UniversalEmbed"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -122,6 +123,7 @@ const App = () => (
             <Route path="/embed" element={<EmbedPlayer />} />
             <Route path="/embed/movie/:tmdbId" element={<EmbedPlayer />} />
             <Route path="/embed/tv/:tmdbId/:season/:episode" element={<EmbedPlayer />} />
+            <Route path="/embed/v2" element={<UniversalEmbed />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
