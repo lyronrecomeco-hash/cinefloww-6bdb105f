@@ -442,6 +442,7 @@ async function handleBuild(supabase: any, body: any): Promise<any> {
   const cleanups: Promise<any>[] = [];
   for (let i = 0; i < moviesBatches; i++) cleanups.push(supabase.storage.from("catalog").remove([`_sync/movies_${i}.json`]));
   for (let i = 0; i < seriesBatches; i++) cleanups.push(supabase.storage.from("catalog").remove([`_sync/series_${i}.json`]));
+  for (let i = 0; i < animesBatches; i++) cleanups.push(supabase.storage.from("catalog").remove([`_sync/animes_${i}.json`]));
   await Promise.allSettled(cleanups);
 
   // Done — no DB writes, everything is in Storage
