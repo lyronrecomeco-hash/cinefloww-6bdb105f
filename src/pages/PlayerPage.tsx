@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { fromSlug, toSlug } from "@/lib/slugify";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
-import { getSeasonDetails } from "@/services/tmdb";
+import { getSeasonDetails, posterUrl, TMDBEpisode } from "@/services/tmdb";
 import { useWatchRoom } from "@/hooks/useWatchRoom";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { usePlayerEngine, prefetchVideoUrl } from "@/hooks/usePlayerEngine";
