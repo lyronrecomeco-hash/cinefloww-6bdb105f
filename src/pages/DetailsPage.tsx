@@ -550,7 +550,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
             setShowAdGate(false);
             adGateCallback?.();
           }}
-          onClose={() => { setShowAdGate(false); setNavigatingToPlayer(false); }}
+          onClose={() => { setShowAdGate(false); }}
         />
       )}
 
