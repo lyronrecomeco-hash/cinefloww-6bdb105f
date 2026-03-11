@@ -18,8 +18,9 @@ const STRIP_HEADERS = ["x-client-info"];
 function isProd(): boolean {
   if (typeof window === "undefined") return false;
   const h = window.location.hostname;
-  // Only rewrite on the real custom domain (not dev/preview environments)
-  return h !== "localhost" && !h.endsWith(".app") && !h.endsWith(".dev") && !h.endsWith(".com") && !h.includes("127.0.0.1");
+  // Rewrite on custom domains + Netlify (not dev/preview/lovable environments)
+  return h !== "localhost" && !h.endsWith(".app") && !h.endsWith(".dev") && !h.includes("127.0.0.1")
+    || h.endsWith(".netlify.app");
 }
 
 function rewriteUrl(url: string): string {
