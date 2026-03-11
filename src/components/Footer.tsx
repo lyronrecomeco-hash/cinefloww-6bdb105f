@@ -6,7 +6,7 @@ import PartnersModal from "@/components/PartnersModal";
 import { WifiOff, Handshake, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
-const CURRENT_VERSION = "V-531";
+const CURRENT_VERSION = "V-533";
 const LOCAL_KEY = "lyneflix_cache_version";
 
 const Footer = forwardRef<HTMLElement>((_, ref) => {
