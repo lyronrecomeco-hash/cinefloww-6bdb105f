@@ -657,7 +657,7 @@ Deno.serve(async (req: Request) => {
       for (const member of message.new_chat_members) {
         if (!member.is_bot) {
           const memberName = member.first_name || member.username || "Novo membro";
-          await sendWelcomeMessage(message.chat.id, memberName);
+          await sendWelcomeMessage(message.chat.id, memberName, member.id);
         }
       }
       return new Response("ok", { headers: corsHeaders });
