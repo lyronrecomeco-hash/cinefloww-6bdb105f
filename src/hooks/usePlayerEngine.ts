@@ -37,10 +37,10 @@ interface EngineConfig {
 }
 
 // ── Constants ──
-const STALL_THRESHOLD_MS = 4000;
+const STALL_THRESHOLD_MS = 3000;
 const PROGRESS_SAVE_INTERVAL = 10_000;
 const MAX_RETRIES = 5;
-const RETRY_DELAYS = [300, 800, 1500, 3000, 6000];
+const RETRY_DELAYS = [200, 500, 1200, 2500, 5000];
 
 // ── OPT 2: Client-side URL cache ──
 function getCachedUrl(tmdbId: string, contentType: string, season?: string | null, episode?: string | null): { url: string; type: string } | null {
