@@ -6,7 +6,7 @@ import PartnersModal from "@/components/PartnersModal";
 import { WifiOff, Handshake, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 
-const CURRENT_VERSION = "V-536";
+const CURRENT_VERSION = "V-537";
 const LOCAL_KEY = "lyneflix_cache_version";
 
 const Footer = forwardRef<HTMLElement>((_, ref) => {
@@ -37,8 +37,17 @@ const Footer = forwardRef<HTMLElement>((_, ref) => {
       );
 
       const localNum = CURRENT_VERSION.replace("V-", "");
-      if (remoteVersion === localNum) {
-        // Already up to date — brief flash green
+      const parseVersion = (v: string) => Number(String(v).replace(/[^\d]/g, ""));
+      const remoteNum = parseVersion(remoteVersion);
+      const localVerNum = parseVersion(localNum);
+
+      const hasNewerRemote =
+        Number.isFinite(remoteNum) && Number.isFinite(localVerNum)
+          ? remoteNum > localVerNum
+          : remoteVersion !== localNum;
+
+      if (!hasNewerRemote) {
+        // Already up to date (or local is newer) — brief flash green
         const el = document.getElementById("lyneflix-version");
         if (el) { el.style.color = "#22c55e"; setTimeout(() => { el.style.color = ""; }, 1500); }
       } else {
