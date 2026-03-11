@@ -98,6 +98,13 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     }
   }, [detail, type, activeProfileId]);
 
+  // Prefetch video URL as soon as details load (before user clicks play)
+  useEffect(() => {
+    if (!detail || isFutureRelease || watchDisabled) return;
+    const ct = type === "tv" ? "series" : "movie";
+    prefetchVideoUrl(String(detail.id), ct);
+  }, [detail, type, isFutureRelease, watchDisabled]);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
