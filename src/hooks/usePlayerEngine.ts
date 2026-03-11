@@ -462,7 +462,7 @@ export function usePlayerEngine(config: EngineConfig) {
     const video = videoRef.current;
     if (!video) return;
 
-    const onPlay = () => { patch({ playing: true, loading: false }); resetStallDetection(); };
+    const onPlay = () => { patch({ playing: true, loading: false }); resetStallDetection(); retryCountRef.current = 0; patch({ retryCount: 0 }); };
     const onPause = () => { patch({ playing: false }); resetStallDetection(); };
     const onTimeUpdate = () => {
       const ct = video.currentTime;
