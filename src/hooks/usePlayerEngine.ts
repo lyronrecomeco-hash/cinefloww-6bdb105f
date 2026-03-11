@@ -294,12 +294,9 @@ export function usePlayerEngine(config: EngineConfig) {
     patch({ loading: true, error: null });
 
     try {
-      // Run progress restore AND video fetch in parallel for speed
-      const progressPromise = restoreProgress();
-
       let videoData: { url: string; type: string } | null = null;
 
-      // OPT 1 + 2: Check prefetch map and session cache first
+      // OPT 1 + 2: Check prefetch map and session cache first (zero-latency path)
       const prefetchKey = `${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
       const prefetchPromise = prefetchMap.get(prefetchKey);
 
@@ -330,14 +327,14 @@ export function usePlayerEngine(config: EngineConfig) {
       sourceUrlRef.current = videoData.url;
       sourceTypeRef.current = videoData.type;
 
-      // signVideoUrl is synchronous in practice — no await needed
       const finalUrl = await signVideoUrl(videoData.url);
       const video = videoRef.current;
       if (!video || cancelledRef.current) return;
 
       video.preload = "auto";
 
-      const savedTime = await progressPromise;
+      // Progress restore runs in background — don't block playback for it
+      const savedTime = 0;
 
       // Destroy previous HLS instance
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }

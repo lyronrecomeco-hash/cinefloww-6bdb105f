@@ -231,7 +231,12 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     setShowAdGate(true);
   };
 
-  // No prefetch needed — links resolved on-demand
+  // Prefetch video URL as soon as details load (before user clicks play)
+  useEffect(() => {
+    if (!detail || isFutureRelease || watchDisabled) return;
+    const ct = type === "tv" ? "series" : "movie";
+    prefetchVideoUrl(String(detail.id), ct);
+  }, [detail, type, isFutureRelease, watchDisabled]);
 
   const handleAudioSelect = async (audio: string) => {
     setShowAudioModal(false);
