@@ -37,6 +37,7 @@ export async function checkCacheVersion(): Promise<void> {
 
     console.log(`[CacheBuster] ${localVersion} → ${remoteVersion} — clearing caches…`);
 
+    // Unregister ALL service workers — Monetag SW with scope '/' caches stale HTML
     if ("serviceWorker" in navigator) {
       const registrations = await navigator.serviceWorker.getRegistrations();
       await Promise.all(registrations.map((r) => r.unregister()));
