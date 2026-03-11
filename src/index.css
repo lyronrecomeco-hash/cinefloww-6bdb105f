@@ -6,23 +6,23 @@
 
 @layer base {
   :root {
-    --background: 220 15% 6%;
+    --background: 220 25% 10%;
     --foreground: 210 40% 98%;
 
-    --card: 220 15% 9%;
+    --card: 220 25% 13%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 220 15% 9%;
+    --popover: 220 25% 13%;
     --popover-foreground: 210 40% 98%;
 
     --primary: 217 91% 60%;
     --primary-foreground: 220 25% 5%;
 
-    --secondary: 220 15% 13%;
+    --secondary: 220 20% 18%;
     --secondary-foreground: 210 40% 90%;
 
-    --muted: 220 15% 11%;
-    --muted-foreground: 215 15% 50%;
+    --muted: 220 20% 16%;
+    --muted-foreground: 215 20% 55%;
 
     --accent: 217 91% 60%;
     --accent-foreground: 210 40% 98%;
@@ -30,8 +30,8 @@
     --destructive: 0 84% 60%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 220 15% 14%;
-    --input: 220 15% 14%;
+    --border: 220 20% 18%;
+    --input: 220 20% 18%;
     --ring: 217 91% 60%;
 
     --radius: 1rem;
@@ -43,18 +43,18 @@
     --glass-strong: 220 25% 100% / 0.08;
 
     /* Gradients */
-    --gradient-hero: linear-gradient(180deg, transparent 0%, hsl(220 15% 6%) 100%);
-    --gradient-card: linear-gradient(135deg, hsl(220 15% 100% / 0.08), hsl(220 15% 100% / 0.02));
+    --gradient-hero: linear-gradient(180deg, transparent 0%, hsl(220 25% 10%) 100%);
+    --gradient-card: linear-gradient(135deg, hsl(220 25% 100% / 0.08), hsl(220 25% 100% / 0.02));
     --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(250 80% 60%));
-    --gradient-surface: linear-gradient(180deg, hsl(220 15% 8%), hsl(220 15% 5%));
+    --gradient-surface: linear-gradient(180deg, hsl(220 25% 12%), hsl(220 25% 8%));
 
-    --sidebar-background: 220 15% 5%;
+    --sidebar-background: 220 25% 8%;
     --sidebar-foreground: 210 40% 90%;
     --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 220 15% 5%;
-    --sidebar-accent: 220 15% 12%;
+    --sidebar-primary-foreground: 220 25% 5%;
+    --sidebar-accent: 220 20% 16%;
     --sidebar-accent-foreground: 210 40% 90%;
-    --sidebar-border: 220 15% 14%;
+    --sidebar-border: 220 20% 18%;
     --sidebar-ring: 217 91% 60%;
   }
 }
