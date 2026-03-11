@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Bot, Search, RefreshCw, Film, Tv, Trash2, Check, Clock, Package, ChevronLeft, ChevronRight, Settings, Wifi, WifiOff, Play, ExternalLink, Globe, Plus, Power, RotateCcw } from "lucide-react";
+import { Bot, Search, RefreshCw, Film, Tv, Trash2, Check, Clock, Package, ChevronLeft, ChevronRight, Settings, Wifi, WifiOff, Play, ExternalLink, Globe, Plus, Power, RotateCcw, Send } from "lucide-react";
+import TelegramChannelTab from "@/components/admin/TelegramChannelTab";
 import { toast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
