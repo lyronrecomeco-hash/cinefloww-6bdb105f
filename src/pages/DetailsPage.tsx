@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Play, Star, Clock, Calendar, Users, Tv, List, MessageSquare, Flag, Share2, BookmarkPlus, BookmarkCheck, TimerIcon } from "lucide-react";
+import { prefetchVideoUrl } from "@/hooks/usePlayerEngine";
 
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
