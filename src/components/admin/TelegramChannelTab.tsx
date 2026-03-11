@@ -39,7 +39,7 @@ const DEFAULT_CONFIG: ChannelConfig = {
   welcome_message: "🎬 Bem-vindo ao canal oficial da *LyneFlix*! 🍿\n\n✨ Aqui você fica por dentro de todos os lançamentos, novidades e dicas.\n\n🔗 Acesse: https://lyneflix.online\n\n📱 Ative as notificações para não perder nada!",
   welcome_image_url: "",
   scheduled_messages: [],
-  auto_notify_new_content: false,
+  auto_notify_new_content: true,
 };
 
 const TelegramChannelTab = () => {

@@ -174,7 +174,7 @@ const AdGateModal = forwardRef<HTMLDivElement, AdGateModalProps>(({ onContinue, 
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/95 backdrop-blur-xl" />
+      <div className="absolute inset-0 bg-background/95 backdrop-blur-xl" />
       <div
         ref={ref}
         className="relative w-full max-w-sm bg-card/95 backdrop-blur-2xl border border-white/10 rounded-3xl p-6 sm:p-8 animate-scale-in text-center"

@@ -76,13 +76,13 @@ const queryClient = new QueryClient({
 });
 
 const PageLoader = () => (
-  <div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center">
+  <div className="fixed inset-0 z-[9999] bg-background flex items-center justify-center">
     <div className="w-10 h-10 rounded-full border-[3px] border-white/10 border-t-primary animate-spin" />
   </div>
 );
 
 const PlayerLoader = () => (
-  <div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center">
+  <div className="fixed inset-0 z-[9999] bg-background flex items-center justify-center">
     <div className="w-12 h-12 rounded-full border-[3px] border-white/10 border-t-primary animate-spin" />
   </div>
 );
