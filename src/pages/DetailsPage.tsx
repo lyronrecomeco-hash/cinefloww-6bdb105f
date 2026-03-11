@@ -227,15 +227,15 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   };
 
   const handleWatchClick = () => {
-    // Show black overlay IMMEDIATELY to prevent blue bg flash
-    setNavigatingToPlayer(true);
     // Check if ad was already completed this session
     const completedKey = `ad_completed_${type}_${id}`;
     if (sessionStorage.getItem(completedKey)) {
+      setNavigatingToPlayer(true);
       proceedToWatch();
       return;
     }
     setAdGateCallback(() => () => {
+      setNavigatingToPlayer(true);
       proceedToWatch();
     });
     setShowAdGate(true);
