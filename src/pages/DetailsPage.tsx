@@ -54,7 +54,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [showAdGate, setShowAdGate] = useState(false);
   const [adGateCallback, setAdGateCallback] = useState<(() => void) | null>(null);
-  const [navigatingToPlayer, setNavigatingToPlayer] = useState(false);
+  
 
   // Check watch_disabled setting
   useEffect(() => {
@@ -193,7 +193,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -201,7 +201,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
   if (!detail) {
     return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center">
         <Navbar />
         <div className="text-center">
           <h1 className="font-display text-2xl font-bold mb-2">Conteúdo não encontrado</h1>
@@ -230,12 +230,10 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     // Check if ad was already completed this session
     const completedKey = `ad_completed_${type}_${id}`;
     if (sessionStorage.getItem(completedKey)) {
-      setNavigatingToPlayer(true);
       proceedToWatch();
       return;
     }
     setAdGateCallback(() => () => {
-      setNavigatingToPlayer(true);
       proceedToWatch();
     });
     setShowAdGate(true);
@@ -244,7 +242,6 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
   const handleAudioSelect = async (audio: string) => {
     setShowAudioModal(false);
-    setNavigatingToPlayer(true);
     const params = new URLSearchParams({ title: getDisplayTitle(detail), audio });
     if (imdbId) params.set("imdb", imdbId);
     const playerSlug = toSlug(getDisplayTitle(detail), detail.id);
@@ -252,7 +249,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   };
 
   return (
-    <div key={slug} className="min-h-screen bg-black">
+    <div key={slug} className="min-h-screen bg-background">
       <Navbar />
 
       {/* Backdrop */}
@@ -524,7 +521,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
           title={getDisplayTitle(detail)}
           subtitle={type === "tv" ? `${detail.number_of_seasons} Temporadas` : undefined}
           onSelect={handleAudioSelect}
-          onClose={() => { setShowAudioModal(false); setNavigatingToPlayer(false); }}
+          onClose={() => { setShowAudioModal(false); }}
         />
       )}
       {showTrailer && trailer && (
@@ -553,16 +550,10 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
             setShowAdGate(false);
             adGateCallback?.();
           }}
-          onClose={() => { setShowAdGate(false); setNavigatingToPlayer(false); }}
+          onClose={() => { setShowAdGate(false); }}
         />
       )}
 
-      {/* Black overlay during player transition — prevents blue flash */}
-      {navigatingToPlayer && (
-        <div className="fixed inset-0 z-[9999] bg-black flex items-center justify-center">
-          <div className="w-12 h-12 rounded-full border-[3px] border-white/10 border-t-primary animate-spin" />
-        </div>
-      )}
     </div>
   );
 };

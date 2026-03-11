@@ -114,6 +114,8 @@ export function initAdArtifactCleaner() {
   const observer = new MutationObserver((mutations) => {
     let removed = 0;
     for (const m of mutations) {
+      // Only clean nodes added directly to body (outside React root)
+      if (m.target !== document.body) continue;
       for (const node of Array.from(m.addedNodes)) {
         if (isAdArtifactText(node) || isAdArtifactElement(node)) {
           try { node.parentNode?.removeChild(node); removed++; } catch {}
@@ -124,7 +126,8 @@ export function initAdArtifactCleaner() {
     cleanVersionButton();
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
+  // Only observe direct body children — never interfere with React's DOM inside #root
+  observer.observe(document.body, { childList: true, subtree: false });
 
   // Aggressive sweep: every 2s for first 60s
   let sweepCount = 0;

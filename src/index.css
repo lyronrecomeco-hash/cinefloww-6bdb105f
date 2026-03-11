@@ -64,14 +64,9 @@
     @apply border-border;
   }
 
-  html {
-    background-color: #000;
-  }
-
   body {
     @apply bg-background text-foreground font-sans antialiased;
     font-family: 'Inter', sans-serif;
-    background-color: #000;
   }
 
   h1, h2, h3, h4, h5, h6 {
