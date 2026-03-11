@@ -118,6 +118,8 @@ const App = () => (
             <Route path="/qrxp" element={<QrxpPage />} />
             <Route path="/suporte" element={<SupportPage />} />
             <Route path="/avatar-baixar" element={<AvatarDownloadPage />} />
+            <Route path="/lyneplay" element={<LynePlayPage />} />
+            <Route path="/embed" element={<EmbedPlayer />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
