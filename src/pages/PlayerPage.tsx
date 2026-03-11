@@ -56,10 +56,17 @@ const PlayerPage = () => {
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState(0);
   const [seekIndicator, setSeekIndicator] = useState<{ side: "left" | "right"; seconds: number } | null>(null);
+  const [touchSeeking, setTouchSeeking] = useState(false);
 
   // Next episode
   const [nextEpUrl, setNextEpUrl] = useState<string | null>(null);
   const [showNextEp, setShowNextEp] = useState(false);
+  const [nextEpInfo, setNextEpInfo] = useState<TMDBEpisode | null>(null);
+
+  // Resume prompt
+  const [showResumePrompt, setShowResumePrompt] = useState(false);
+  const [resumeTime, setResumeTime] = useState(0);
+  const resumeChecked = useRef(false);
 
   // Watch Together
   const roomCodeParam = searchParams.get("room") || null;
