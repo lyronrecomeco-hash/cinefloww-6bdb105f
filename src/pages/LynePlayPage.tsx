@@ -11,13 +11,10 @@ const LynePlayPage = () => {
   const BASE = "https://lyneflix.online";
 
   // Demo: Overflow — tmdb 95897
-  const DEMO_TMDB = 95897;
-  const DEMO_TYPE = "tv";
-  const DEMO_SEASON = 1;
-  const DEMO_EPISODE = 1;
+  const DEMO_PLAYER_URL = `/player?title=Overflow&tmdb=95897&type=tv&s=1&e=1&audio=dub`;
 
   const embedCode = `<iframe
-  src="${BASE}/embed?tmdb=TMDB_ID&type=TYPE&s=SEASON&e=EPISODE"
+  src="${BASE}/player?title=TITULO&tmdb=TMDB_ID&type=TYPE&s=SEASON&e=EPISODE&audio=dub"
   width="100%" height="100%"
   frameborder="0" allowfullscreen
   allow="autoplay; fullscreen; picture-in-picture"
@@ -35,7 +32,7 @@ const LynePlayPage = () => {
   })
 });
 
-const { url, type } = await res.json();
+const { url, type, provider } = await res.json();
 // url  → stream direto (m3u8 ou mp4)
 // type → formato do stream`;
 
@@ -77,7 +74,7 @@ const { url, type } = await res.json();
             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary/10 border border-primary/20 text-primary text-sm font-semibold hover:bg-primary/20 transition-all"
           >
             <Code2 className="w-4 h-4" />
-            Documentação
+            Docs
           </button>
         </div>
       </header>
@@ -146,7 +143,7 @@ const { url, type } = await res.json();
         </div>
       </section>
 
-      {/* ── Live Preview — uses /embed which now matches /player exactly ── */}
+      {/* ── Live Preview — uses /player route directly ── */}
       <section id="preview" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-20">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse shadow-lg shadow-green-500/40" />
@@ -154,14 +151,14 @@ const { url, type } = await res.json();
         </div>
         <div className="rounded-2xl overflow-hidden border border-white/[0.06] bg-black shadow-2xl shadow-black/60">
           <iframe
-            src={`/embed?tmdb=${DEMO_TMDB}&type=${DEMO_TYPE}&s=${DEMO_SEASON}&e=${DEMO_EPISODE}`}
+            src={DEMO_PLAYER_URL}
             className="w-full aspect-video"
             allow="autoplay; fullscreen; picture-in-picture"
             allowFullScreen
           />
         </div>
         <p className="text-[10px] text-muted-foreground/40 mt-2.5 text-center font-mono">
-          Overflow: Transbordando — Preview do player embarcado
+          Overflow: Transbordando — Preview do player oficial
         </p>
       </section>
 
@@ -177,7 +174,7 @@ const { url, type } = await res.json();
               Duas formas de integrar
             </h3>
             <p className="text-sm text-muted-foreground max-w-md mx-auto">
-              Iframe para embedding direto ou API REST para controle total do stream.
+              Iframe com o player completo ou API REST para obter a URL do stream.
             </p>
           </div>
 
@@ -236,8 +233,8 @@ const { url, type } = await res.json();
               <div className="grid grid-cols-3 gap-3">
                 {[
                   { n: "1", t: "Cole o iframe", d: "Adicione no HTML do seu site" },
-                  { n: "2", t: "Defina o TMDB ID", d: "Ajuste tmdb_id e type" },
-                  { n: "3", t: "Pronto", d: "Player carrega automaticamente" },
+                  { n: "2", t: "Configure os params", d: "title, tmdb, type, s, e" },
+                  { n: "3", t: "Pronto", d: "Player oficial carrega automaticamente" },
                 ].map(({ n, t, d }) => (
                   <div key={n} className="p-4 rounded-2xl bg-white/[0.03] backdrop-blur-xl border border-white/[0.06]">
                     <div className="w-7 h-7 rounded-lg bg-primary/10 border border-primary/15 flex items-center justify-center text-primary font-bold text-xs mb-2.5">
@@ -303,7 +300,7 @@ const { url, type } = await res.json();
                   </div>
                   <p className="text-xs font-bold mb-1">Player customizado</p>
                   <p className="text-[10px] text-muted-foreground leading-relaxed">
-                    Use a URL no seu próprio player HLS/MP4 com controle total da interface.
+                    Use a URL retornada no seu próprio player HLS/MP4 com controle total.
                   </p>
                 </div>
                 <div className="p-4 rounded-2xl bg-white/[0.03] backdrop-blur-xl border border-white/[0.06]">
@@ -330,7 +327,7 @@ const { url, type } = await res.json();
             </div>
             <span className="text-[10px] text-muted-foreground">LynePlay · Player as a Service</span>
           </div>
-          <span className="text-[9px] text-muted-foreground/20 font-mono">v3.2</span>
+          <span className="text-[9px] text-muted-foreground/20 font-mono">v3.3</span>
         </div>
       </footer>
     </div>
