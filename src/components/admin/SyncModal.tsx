@@ -175,18 +175,24 @@ export default function SyncModal({ open, onClose, onComplete }: SyncModalProps)
             <p className="text-sm text-muted-foreground">
               Dados disponíveis na API CineVeo para sincronização:
             </p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
                 <Film className="w-5 h-5 text-blue-400 mx-auto mb-1" />
                 <p className="text-xl font-bold text-foreground">{counts.movies.total_items.toLocaleString()}</p>
                 <p className="text-[10px] text-muted-foreground mt-0.5">Filmes</p>
-                <p className="text-[10px] text-muted-foreground">{counts.movies.total_pages} páginas</p>
+                <p className="text-[10px] text-muted-foreground">{counts.movies.total_pages} págs</p>
               </div>
               <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
                 <Tv className="w-5 h-5 text-purple-400 mx-auto mb-1" />
                 <p className="text-xl font-bold text-foreground">{counts.series.total_items.toLocaleString()}</p>
                 <p className="text-[10px] text-muted-foreground mt-0.5">Séries</p>
-                <p className="text-[10px] text-muted-foreground">{counts.series.total_pages} páginas</p>
+                <p className="text-[10px] text-muted-foreground">{counts.series.total_pages} págs</p>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
+                <Database className="w-5 h-5 text-pink-400 mx-auto mb-1" />
+                <p className="text-xl font-bold text-foreground">{(counts as any).animes?.total_items?.toLocaleString() || "0"}</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">Animes</p>
+                <p className="text-[10px] text-muted-foreground">{(counts as any).animes?.total_pages || 0} págs</p>
               </div>
             </div>
             <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
