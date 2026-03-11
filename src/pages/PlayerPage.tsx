@@ -261,7 +261,7 @@ const PlayerPage = () => {
     apiFallbackUrlRef.current = null;
 
     try {
-      // Call extract-video — it probes server-side and returns the best working URL
+      // Call extract-video — queries CineVeo API in real-time
       const { data, error: fnErr } = await supabase.functions.invoke("extract-video", {
         body: { tmdb_id: tmdbId, content_type: params.type === "movie" ? "movie" : "tv", season, episode },
       });
@@ -269,51 +269,23 @@ const PlayerPage = () => {
       if (!fnErr && data?.url) {
         const resolvedUrl = data.url as string;
         const provider = data.provider || "cineveo-api";
-        const vType: "mp4" | "m3u8" = data.type === "mp4" ? "mp4" : "m3u8";
+        const vType: "mp4" | "m3u8" = resolvedUrl.endsWith(".m3u8") ? "m3u8" : "mp4";
 
-        // On production: use Vercel rewrites; on preview: use raw URL with no-referrer
+        // On production: Vercel rewrites; on preview: raw URL
         const finalUrl = await signVideoUrl(resolvedUrl);
-        
-        // Build fallback variants (mp4 ↔ m3u8)
-        const baseUrl = resolvedUrl.replace(/\.(m3u8|mp4)$/, "");
-        const altType: "mp4" | "m3u8" = vType === "m3u8" ? "mp4" : "m3u8";
-        const altUrl = await signVideoUrl(baseUrl + "." + altType);
-
-        const sources: VideoSource[] = [
-          { url: finalUrl, quality: "auto", provider, type: vType },
-          { url: altUrl, quality: "auto", provider, type: altType },
-        ];
 
         console.log(`[Player] Source (${vType}):`, finalUrl.substring(0, 100));
-        setBankSources(sources);
+        setBankSources([{ url: finalUrl, quality: "auto", provider, type: vType }]);
       } else {
-        // Fallback: build direct URL
-        const base = params.type === "movie"
-          ? buildMovieUrl(tmdbId)
-          : buildEpisodeUrl(tmdbId, season || 1, episode || 1);
-        
-        const m3u8 = base.replace(/\.mp4$/, ".m3u8");
-        setBankSources([
-          { url: m3u8, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
-          { url: base, quality: "auto", provider: "cineveo-direct", type: "mp4" },
-        ]);
+        console.warn("[Player] No source from API:", fnErr || data?.error);
+        setNoSources(true);
       }
+
       setBankLoading(false);
-      // Start auto-retry monitor
       startAutoRetry();
     } catch (e) {
       console.error("[Player] loadVideo error:", e);
-      try {
-        const rawUrl = params.type === "movie"
-          ? buildMovieUrl(tmdbId).replace(/\.mp4$/, ".m3u8")
-          : buildEpisodeUrl(tmdbId, season || 1, episode || 1).replace(/\.mp4$/, ".m3u8");
-        const signed = await signVideoUrl(rawUrl);
-        setBankSources([
-          { url: signed, quality: "auto", provider: "cineveo-direct", type: "m3u8" },
-        ]);
-      } catch {
-        setBankSources([]);
-      }
+      setNoSources(true);
       setBankLoading(false);
       startAutoRetry();
     }
