@@ -56,4 +56,46 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    minify: "terser",
+    terserOptions: {
+      compress: {
+        drop_console: true,
+        drop_debugger: true,
+        dead_code: true,
+        passes: 3,
+        booleans_as_integers: true,
+        collapse_vars: true,
+        reduce_vars: true,
+        pure_getters: true,
+        unsafe_math: true,
+        unsafe_methods: true,
+      },
+      mangle: {
+        toplevel: true,
+        properties: {
+          regex: /^_private_|^__internal_/,
+        },
+      },
+      format: {
+        comments: false,
+        ascii_only: true,
+      },
+    },
+    rollupOptions: {
+      output: {
+        // Split player code into separate chunk for isolation
+        manualChunks(id) {
+          if (id.includes("usePlayerEngine") || id.includes("EmbedPlayer") || id.includes("UniversalEmbed") || id.includes("PlayerPage") || id.includes("hls.js")) {
+            return "player-engine";
+          }
+        },
+        // Hash-based filenames to prevent caching attacks
+        chunkFileNames: "assets/[hash:16].js",
+        entryFileNames: "assets/[hash:16].js",
+        assetFileNames: "assets/[hash:16].[ext]",
+      },
+    },
+    sourcemap: false, // CRITICAL: Never expose source maps in production
+  },
 }));
