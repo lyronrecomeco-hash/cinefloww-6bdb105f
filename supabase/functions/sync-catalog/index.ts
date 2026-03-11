@@ -115,9 +115,10 @@ function selfChain(body: Record<string, unknown>) {
 // ── Count mode: fast API probe ──
 
 async function handleCount(): Promise<any> {
-  const [moviesRes, seriesRes] = await Promise.all([
+  const [moviesRes, seriesRes, animesRes] = await Promise.all([
     fetchApiPage("movies", 1),
     fetchApiPage("series", 1),
+    fetchApiPage("animes", 1),
   ]);
 
   return {
@@ -131,8 +132,13 @@ async function handleCount(): Promise<any> {
       total_items: seriesRes.totalItems || seriesRes.items.length,
       sample_page_size: seriesRes.items.length,
     },
-    total_items: (moviesRes.totalItems || 0) + (seriesRes.totalItems || 0),
-    total_pages: (moviesRes.totalPages || 0) + (seriesRes.totalPages || 0),
+    animes: {
+      total_pages: animesRes.totalPages || 0,
+      total_items: animesRes.totalItems || animesRes.items.length,
+      sample_page_size: animesRes.items.length,
+    },
+    total_items: (moviesRes.totalItems || 0) + (seriesRes.totalItems || 0) + (animesRes.totalItems || 0),
+    total_pages: (moviesRes.totalPages || 0) + (seriesRes.totalPages || 0) + (animesRes.totalPages || 0),
   };
 }
 
