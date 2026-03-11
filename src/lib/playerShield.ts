@@ -250,11 +250,10 @@ export function initPlayerShield() {
 
   if (!isPlayerRoute) return;
 
-  // Layer 1: Source protection (always)
-  protectVideoSources();
-  blockSourceView();
-
   if (isProd) {
+    // Layer 1: Source protection (production only — modifies prototypes)
+    protectVideoSources();
+    blockSourceView();
     // Layer 2: Anti-debug (production only)
     antiDebuggerLoop();
     consolePoison();
