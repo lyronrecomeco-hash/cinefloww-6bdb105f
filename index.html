@@ -99,11 +99,10 @@
   <body>
     <div id="root"></div>
     <script>
-      // Cache nuke v534 — unregister ALL service workers (including PWA + Monetag) to prevent stale HTML caching
+      // Cache nuke v536 — clear stale caches once, NO reload loop
       (function(){
-        var CV='lyneflix_cache_version',VER='535';
+        var CV='lyneflix_cache_version',VER='536';
         if(localStorage.getItem(CV)===VER)return;
-        // Unregister ALL service workers — PWA Workbox SW precaches old CSS/JS and serves stale pages on navigation
         if('serviceWorker' in navigator){
           navigator.serviceWorker.getRegistrations().then(function(r){
             r.forEach(function(reg){reg.unregister()});
@@ -111,8 +110,6 @@
         }
         if('caches' in window){caches.keys().then(function(n){n.forEach(function(k){caches.delete(k)})});}
         localStorage.setItem(CV,VER);
-        // Reload after DOM is ready to ensure fresh assets are fetched
-        window.addEventListener('load',function(){window.location.reload()},{once:true});
       })();
     </script>
     <script type="module" src="/src/main.tsx"></script>
