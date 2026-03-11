@@ -227,6 +227,8 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   };
 
   const handleWatchClick = () => {
+    // Show black overlay IMMEDIATELY to prevent blue bg flash
+    setNavigatingToPlayer(true);
     // Check if ad was already completed this session
     const completedKey = `ad_completed_${type}_${id}`;
     if (sessionStorage.getItem(completedKey)) {
@@ -551,7 +553,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
             setShowAdGate(false);
             adGateCallback?.();
           }}
-          onClose={() => setShowAdGate(false)}
+          onClose={() => { setShowAdGate(false); setNavigatingToPlayer(false); }}
         />
       )}
 

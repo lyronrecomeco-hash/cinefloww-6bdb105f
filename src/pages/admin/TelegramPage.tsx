@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
-import { Bot, Search, RefreshCw, Film, Tv, Trash2, Check, Clock, Package, ChevronLeft, ChevronRight, Settings, Wifi, WifiOff, Play, ExternalLink, Globe, Plus, Power, RotateCcw } from "lucide-react";
+import { Bot, Search, RefreshCw, Film, Tv, Trash2, Check, Clock, Package, ChevronLeft, ChevronRight, Settings, Wifi, WifiOff, Play, ExternalLink, Globe, Plus, Power, RotateCcw, Send } from "lucide-react";
+import TelegramChannelTab from "@/components/admin/TelegramChannelTab";
 import { toast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -53,7 +54,7 @@ const STATUS_MAP: Record<string, { label: string; color: string; icon: any }> = 
 const IMG_BASE = "https://image.tmdb.org/t/p";
 
 const TelegramPage = () => {
-  const [activeTab, setActiveTab] = useState<"ingestions" | "providers">("ingestions");
+  const [activeTab, setActiveTab] = useState<"channel" | "ingestions" | "providers">("channel");
   const [items, setItems] = useState<Ingestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
@@ -296,6 +297,10 @@ const TelegramPage = () => {
 
       {/* Tabs */}
       <div className="flex gap-2 border-b border-border pb-2">
+        <button onClick={() => setActiveTab("channel")}
+          className={`px-4 py-2 rounded-t-xl text-sm font-medium transition-colors ${activeTab === "channel" ? "bg-primary/20 text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>
+          📢 Canal
+        </button>
         <button onClick={() => setActiveTab("ingestions")}
           className={`px-4 py-2 rounded-t-xl text-sm font-medium transition-colors ${activeTab === "ingestions" ? "bg-primary/20 text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>
           📥 Ingestão
@@ -306,7 +311,9 @@ const TelegramPage = () => {
         </button>
       </div>
 
-      {activeTab === "ingestions" ? (
+      {activeTab === "channel" ? (
+        <TelegramChannelTab />
+      ) : activeTab === "ingestions" ? (
         <>
           {/* Stats */}
           <div className="grid grid-cols-3 gap-3">
