@@ -18,7 +18,7 @@ const ReleasesPage = lazy(() => import("./pages/ReleasesPage"));
 const AnimesPage = lazy(() => import("./pages/AnimesPage"));
 const ComingSoonPage = lazy(() => import("./pages/ComingSoonPage"));
 const PlayerPage = lazy(() => import("./pages/PlayerPage"));
-const PrototypePlayer = lazy(() => import("./pages/PrototypePlayer"));
+
 const ApiRedirect = lazy(() => import("./pages/ApiRedirect"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const DmcaPage = lazy(() => import("./pages/DmcaPage"));
@@ -59,7 +59,6 @@ const QrxpPage = lazy(() => import("./pages/QrxpPage"));
 const SupportPage = lazy(() => import("./pages/SupportPage"));
 const TicketsPage = lazy(() => import("./pages/admin/TicketsPage"));
 const AvatarDownloadPage = lazy(() => import("./pages/AvatarDownloadPage"));
-const LynePlayPage = lazy(() => import("./pages/LynePlayPage"));
 const EmbedPlayer = lazy(() => import("./pages/EmbedPlayer"));
 
 const queryClient = new QueryClient({
@@ -101,7 +100,7 @@ const App = () => (
             <Route path="/filme/:id" element={<DetailsPage type="movie" />} />
             <Route path="/serie/:id" element={<DetailsPage type="tv" />} />
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />
-            <Route path="/player" element={<PrototypePlayer />} />
+            <Route path="/player" element={<PlayerPage />} />
             <Route path="/player/:type/:id" element={<PlayerPage />} />
             <Route path="/lynetv" element={<TVPage />} />
             <Route path="/lynetv/:channelId" element={<TVPage />} />
@@ -118,7 +117,6 @@ const App = () => (
             <Route path="/qrxp" element={<QrxpPage />} />
             <Route path="/suporte" element={<SupportPage />} />
             <Route path="/avatar-baixar" element={<AvatarDownloadPage />} />
-            <Route path="/lyneplay" element={<LynePlayPage />} />
             <Route path="/embed" element={<EmbedPlayer />} />
             <Route path="/embed/movie/:tmdbId" element={<EmbedPlayer />} />
             <Route path="/embed/tv/:tmdbId/:season/:episode" element={<EmbedPlayer />} />

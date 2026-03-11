@@ -37,10 +37,10 @@ interface EngineConfig {
 }
 
 // ── Constants ──
-const STALL_THRESHOLD_MS = 8000;
+const STALL_THRESHOLD_MS = 6000;
 const PROGRESS_SAVE_INTERVAL = 10_000;
 const MAX_RETRIES = 5;
-const RETRY_DELAYS = [1000, 2000, 4000, 8000, 16000];
+const RETRY_DELAYS = [500, 1000, 2000, 4000, 8000];
 
 // ── OPT 2: Client-side URL cache ──
 function getCachedUrl(tmdbId: string, contentType: string, season?: string | null, episode?: string | null): { url: string; type: string } | null {
@@ -127,49 +127,41 @@ export function usePlayerEngine(config: EngineConfig) {
 
   // ── HLS Configuration — 7 optimizations applied ──
   const buildHlsConfig = useCallback((): Partial<Hls["config"]> => {
-    const bw = state.networkSpeed;
-    const maxBuffer = bw > 5 ? 120 : bw > 2 ? 60 : 30;
-    const maxMaxBuffer = bw > 5 ? 600 : bw > 2 ? 300 : 120;
-
     return {
-      // OPT 3: Force lowest level for instant first frame, ABR scales up
+      // Instant start: lowest quality first, ABR scales up fast
       startLevel: 0,
-      abrEwmaDefaultEstimate: 1_000_000,
-      abrEwmaFastLive: 3,
-      abrEwmaSlowLive: 9,
-      abrEwmaFastVoD: 3,
-      abrEwmaSlowVoD: 9,
+      abrEwmaDefaultEstimate: 2_000_000,
+      abrEwmaFastLive: 2,
+      abrEwmaSlowLive: 6,
+      abrEwmaFastVoD: 2,
+      abrEwmaSlowVoD: 6,
       abrBandWidthFactor: 0.95,
       abrBandWidthUpFactor: 0.7,
 
-      // Smart buffer
-      maxBufferLength: maxBuffer,
-      maxMaxBufferLength: maxMaxBuffer,
+      // Minimal initial buffer for instant playback
+      maxBufferLength: 10,
+      maxMaxBufferLength: 120,
       maxBufferSize: 60 * 1000 * 1000,
       maxBufferHole: 0.5,
 
       // Fast start
       lowLatencyMode: false,
-      // OPT 6: backBufferLength 0 at startup to prioritize forward buffer
       backBufferLength: 0,
       startFragPrefetch: true,
 
       // Resilience
-      fragLoadingTimeOut: 15000,
-      fragLoadingMaxRetry: 8,
-      fragLoadingRetryDelay: 1000,
-      fragLoadingMaxRetryTimeout: 30000,
-      manifestLoadingTimeOut: 10000,
-      manifestLoadingMaxRetry: 4,
-      manifestLoadingRetryDelay: 1000,
-      levelLoadingTimeOut: 10000,
-      levelLoadingMaxRetry: 6,
-      levelLoadingRetryDelay: 1000,
-
-      // OPT 5: Remove progressive — unnecessary overhead for HLS
-      // progressive: true, — REMOVED
+      fragLoadingTimeOut: 10000,
+      fragLoadingMaxRetry: 6,
+      fragLoadingRetryDelay: 500,
+      fragLoadingMaxRetryTimeout: 20000,
+      manifestLoadingTimeOut: 8000,
+      manifestLoadingMaxRetry: 3,
+      manifestLoadingRetryDelay: 500,
+      levelLoadingTimeOut: 8000,
+      levelLoadingMaxRetry: 4,
+      levelLoadingRetryDelay: 500,
     };
-  }, [state.networkSpeed]);
+  }, []);
 
   // ── Network speed estimation ──
   const updateNetworkSpeed = useCallback((bytes: number, durationMs: number) => {
@@ -301,6 +293,9 @@ export function usePlayerEngine(config: EngineConfig) {
     patch({ loading: true, error: null });
 
     try {
+      // Run progress restore AND video fetch in parallel for speed
+      const progressPromise = restoreProgress();
+
       let videoData: { url: string; type: string } | null = null;
 
       // OPT 1 + 2: Check prefetch map and session cache first
@@ -312,12 +307,10 @@ export function usePlayerEngine(config: EngineConfig) {
       }
 
       if (!videoData) {
-        // Check session cache
         videoData = getCachedUrl(tmdbId, contentType, season, episode);
       }
 
       if (!videoData) {
-        // Fresh API call
         const body: Record<string, unknown> = { tmdb_id: Number(tmdbId), content_type: contentType };
         if (season) body.season = Number(season);
         if (episode) body.episode = Number(episode);
@@ -336,14 +329,14 @@ export function usePlayerEngine(config: EngineConfig) {
       sourceUrlRef.current = videoData.url;
       sourceTypeRef.current = videoData.type;
 
+      // signVideoUrl is synchronous in practice — no await needed
       const finalUrl = await signVideoUrl(videoData.url);
       const video = videoRef.current;
       if (!video || cancelledRef.current) return;
 
       video.preload = "auto";
 
-      // Restore progress before attaching source
-      const savedTime = await restoreProgress();
+      const savedTime = await progressPromise;
 
       // Destroy previous HLS instance
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
@@ -424,9 +417,11 @@ export function usePlayerEngine(config: EngineConfig) {
         if (size > 0 && loadTime > 0) updateNetworkSpeed(size, loadTime);
       }
 
-      // OPT 6: After 30s of playback, increase backBufferLength for smoother seeking
-      if (video.currentTime > 30 && hls.config) {
+      // After 10s of playback, increase buffers for smooth experience
+      if (video.currentTime > 10 && hls.config) {
         (hls.config as any).backBufferLength = 30;
+        (hls.config as any).maxBufferLength = 60;
+        (hls.config as any).maxMaxBufferLength = 300;
       }
     });
 
