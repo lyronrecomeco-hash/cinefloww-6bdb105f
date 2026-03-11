@@ -128,38 +128,38 @@ export function usePlayerEngine(config: EngineConfig) {
   // ── HLS Configuration — 7 optimizations applied ──
   const buildHlsConfig = useCallback((): Partial<Hls["config"]> => {
     return {
-      // Instant start: lowest quality first, ABR scales up fast
+      // Instant start: lowest quality first, ABR scales up aggressively
       startLevel: 0,
-      abrEwmaDefaultEstimate: 2_000_000,
+      abrEwmaDefaultEstimate: 3_000_000,
       abrEwmaFastLive: 2,
-      abrEwmaSlowLive: 6,
+      abrEwmaSlowLive: 4,
       abrEwmaFastVoD: 2,
-      abrEwmaSlowVoD: 6,
+      abrEwmaSlowVoD: 4,
       abrBandWidthFactor: 0.95,
-      abrBandWidthUpFactor: 0.7,
+      abrBandWidthUpFactor: 0.8,
 
-      // Minimal initial buffer for instant playback
-      maxBufferLength: 10,
+      // Ultra-minimal initial buffer — play ASAP
+      maxBufferLength: 5,
       maxMaxBufferLength: 120,
       maxBufferSize: 60 * 1000 * 1000,
-      maxBufferHole: 0.5,
+      maxBufferHole: 0.3,
 
       // Fast start
       lowLatencyMode: false,
       backBufferLength: 0,
       startFragPrefetch: true,
 
-      // Resilience
-      fragLoadingTimeOut: 10000,
+      // Resilience with faster timeouts
+      fragLoadingTimeOut: 8000,
       fragLoadingMaxRetry: 6,
-      fragLoadingRetryDelay: 500,
-      fragLoadingMaxRetryTimeout: 20000,
-      manifestLoadingTimeOut: 8000,
+      fragLoadingRetryDelay: 300,
+      fragLoadingMaxRetryTimeout: 15000,
+      manifestLoadingTimeOut: 6000,
       manifestLoadingMaxRetry: 3,
-      manifestLoadingRetryDelay: 500,
-      levelLoadingTimeOut: 8000,
+      manifestLoadingRetryDelay: 300,
+      levelLoadingTimeOut: 6000,
       levelLoadingMaxRetry: 4,
-      levelLoadingRetryDelay: 500,
+      levelLoadingRetryDelay: 300,
     };
   }, []);
 
