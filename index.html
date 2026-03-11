@@ -73,6 +73,14 @@
     <meta http-equiv="X-Content-Type-Options" content="nosniff" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
 
+    <!-- DNS prefetch for faster resource loading -->
+    <link rel="dns-prefetch" href="https://image.tmdb.org" />
+    <link rel="dns-prefetch" href="https://api.themoviedb.org" />
+    <link rel="dns-prefetch" href="https://mfcnkltcdvitxczjwoer.supabase.co" />
+    <link rel="dns-prefetch" href="https://cineveo.lat" />
+    <link rel="preconnect" href="https://image.tmdb.org" crossorigin />
+    <link rel="preconnect" href="https://mfcnkltcdvitxczjwoer.supabase.co" crossorigin />
+
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-7X7HLDLE2F"></script>
     <script>
@@ -91,9 +99,11 @@
   <body>
     <div id="root"></div>
     <script>
-      // Force nuke stale Service Workers on every page load (v526)
-      if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(reg){reg.unregister()})});}
-      if('caches' in window){caches.keys().then(function(n){n.forEach(function(k){caches.delete(k)})});}
+      // Nuke stale SWs but KEEP Monetag sw.js (v527)
+      if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(reg){if(reg.active&&reg.active.scriptURL&&reg.active.scriptURL.endsWith('/sw.js'))return;reg.unregister()})});}
+      if('caches' in window){caches.keys().then(function(n){n.forEach(function(k){if(k.indexOf('monetag')!==-1||k.indexOf('3nbf4')!==-1)return;caches.delete(k)})});}
+      // Register Monetag SW
+      if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(function(){});}
     </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>

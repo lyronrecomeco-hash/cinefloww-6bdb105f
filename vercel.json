@@ -15,6 +15,7 @@
     { "source": "/b/auth/:path*", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/auth/:path*" },
     { "source": "/embed/api", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/functions/v1/embed-api" },
     { "source": "/api/player/session", "destination": "https://mfcnkltcdvitxczjwoer.supabase.co/functions/v1/player-session" },
+    { "source": "/sw.js", "destination": "/sw.js" },
     { "source": "/sitemap.xml", "destination": "/sitemap.xml" },
     { "source": "/robots.txt", "destination": "/robots.txt" },
     { "source": "/(.*)", "destination": "/index.html" }
@@ -104,6 +105,14 @@
       "source": "/index.html",
       "headers": [
         { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/sw.js",
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" },
+        { "key": "Content-Type", "value": "application/javascript" },
+        { "key": "Service-Worker-Allowed", "value": "/" }
       ]
     },
     {
