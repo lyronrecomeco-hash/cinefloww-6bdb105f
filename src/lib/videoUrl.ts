@@ -44,7 +44,7 @@ export function toFirstPartyUrl(url: string): string {
     const parsed = new URL(url);
     const host = parsed.hostname;
     
-    if (host === CINEVEO_HOST || host === "cinetvembed.cineveo.site") {
+    if (host === CINEVEO_HOST || host === "cinetvembed.cineveo.site" || host.endsWith(".cineveo.site") || host.endsWith(".cineveo.lat")) {
       return `/v/e${parsed.pathname}`;
     }
     if (host === "cdn.cineveo.site") {

@@ -134,10 +134,10 @@ export const searchMulti = (query: string) =>
   fetchTMDB<TMDBList>("/search/multi", { query });
 
 export const posterUrl = (path: string | null, size = "w500") =>
-  path ? `${IMG_BASE}/${size}${path}` : "/placeholder.svg";
+  !path ? "/placeholder.svg" : path.startsWith("http") ? path : `${IMG_BASE}/${size}${path}`;
 
 export const backdropUrl = (path: string | null, size = "w1280") =>
-  path ? `${IMG_BASE}/${size}${path}` : "/placeholder.svg";
+  !path ? "/placeholder.svg" : path.startsWith("http") ? path : `${IMG_BASE}/${size}${path}`;
 
 export const getDisplayTitle = (item: TMDBMovie | TMDBMovieDetail) =>
   item.title || item.name || "Sem título";
