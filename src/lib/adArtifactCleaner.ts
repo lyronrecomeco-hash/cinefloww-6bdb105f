@@ -1,147 +1,108 @@
 /**
- * Ad Artifact Cleaner v3 — removes stray "0" text nodes injected by ad scripts (Monetag/PropellerAds).
- * v3: Uses a whitelist of protected elements + aggressive periodic cleanup.
+ * Ad Artifact Cleaner v5 — remove artefatos "0" de scripts de anúncio
+ * sem tocar no DOM do React (#root), evitando erro de reconciliação.
  */
 
 const ARTIFACT_PATTERN = /^0+$/;
-const SAFE_TAGS = new Set(["INPUT", "TEXTAREA", "CODE", "PRE", "SCRIPT", "STYLE", "NOSCRIPT"]);
 
-function isProtected(el: Element | null): boolean {
+function isRootOrInsideRoot(node: Node | null): boolean {
+  if (!node) return false;
+  const el = node.nodeType === Node.ELEMENT_NODE
+    ? (node as Element)
+    : (node.parentElement ?? null);
   if (!el) return false;
-  // Elements with data-version-text are protected (version button text)
-  if (el.hasAttribute("data-version-text")) return true;
-  if (el.closest("[data-version-btn]")) return false; // Inside version btn but not the text span — remove
-  return false;
+  return !!el.closest("#root");
 }
 
-function isAdArtifactText(node: Node): boolean {
-  if (node.nodeType !== Node.TEXT_NODE) return false;
-  const text = node.textContent?.trim();
-  if (!text || !ARTIFACT_PATTERN.test(text)) return false;
-
-  const parent = node.parentElement;
-  if (!parent) return false;
-  if (SAFE_TAGS.has(parent.tagName)) return false;
-
-  // Protected elements keep their text
-  if (isProtected(parent)) return false;
-
-  // If parent is body or #root — always clean
-  if (parent === document.body || parent.id === "root") return true;
-
-  // Inside version button but NOT the protected span — it's injected
-  if (parent.closest("[data-version-btn]")) return true;
-
-  // If this text node has element siblings, it's likely injected
-  if (parent.childNodes.length > 1) {
-    for (let i = 0; i < parent.childNodes.length; i++) {
-      const sibling = parent.childNodes[i];
-      if (sibling === node) continue;
-      if (sibling.nodeType === Node.ELEMENT_NODE) return true;
-      if (sibling.nodeType === Node.TEXT_NODE) {
-        const st = sibling.textContent?.trim();
-        if (st && !ARTIFACT_PATTERN.test(st)) return true;
-      }
-    }
-  }
-
-  // Standalone "0" in empty div
-  if (parent.tagName === "DIV" && !parent.className && !parent.id && parent.childNodes.length <= 2) {
+function removeNodeSafe(node: Node): boolean {
+  try {
+    if (!node.parentNode) return false;
+    node.parentNode.removeChild(node);
     return true;
+  } catch {
+    return false;
   }
-
-  return false;
 }
 
-function isAdArtifactElement(node: Node): boolean {
+function isDirectBodyArtifact(node: Node): boolean {
+  if (!document.body || node.parentNode !== document.body) return false;
+  if (isRootOrInsideRoot(node)) return false;
+
+  if (node.nodeType === Node.TEXT_NODE) {
+    const text = node.textContent?.trim();
+    return !!text && ARTIFACT_PATTERN.test(text);
+  }
+
   if (node.nodeType !== Node.ELEMENT_NODE) return false;
   const el = node as HTMLElement;
-  if (el.tagName === "DIV" && !el.className && !el.id && el.children.length === 0) {
+
+  if (el.id === "root") return false;
+
+  // Div vazio/solto contendo apenas 0/00/000
+  if (el.tagName === "DIV" && !el.id && !el.className) {
     const text = el.textContent?.trim();
     if (text && ARTIFACT_PATTERN.test(text)) return true;
   }
+
   return false;
 }
 
-function cleanArtifacts() {
+function cleanBodyArtifacts() {
   const body = document.body;
-  if (!body) return;
-
-  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
-      const text = node.textContent?.trim();
-      if (text && ARTIFACT_PATTERN.test(text)) return NodeFilter.FILTER_ACCEPT;
-      return NodeFilter.FILTER_REJECT;
-    }
-  });
+  if (!body) return 0;
 
   const toRemove: Node[] = [];
-  let current: Node | null;
-  while ((current = walker.nextNode())) {
-    if (isAdArtifactText(current)) toRemove.push(current);
-  }
-
   body.childNodes.forEach((node) => {
-    if (isAdArtifactElement(node)) toRemove.push(node);
+    if (isDirectBodyArtifact(node)) toRemove.push(node);
   });
 
-  toRemove.forEach((n) => {
-    try { n.parentNode?.removeChild(n); } catch {}
+  let removed = 0;
+  toRemove.forEach((node) => {
+    if (removeNodeSafe(node)) removed++;
   });
 
-  return toRemove.length;
+  return removed;
 }
 
 export function initAdArtifactCleaner() {
   if (typeof window === "undefined") return;
 
-  cleanArtifacts();
-
-  // Also actively clean version button on every mutation
-  function cleanVersionButton() {
-    const btn = document.getElementById("lyneflix-version");
-    if (!btn) return;
-    btn.childNodes.forEach((node) => {
-      if (node.nodeType === Node.TEXT_NODE) {
-        const text = node.textContent?.trim();
-        if (text && ARTIFACT_PATTERN.test(text)) {
-          try { node.parentNode?.removeChild(node); } catch {}
-        }
-      }
-    });
-  }
+  cleanBodyArtifacts();
 
   const observer = new MutationObserver((mutations) => {
     let removed = 0;
-    for (const m of mutations) {
-      // Only clean nodes added directly to body (outside React root)
-      if (m.target !== document.body) continue;
-      for (const node of Array.from(m.addedNodes)) {
-        if (isAdArtifactText(node) || isAdArtifactElement(node)) {
-          try { node.parentNode?.removeChild(node); removed++; } catch {}
+
+    for (const mutation of mutations) {
+      if (mutation.target !== document.body) continue;
+
+      for (const node of Array.from(mutation.addedNodes)) {
+        if (isDirectBodyArtifact(node) && removeNodeSafe(node)) {
+          removed++;
         }
       }
     }
-    if (removed > 0) setTimeout(cleanArtifacts, 200);
-    cleanVersionButton();
+
+    if (removed > 0) {
+      // varredura curta após reinjeção agressiva
+      setTimeout(cleanBodyArtifacts, 120);
+    }
   });
 
-  // Only observe direct body children — never interfere with React's DOM inside #root
+  // Observa só filhos diretos do body para nunca interferir no #root
   observer.observe(document.body, { childList: true, subtree: false });
 
-  // Aggressive sweep: every 2s for first 60s
+  // Sweep curta no boot (30s)
   let sweepCount = 0;
   const sweepInterval = setInterval(() => {
-    cleanArtifacts();
-    cleanVersionButton();
-    sweepCount++;
-    if (sweepCount >= 30) clearInterval(sweepInterval);
+    cleanBodyArtifacts();
+    sweepCount += 1;
+    if (sweepCount >= 15) clearInterval(sweepInterval);
   }, 2000);
 
-  // CSS fallback
+  // CSS fallback apenas para artefatos fora do app
   const style = document.createElement("style");
   style.textContent = `
-    body > div:empty:not(#root):not([class]):not([id]) { display: none !important; }
+    body > :not(#root):is(div):empty:not([class]):not([id]) { display: none !important; }
     body > iframe[style*="display:none"], body > iframe[style*="visibility:hidden"] { display: none !important; }
   `;
   document.head.appendChild(style);
