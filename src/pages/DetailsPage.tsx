@@ -553,7 +553,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
             setShowAdGate(false);
             adGateCallback?.();
           }}
-          onClose={() => setShowAdGate(false)}
+          onClose={() => { setShowAdGate(false); setNavigatingToPlayer(false); }}
         />
       )}
 
