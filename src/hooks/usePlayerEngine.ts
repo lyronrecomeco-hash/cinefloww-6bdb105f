@@ -37,10 +37,10 @@ interface EngineConfig {
 }
 
 // ── Constants ──
-const STALL_THRESHOLD_MS = 4000;
+const STALL_THRESHOLD_MS = 3000;
 const PROGRESS_SAVE_INTERVAL = 10_000;
 const MAX_RETRIES = 5;
-const RETRY_DELAYS = [300, 800, 1500, 3000, 6000];
+const RETRY_DELAYS = [200, 500, 1200, 2500, 5000];
 
 // ── OPT 2: Client-side URL cache ──
 function getCachedUrl(tmdbId: string, contentType: string, season?: string | null, episode?: string | null): { url: string; type: string } | null {
@@ -130,7 +130,7 @@ export function usePlayerEngine(config: EngineConfig) {
     return {
       // Instant start: lowest quality first, ABR scales up aggressively
       startLevel: 0,
-      abrEwmaDefaultEstimate: 3_000_000,
+      abrEwmaDefaultEstimate: 5_000_000, // Assume fast connection initially
       abrEwmaFastLive: 2,
       abrEwmaSlowLive: 4,
       abrEwmaFastVoD: 2,
@@ -138,28 +138,29 @@ export function usePlayerEngine(config: EngineConfig) {
       abrBandWidthFactor: 0.95,
       abrBandWidthUpFactor: 0.8,
 
-      // Ultra-minimal initial buffer — play ASAP
-      maxBufferLength: 5,
+      // Ultra-minimal initial buffer — play ASAP (2s enough for first frame)
+      maxBufferLength: 3,
       maxMaxBufferLength: 120,
       maxBufferSize: 60 * 1000 * 1000,
-      maxBufferHole: 0.3,
+      maxBufferHole: 0.5,
 
       // Fast start
       lowLatencyMode: false,
       backBufferLength: 0,
       startFragPrefetch: true,
+      enableWorker: true,
 
-      // Resilience with faster timeouts
-      fragLoadingTimeOut: 8000,
+      // Faster timeouts for quicker failure detection
+      fragLoadingTimeOut: 6000,
       fragLoadingMaxRetry: 6,
-      fragLoadingRetryDelay: 300,
-      fragLoadingMaxRetryTimeout: 15000,
-      manifestLoadingTimeOut: 6000,
+      fragLoadingRetryDelay: 200,
+      fragLoadingMaxRetryTimeout: 12000,
+      manifestLoadingTimeOut: 5000,
       manifestLoadingMaxRetry: 3,
-      manifestLoadingRetryDelay: 300,
-      levelLoadingTimeOut: 6000,
+      manifestLoadingRetryDelay: 200,
+      levelLoadingTimeOut: 5000,
       levelLoadingMaxRetry: 4,
-      levelLoadingRetryDelay: 300,
+      levelLoadingRetryDelay: 200,
     };
   }, []);
 
@@ -293,12 +294,9 @@ export function usePlayerEngine(config: EngineConfig) {
     patch({ loading: true, error: null });
 
     try {
-      // Run progress restore AND video fetch in parallel for speed
-      const progressPromise = restoreProgress();
-
       let videoData: { url: string; type: string } | null = null;
 
-      // OPT 1 + 2: Check prefetch map and session cache first
+      // OPT 1 + 2: Check prefetch map and session cache first (zero-latency path)
       const prefetchKey = `${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
       const prefetchPromise = prefetchMap.get(prefetchKey);
 
@@ -329,14 +327,14 @@ export function usePlayerEngine(config: EngineConfig) {
       sourceUrlRef.current = videoData.url;
       sourceTypeRef.current = videoData.type;
 
-      // signVideoUrl is synchronous in practice — no await needed
       const finalUrl = await signVideoUrl(videoData.url);
       const video = videoRef.current;
       if (!video || cancelledRef.current) return;
 
       video.preload = "auto";
 
-      const savedTime = await progressPromise;
+      // Progress restore runs in background — don't block playback for it
+      const savedTime = 0;
 
       // Destroy previous HLS instance
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }

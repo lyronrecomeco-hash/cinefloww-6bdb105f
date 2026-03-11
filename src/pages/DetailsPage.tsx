@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Play, Star, Clock, Calendar, Users, Tv, List, MessageSquare, Flag, Share2, BookmarkPlus, BookmarkCheck, TimerIcon } from "lucide-react";
+import { prefetchVideoUrl } from "@/hooks/usePlayerEngine";
 
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -96,6 +97,13 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
         .then(({ data }) => setInMyList(!!data));
     }
   }, [detail, type, activeProfileId]);
+
+  // Prefetch video URL as soon as details load (before user clicks play)
+  useEffect(() => {
+    if (!detail || isFutureRelease || watchDisabled) return;
+    const ct = type === "tv" ? "series" : "movie";
+    prefetchVideoUrl(String(detail.id), ct);
+  }, [detail, type, isFutureRelease, watchDisabled]);
 
   useEffect(() => {
     let cancelled = false;
@@ -230,7 +238,6 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     setShowAdGate(true);
   };
 
-  // No prefetch needed — links resolved on-demand
 
   const handleAudioSelect = async (audio: string) => {
     setShowAudioModal(false);
