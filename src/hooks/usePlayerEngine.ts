@@ -367,8 +367,7 @@ export function usePlayerEngine(config: EngineConfig) {
         }, { once: true });
       }
 
-      retryCountRef.current = 0;
-      patch({ retryCount: 0 });
+      // Don't reset retry count here — only reset on successful playback
     } catch (err: unknown) {
       if (!cancelledRef.current) {
         console.error("[Engine] Load error:", err);
