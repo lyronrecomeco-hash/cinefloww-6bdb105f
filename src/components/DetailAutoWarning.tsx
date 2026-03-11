@@ -13,13 +13,6 @@ const WARNINGS = [
     isPwa: true,
   },
   {
-    id: "site_new",
-    title: "🔄 Atualização em Andamento",
-    message: "A LyneFlix está funcionando normalmente! 🎬\n\nEstamos realizando uma grande atualização que pode levar alguns dias para ser concluída. Durante esse período, você pode aproveitar todo o conteúdo disponível.\n\n⚠️ Alguns títulos podem apresentar falhas temporárias de carregamento. Se encontrar algum problema, basta reportar que resolvemos rapidamente!",
-    button_text: "Entendi, vou aproveitar!",
-    intervalHours: 2,
-  },
-  {
     id: "report_help",
     title: "🛠️ Ajude a melhorar",
     message: "Episódio cortado, player lento ou não carrega?\n\nUse o botão 'Reportar' abaixo para nossa equipe corrigir com prioridade.",
@@ -43,19 +36,23 @@ const WARNINGS = [
 ];
 
 const STORAGE_KEY = "lyneflix_detail_warning_";
+const PERMANENT_KEY = "lyneflix_warning_permanent_";
 
 const DetailAutoWarning = () => {
   const [visible, setVisible] = useState<typeof WARNINGS[0] | null>(null);
+  const [neverShow, setNeverShow] = useState(false);
 
   useEffect(() => {
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches;
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
     
     for (const w of WARNINGS) {
-      // PWA install prompt: only show on iOS and not already standalone
       if (w.isPwa) {
         if (!isIOS || isStandalone) continue;
       }
+
+      // Check permanent dismiss
+      if (localStorage.getItem(PERMANENT_KEY + w.id) === "true") continue;
       
       const key = STORAGE_KEY + w.id;
       const last = localStorage.getItem(key);
@@ -71,8 +68,12 @@ const DetailAutoWarning = () => {
   const dismiss = () => {
     if (visible) {
       localStorage.setItem(STORAGE_KEY + visible.id, Date.now().toString());
+      if (neverShow) {
+        localStorage.setItem(PERMANENT_KEY + visible.id, "true");
+      }
     }
     setVisible(null);
+    setNeverShow(false);
   };
 
   if (!visible) return null;
@@ -88,6 +89,19 @@ const DetailAutoWarning = () => {
           <h2 className="text-lg font-display font-bold text-foreground pr-8">{visible.title}</h2>
           <LyneflixLogo size="lg" animate className="py-4" />
           <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{visible.message}</p>
+
+          <label className="flex items-center gap-2 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={neverShow}
+              onChange={(e) => setNeverShow(e.target.checked)}
+              className="w-4 h-4 rounded border-white/20 bg-white/5 text-primary focus:ring-primary/50 accent-primary"
+            />
+            <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
+              Não desejo mais receber este aviso
+            </span>
+          </label>
+
           <div className="flex gap-3 pt-2">
             <button onClick={dismiss} className="flex-1 flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
               {visible.button_text}
