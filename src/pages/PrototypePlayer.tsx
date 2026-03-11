@@ -35,21 +35,34 @@ const PrototypePlayer = () => {
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState(0);
   const [seekIndicator, setSeekIndicator] = useState<{ side: "left" | "right"; seconds: number } | null>(null);
+  const [unlockAnim, setUnlockAnim] = useState(false);
 
   // ── Auto-hide controls ──
   const resetHideTimer = useCallback(() => {
-    if (locked) return;
     setShowControls(true);
     if (hideTimer.current) clearTimeout(hideTimer.current);
     hideTimer.current = setTimeout(() => {
       if (state.playing) { setShowControls(false); setShowSpeed(false); setShowQuality(false); }
     }, 3000);
-  }, [state.playing, locked]);
+  }, [state.playing]);
+
+  // When locked, hide controls after timeout too
+  useEffect(() => {
+    if (locked) {
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      hideTimer.current = setTimeout(() => {
+        setShowControls(false);
+      }, 3000);
+    }
+  }, [locked, showControls]);
 
   // ── Keyboard shortcuts ──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (locked) return;
+      if (locked) {
+        if (e.key.toLowerCase() === "l") { handleUnlock(); }
+        return;
+      }
       switch (e.key.toLowerCase()) {
         case " ": case "k": e.preventDefault(); controls.togglePlay(); break;
         case "arrowleft": case "j": e.preventDefault(); controls.seekRelative(-10); flashSeek("left", 10); break;
@@ -58,13 +71,22 @@ const PrototypePlayer = () => {
         case "arrowdown": e.preventDefault(); controls.setVolume(Math.max(0, state.volume - 0.1)); break;
         case "m": controls.toggleMute(); break;
         case "f": toggleFullscreen(); break;
-        case "l": setLocked(prev => !prev); break;
+        case "l": setLocked(true); resetHideTimer(); break;
       }
       resetHideTimer();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [state.playing, state.volume, locked, resetHideTimer, controls]);
+
+  const handleUnlock = () => {
+    setUnlockAnim(true);
+    setTimeout(() => {
+      setLocked(false);
+      setUnlockAnim(false);
+      resetHideTimer();
+    }, 500);
+  };
 
   const flashSeek = (side: "left" | "right", seconds: number) => {
     setSeekIndicator({ side, seconds });
@@ -115,7 +137,11 @@ const PrototypePlayer = () => {
   const tapSide = useRef<"left" | "right" | null>(null);
 
   const handleVideoAreaClick = (e: React.MouseEvent) => {
-    if (locked) return;
+    if (locked) {
+      setShowControls(true);
+      resetHideTimer();
+      return;
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const side = x < rect.width / 2 ? "left" : "right";
@@ -135,16 +161,19 @@ const PrototypePlayer = () => {
     resetHideTimer();
   };
 
-  // Quality label helper
-  const qualityLabel = state.currentQuality === -1
-    ? `Auto${state.qualities.length > 0 && state.qualities[state.currentQuality] ? ` (${state.qualities[state.currentQuality].label})` : ""}`
-    : state.qualities[state.currentQuality]?.label || "Auto";
+  const handleLockedScreenClick = () => {
+    setShowControls(true);
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => {
+      setShowControls(false);
+    }, 3000);
+  };
 
   return (
     <div
       ref={containerRef}
       className="fixed inset-0 z-[9999] bg-black flex items-center justify-center select-none overflow-hidden"
-      onMouseMove={resetHideTimer}
+      onMouseMove={() => { if (!locked) resetHideTimer(); else { setShowControls(true); resetHideTimer(); } }}
     >
       {/* Video element */}
       <video
@@ -215,17 +244,33 @@ const PrototypePlayer = () => {
         </div>
       )}
 
-      {/* Lock overlay */}
+      {/* Lock overlay — only shows lock button when controls are visible */}
       {locked && (
-        <div className="absolute inset-0 z-50" onClick={e => e.stopPropagation()}>
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-3">
+        <div className="absolute inset-0 z-50" onClick={handleLockedScreenClick}>
+          <div
+            className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-3 transition-all duration-500 ${
+              showControls ? "opacity-100 scale-100" : "opacity-0 scale-90 pointer-events-none"
+            }`}
+          >
             <button
-              onClick={() => setLocked(false)}
-              className="group p-5 rounded-2xl bg-black/40 backdrop-blur-xl border border-white/10 text-white/60 hover:text-white hover:border-primary/30 hover:bg-black/60 transition-all duration-300"
+              onClick={(e) => { e.stopPropagation(); handleUnlock(); }}
+              className={`group p-5 rounded-2xl backdrop-blur-xl border transition-all duration-500 ${
+                unlockAnim
+                  ? "bg-primary/20 border-primary/40 scale-110 rotate-12"
+                  : "bg-black/40 border-white/10 text-white/60 hover:text-white hover:border-primary/30 hover:bg-black/60"
+              }`}
             >
-              <Lock className="w-7 h-7 group-hover:scale-110 transition-transform" />
+              {unlockAnim ? (
+                <Unlock className="w-7 h-7 text-primary animate-pulse" />
+              ) : (
+                <Lock className="w-7 h-7 group-hover:scale-110 transition-transform" />
+              )}
             </button>
-            <span className="text-[11px] text-white/30 font-medium tracking-wider uppercase">Toque para desbloquear</span>
+            <span className={`text-[11px] font-medium tracking-wider uppercase transition-all duration-300 ${
+              unlockAnim ? "text-primary" : "text-white/30"
+            }`}>
+              {unlockAnim ? "Desbloqueando..." : "Toque para desbloquear"}
+            </span>
           </div>
         </div>
       )}
@@ -260,7 +305,7 @@ const PrototypePlayer = () => {
             </div>
 
             <button
-              onClick={() => setLocked(true)}
+              onClick={() => { setLocked(true); resetHideTimer(); }}
               className="w-9 h-9 rounded-xl bg-white/5 backdrop-blur-md border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all"
               title="Bloquear tela (L)"
             >
@@ -369,7 +414,7 @@ const PrototypePlayer = () => {
                           Auto (ABR)
                           {state.currentQuality === -1 && <ChevronUp className="w-3 h-3" />}
                         </button>
-                        {state.qualities.sort((a, b) => b.height - a.height).map(q => (
+                        {[...state.qualities].sort((a, b) => b.height - a.height).map(q => (
                           <button
                             key={q.index}
                             onClick={() => { controls.setQuality(q.index); setShowQuality(false); }}

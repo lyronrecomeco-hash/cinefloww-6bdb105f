@@ -120,6 +120,8 @@ const App = () => (
             <Route path="/avatar-baixar" element={<AvatarDownloadPage />} />
             <Route path="/lyneplay" element={<LynePlayPage />} />
             <Route path="/embed" element={<EmbedPlayer />} />
+            <Route path="/embed/movie/:tmdbId" element={<EmbedPlayer />} />
+            <Route path="/embed/tv/:tmdbId/:season/:episode" element={<EmbedPlayer />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />

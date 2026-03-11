@@ -1,22 +1,10 @@
 import { useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import Navbar from "@/components/Navbar";
-import Footer from "@/components/Footer";
-import { Play, Copy, Check, Code2, Zap, Shield, Globe, Tv, MonitorPlay } from "lucide-react";
+import { Copy, Check, Code2, Zap, Shield, Globe, Tv, MonitorPlay, Play } from "lucide-react";
 
-const DEMO_TMDB = "550";
-const DEMO_TYPE = "movie";
-const DEMO_TITLE = "Fight Club";
 const BASE_DOMAIN = "https://lyneflix.online";
 
 const LynePlayPage = () => {
-  const [params] = useSearchParams();
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [tmdbInput, setTmdbInput] = useState("550");
-  const [typeInput, setTypeInput] = useState<"movie" | "tv">("movie");
-  const [titleInput, setTitleInput] = useState("Fight Club");
-  const [seasonInput, setSeasonInput] = useState("1");
-  const [episodeInput, setEpisodeInput] = useState("1");
 
   const copy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -28,354 +16,215 @@ const LynePlayPage = () => {
     <button
       onClick={() => copy(text, id)}
       className="absolute top-3 right-3 p-2 rounded-lg bg-white/5 border border-white/10 text-white/40 hover:text-white hover:bg-white/10 transition-all"
-      title="Copiar"
     >
       {copiedId === id ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
     </button>
   );
 
-  // Build embed URL
-  const buildEmbedUrl = () => {
-    let url = `${BASE_DOMAIN}/embed?tmdb=${tmdbInput}&type=${typeInput}&title=${encodeURIComponent(titleInput)}`;
-    if (typeInput === "tv") {
-      url += `&s=${seasonInput}&e=${episodeInput}`;
-    }
-    return url;
-  };
-
-  const iframeCode = `<iframe
-  src="${buildEmbedUrl()}"
-  width="100%"
-  height="100%"
-  frameborder="0"
-  allowfullscreen
-  allow="autoplay; fullscreen; picture-in-picture; encrypted-media"
-  style="aspect-ratio: 16/9; border-radius: 12px;"
-></iframe>`;
-
-  const jsCode = `<!-- LynePlay Embed -->
-<div id="lyneplay-container" style="aspect-ratio:16/9;max-width:1280px;width:100%;margin:0 auto;"></div>
-<script>
-(function() {
-  var c = document.getElementById('lyneplay-container');
-  var iframe = document.createElement('iframe');
-  iframe.src = '${buildEmbedUrl()}';
-  iframe.width = '100%';
-  iframe.height = '100%';
-  iframe.frameBorder = '0';
-  iframe.allowFullscreen = true;
-  iframe.allow = 'autoplay; fullscreen; picture-in-picture; encrypted-media';
-  iframe.style.borderRadius = '12px';
-  c.appendChild(iframe);
-})();
-</script>`;
-
-  const apiExample = `// LynePlay API — Fetch video URL
-const response = await fetch('${BASE_DOMAIN}/embed/api', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    tmdb_id: ${tmdbInput},
-    content_type: '${typeInput}',${typeInput === "tv" ? `\n    season: ${seasonInput},\n    episode: ${episodeInput},` : ""}
-  })
-});
-
-const data = await response.json();
-// data = { url: "https://...", type: "m3u8"|"mp4", provider: "lyneplay" }`;
-
   return (
-    <div className="min-h-screen bg-background text-foreground">
-      <Navbar />
-
-      {/* Hero */}
-      <section className="relative pt-24 pb-16 px-4 sm:px-8 overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-primary/5 via-transparent to-transparent pointer-events-none" />
-        <div className="max-w-6xl mx-auto relative">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="w-12 h-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
-              <Play className="w-6 h-6 text-primary" />
+    <div className="min-h-screen bg-[#0a0a0f] text-white">
+      {/* Header */}
+      <header className="border-b border-white/5">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center shadow-lg shadow-red-900/30">
+              <Play className="w-5 h-5 text-white fill-white" />
             </div>
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">LynePlay</h1>
-              <p className="text-sm text-muted-foreground">Player embeddable de alta performance</p>
+              <h1 className="text-xl font-bold tracking-tight">LynePlay</h1>
+              <p className="text-[10px] text-white/30 uppercase tracking-[0.2em]">Player as a Service</p>
             </div>
           </div>
+          <a href="/" className="text-xs text-white/30 hover:text-white/60 transition-colors">← Voltar para Lyneflix</a>
+        </div>
+      </header>
 
-          <p className="text-lg text-muted-foreground max-w-2xl leading-relaxed mb-10">
-            Integre o player da Lyneflix no seu site com <strong className="text-foreground">uma linha de código</strong>. 
-            Engine HLS adaptativa, ABR inteligente, buffer dinâmico e início em &lt;2s. 
-            Supera JW Player em velocidade e resiliência.
+      {/* Hero */}
+      <section className="relative py-20 px-6 overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-b from-red-900/5 via-transparent to-transparent" />
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 w-[600px] h-[600px] bg-red-600/3 rounded-full blur-[120px]" />
+        <div className="max-w-4xl mx-auto relative text-center">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[11px] text-white/50 mb-8">
+            <Zap className="w-3 h-3 text-red-500" />
+            Engine HLS adaptativa · Start &lt;2s · ABR inteligente
+          </div>
+          <h2 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-tight mb-6">
+            Integre o player mais rápido<br />
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-red-700">do Brasil</span> no seu site
+          </h2>
+          <p className="text-lg text-white/40 max-w-2xl mx-auto leading-relaxed mb-10">
+            Uma linha de código. Player adaptativo com buffer dinâmico, auto-recovery e qualidade cinematográfica.
           </p>
 
-          {/* Features grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-14">
+          {/* Features pills */}
+          <div className="flex flex-wrap justify-center gap-3 mb-16">
             {[
-              { icon: Zap, label: "Start <2s", desc: "Primeiro frame instantâneo" },
-              { icon: MonitorPlay, label: "HLS + MP4", desc: "Compatibilidade total" },
-              { icon: Shield, label: "Auto-recovery", desc: "5 níveis de retry" },
-              { icon: Globe, label: "ABR Smart", desc: "Qualidade adaptativa" },
-              { icon: Tv, label: "Embed fácil", desc: "iframe ou JS" },
-              { icon: Code2, label: "API REST", desc: "JSON endpoint" },
+              { icon: Zap, label: "Start <2s" },
+              { icon: MonitorPlay, label: "HLS + MP4" },
+              { icon: Shield, label: "Auto-recovery" },
+              { icon: Globe, label: "ABR Smart" },
+              { icon: Tv, label: "Embed fácil" },
+              { icon: Code2, label: "API REST" },
             ].map((f, i) => (
-              <div key={i} className="p-4 rounded-xl bg-card/50 border border-border/50 hover:border-primary/30 transition-all group">
-                <f.icon className="w-5 h-5 text-primary mb-2 group-hover:scale-110 transition-transform" />
-                <p className="text-sm font-semibold">{f.label}</p>
-                <p className="text-[11px] text-muted-foreground">{f.desc}</p>
+              <div key={i} className="flex items-center gap-2 px-4 py-2 rounded-full bg-white/[0.03] border border-white/[0.06]">
+                <f.icon className="w-3.5 h-3.5 text-red-500/70" />
+                <span className="text-xs text-white/50">{f.label}</span>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Live Demo */}
-      <section className="px-4 sm:px-8 pb-16">
-        <div className="max-w-6xl mx-auto">
-          <h2 className="text-2xl font-bold mb-6">🎬 Demo ao vivo</h2>
-          <div className="rounded-2xl overflow-hidden border border-border/50 bg-black">
+      {/* Demo Player */}
+      <section className="px-6 pb-20">
+        <div className="max-w-5xl mx-auto">
+          <div className="rounded-2xl overflow-hidden border border-white/[0.06] bg-black shadow-2xl shadow-black/50">
             <iframe
-              src={`/player?tmdb=${DEMO_TMDB}&type=${DEMO_TYPE}&title=${encodeURIComponent(DEMO_TITLE)}`}
+              src="/embed?tmdb=157336&type=movie&title=Interstellar"
               className="w-full aspect-video"
               allow="autoplay; fullscreen; picture-in-picture"
               allowFullScreen
             />
           </div>
-          <p className="text-xs text-muted-foreground mt-3">Player protótipo em ação — engine com as 7 otimizações de velocidade aplicadas.</p>
+          <p className="text-[11px] text-white/20 mt-3 text-center">Player LynePlay em ação — engine com 7 otimizações de velocidade.</p>
         </div>
       </section>
 
-      {/* Embed Generator */}
-      <section className="px-4 sm:px-8 pb-16">
-        <div className="max-w-6xl mx-auto">
-          <h2 className="text-2xl font-bold mb-6">⚡ Gerador de Embed</h2>
+      {/* API Documentation */}
+      <section className="px-6 pb-20">
+        <div className="max-w-5xl mx-auto">
+          <div className="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-8 sm:p-10">
+            <div className="flex items-center gap-3 mb-10">
+              <Code2 className="w-6 h-6 text-yellow-500" />
+              <h3 className="text-2xl font-bold">Documentação da API</h3>
+            </div>
 
-          <div className="grid lg:grid-cols-2 gap-6">
-            {/* Config */}
-            <div className="space-y-4 p-6 rounded-2xl bg-card/50 border border-border/50">
-              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Configuração</h3>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">TMDB ID</label>
-                  <input
-                    value={tmdbInput}
-                    onChange={e => setTmdbInput(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary outline-none transition-colors"
-                    placeholder="550"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Tipo</label>
-                  <select
-                    value={typeInput}
-                    onChange={e => setTypeInput(e.target.value as "movie" | "tv")}
-                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary outline-none transition-colors"
-                  >
-                    <option value="movie">Filme</option>
-                    <option value="tv">Série / Anime</option>
-                  </select>
-                </div>
-              </div>
-
+            {/* Embed sections */}
+            <div className="grid md:grid-cols-2 gap-8 mb-12">
+              {/* Movies */}
               <div>
-                <label className="text-xs text-muted-foreground mb-1 block">Título</label>
-                <input
-                  value={titleInput}
-                  onChange={e => setTitleInput(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary outline-none transition-colors"
-                />
-              </div>
-
-              {typeInput === "tv" && (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-muted-foreground mb-1 block">Temporada</label>
-                    <input
-                      value={seasonInput}
-                      onChange={e => setSeasonInput(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary outline-none transition-colors"
-                      type="number" min="1"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground mb-1 block">Episódio</label>
-                    <input
-                      value={episodeInput}
-                      onChange={e => setEpisodeInput(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:border-primary outline-none transition-colors"
-                      type="number" min="1"
-                    />
-                  </div>
+                <h4 className="text-base font-bold mb-2">Embed de Filmes</h4>
+                <p className="text-sm text-white/40 mb-4">Use o ID do TMDB para incorporar filmes.</p>
+                <div className="relative rounded-xl bg-[#0d1117] border border-white/[0.08] p-4 overflow-x-auto">
+                  <CopyBtn text={`<iframe src="${BASE_DOMAIN}/embed/movie/ID_TMDB" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>`} id="movie-embed" />
+                  <pre className="text-[13px] text-yellow-400/90 font-mono whitespace-pre-wrap leading-relaxed pr-10">
+{`<iframe src="${BASE_DOMAIN}/embed/movie/ID_TMDB" width="100%" height="100%"
+  frameborder="0" allowfullscreen></iframe>`}
+                  </pre>
                 </div>
-              )}
-
-              {/* Preview */}
-              <div className="mt-4">
-                <p className="text-xs text-muted-foreground mb-2">Preview da URL:</p>
-                <code className="text-xs text-primary break-all bg-primary/5 px-3 py-2 rounded-lg block">{buildEmbedUrl()}</code>
+                <p className="text-xs text-white/30 mt-2">
+                  Exemplo: <a href="/embed?tmdb=550&type=movie&title=Fight%20Club" className="text-red-400 hover:text-red-300 transition-colors">/embed/movie/550</a>
+                </p>
               </div>
-            </div>
 
-            {/* Preview iframe */}
-            <div className="rounded-2xl overflow-hidden border border-border/50 bg-black flex items-center justify-center min-h-[300px]">
-              <div className="w-full aspect-video">
-                <iframe
-                  src={`/player?tmdb=${tmdbInput}&type=${typeInput}&title=${encodeURIComponent(titleInput)}${typeInput === "tv" ? `&s=${seasonInput}&e=${episodeInput}` : ""}`}
-                  className="w-full h-full"
-                  allow="autoplay; fullscreen; picture-in-picture"
-                  allowFullScreen
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Code snippets */}
-      <section className="px-4 sm:px-8 pb-16">
-        <div className="max-w-6xl mx-auto space-y-8">
-          <h2 className="text-2xl font-bold">📦 Integração</h2>
-
-          {/* iframe */}
-          <div>
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <Code2 className="w-5 h-5 text-primary" /> Método 1 — iframe (recomendado)
-            </h3>
-            <div className="relative rounded-xl bg-[#0d1117] border border-border/30 p-4 overflow-x-auto">
-              <CopyBtn text={iframeCode} id="iframe" />
-              <pre className="text-[13px] text-green-400/90 font-mono whitespace-pre leading-relaxed">{iframeCode}</pre>
-            </div>
-          </div>
-
-          {/* JS */}
-          <div>
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <Code2 className="w-5 h-5 text-primary" /> Método 2 — JavaScript
-            </h3>
-            <div className="relative rounded-xl bg-[#0d1117] border border-border/30 p-4 overflow-x-auto">
-              <CopyBtn text={jsCode} id="js" />
-              <pre className="text-[13px] text-green-400/90 font-mono whitespace-pre leading-relaxed">{jsCode}</pre>
-            </div>
-          </div>
-
-          {/* API */}
-          <div>
-            <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
-              <Code2 className="w-5 h-5 text-primary" /> Método 3 — API REST
-            </h3>
-            <div className="relative rounded-xl bg-[#0d1117] border border-border/30 p-4 overflow-x-auto">
-              <CopyBtn text={apiExample} id="api" />
-              <pre className="text-[13px] text-blue-400/90 font-mono whitespace-pre leading-relaxed">{apiExample}</pre>
-            </div>
-          </div>
-
-          {/* API Docs */}
-          <div className="rounded-2xl bg-card/50 border border-border/50 p-6 space-y-6">
-            <h3 className="text-lg font-semibold">📚 Documentação da API</h3>
-
-            <div className="space-y-4">
+              {/* Series */}
               <div>
-                <h4 className="text-sm font-semibold text-primary mb-2">Embed URL</h4>
-                <code className="text-sm bg-primary/5 px-3 py-1.5 rounded-lg text-primary block">
-                  GET {BASE_DOMAIN}/embed?tmdb=&#123;id&#125;&type=&#123;movie|tv&#125;&title=&#123;title&#125;&s=&#123;season&#125;&e=&#123;episode&#125;
-                </code>
+                <h4 className="text-base font-bold mb-2">Embed de Séries</h4>
+                <p className="text-sm text-white/40 mb-4">Requer ID do TMDB, Temporada e Episódio.</p>
+                <div className="relative rounded-xl bg-[#0d1117] border border-white/[0.08] p-4 overflow-x-auto">
+                  <CopyBtn text={`<iframe src="${BASE_DOMAIN}/embed/tv/ID_TMDB/S/E" width="100%" height="100%" frameborder="0" allowfullscreen></iframe>`} id="series-embed" />
+                  <pre className="text-[13px] text-yellow-400/90 font-mono whitespace-pre-wrap leading-relaxed pr-10">
+{`<iframe src="${BASE_DOMAIN}/embed/tv/ID_TMDB/S/E" width="100%" height="100%"
+  frameborder="0" allowfullscreen></iframe>`}
+                  </pre>
+                </div>
+                <p className="text-xs text-white/30 mt-2">
+                  Exemplo: <a href="/embed?tmdb=1399&type=tv&title=Game%20of%20Thrones&s=1&e=1" className="text-red-400 hover:text-red-300 transition-colors">/embed/tv/1399/1/1</a>
+                </p>
               </div>
+            </div>
 
+            {/* API JSON */}
+            <div className="mb-12">
+              <h4 className="text-base font-bold mb-2">API JSON (Feed)</h4>
+              <p className="text-sm text-white/40 mb-4">Obtenha a lista de conteúdos ou detalhes específicos.</p>
+              <div className="relative rounded-xl bg-[#0d1117] border border-white/[0.08] p-4 overflow-x-auto">
+                <CopyBtn text={`POST ${BASE_DOMAIN}/embed/api\n\n{ "tmdb_id": ID_TMDB, "content_type": "movie" | "tv", "season": S, "episode": E }`} id="api-json" />
+                <pre className="text-[13px] text-green-400/90 font-mono whitespace-pre leading-relaxed">
+{`POST ${BASE_DOMAIN}/embed/api
+
+Body: { "tmdb_id": ID_TMDB, "content_type": "movie" | "tv", "season": S, "episode": E }
+Response: { "url": "https://...", "type": "m3u8" | "mp4", "provider": "lyneplay" }`}
+                </pre>
+              </div>
+            </div>
+
+            {/* Embed URL Params */}
+            <div className="mb-12">
+              <h4 className="text-base font-bold mb-2">Parâmetros da Embed URL</h4>
+              <p className="text-sm text-white/40 mb-4">Todos os parâmetros aceitos pelo player embed.</p>
+              <div className="relative rounded-xl bg-[#0d1117] border border-white/[0.08] p-4 overflow-x-auto mb-4">
+                <pre className="text-[13px] text-blue-400/90 font-mono whitespace-pre leading-relaxed">
+{`GET ${BASE_DOMAIN}/embed?tmdb={id}&type={movie|tv}&title={title}&s={season}&e={episode}`}
+                </pre>
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-border/50">
-                      <th className="text-left py-2 pr-4 text-muted-foreground font-medium">Parâmetro</th>
-                      <th className="text-left py-2 pr-4 text-muted-foreground font-medium">Tipo</th>
-                      <th className="text-left py-2 pr-4 text-muted-foreground font-medium">Obrigatório</th>
-                      <th className="text-left py-2 text-muted-foreground font-medium">Descrição</th>
+                    <tr className="border-b border-white/[0.06]">
+                      <th className="text-left py-3 pr-6 text-white/40 font-medium text-xs uppercase tracking-wider">Parâmetro</th>
+                      <th className="text-left py-3 pr-6 text-white/40 font-medium text-xs uppercase tracking-wider">Tipo</th>
+                      <th className="text-left py-3 pr-6 text-white/40 font-medium text-xs uppercase tracking-wider">Obrigatório</th>
+                      <th className="text-left py-3 text-white/40 font-medium text-xs uppercase tracking-wider">Descrição</th>
                     </tr>
                   </thead>
-                  <tbody className="text-foreground/80">
-                    <tr className="border-b border-border/30">
-                      <td className="py-2 pr-4 font-mono text-xs text-primary">tmdb</td>
-                      <td className="py-2 pr-4">number</td>
-                      <td className="py-2 pr-4">✅</td>
-                      <td className="py-2">ID do TMDB do conteúdo</td>
-                    </tr>
-                    <tr className="border-b border-border/30">
-                      <td className="py-2 pr-4 font-mono text-xs text-primary">type</td>
-                      <td className="py-2 pr-4">string</td>
-                      <td className="py-2 pr-4">✅</td>
-                      <td className="py-2">"movie" ou "tv"</td>
-                    </tr>
-                    <tr className="border-b border-border/30">
-                      <td className="py-2 pr-4 font-mono text-xs text-primary">title</td>
-                      <td className="py-2 pr-4">string</td>
-                      <td className="py-2 pr-4">❌</td>
-                      <td className="py-2">Título exibido no player</td>
-                    </tr>
-                    <tr className="border-b border-border/30">
-                      <td className="py-2 pr-4 font-mono text-xs text-primary">s</td>
-                      <td className="py-2 pr-4">number</td>
-                      <td className="py-2 pr-4">❌*</td>
-                      <td className="py-2">Temporada (obrigatório para type=tv)</td>
-                    </tr>
-                    <tr>
-                      <td className="py-2 pr-4 font-mono text-xs text-primary">e</td>
-                      <td className="py-2 pr-4">number</td>
-                      <td className="py-2 pr-4">❌*</td>
-                      <td className="py-2">Episódio (obrigatório para type=tv)</td>
-                    </tr>
+                  <tbody className="text-white/60">
+                    {[
+                      ["tmdb", "number", "✅", "ID do TMDB do conteúdo"],
+                      ["type", "string", "✅", '"movie" ou "tv"'],
+                      ["title", "string", "❌", "Título exibido no player"],
+                      ["s", "number", "❌*", "Temporada (obrigatório para type=tv)"],
+                      ["e", "number", "❌*", "Episódio (obrigatório para type=tv)"],
+                    ].map(([param, type, req, desc], i) => (
+                      <tr key={i} className="border-b border-white/[0.04]">
+                        <td className="py-3 pr-6 font-mono text-xs text-red-400">{param}</td>
+                        <td className="py-3 pr-6 text-xs">{type}</td>
+                        <td className="py-3 pr-6 text-xs">{req}</td>
+                        <td className="py-3 text-xs">{desc}</td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
-
-              <div>
-                <h4 className="text-sm font-semibold text-primary mb-2">API REST Endpoint</h4>
-                <code className="text-sm bg-primary/5 px-3 py-1.5 rounded-lg text-primary block">
-                  POST {BASE_DOMAIN}/embed/api
-                </code>
-                <p className="text-xs text-muted-foreground mt-2">
-                  Body JSON: <code className="text-primary">{"{"} tmdb_id, content_type, season?, episode? {"}"}</code>
-                </p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Response: <code className="text-primary">{"{"} url, type, provider {"}"}</code>
-                </p>
-              </div>
             </div>
-          </div>
 
-          {/* Features comparison */}
-          <div className="rounded-2xl bg-card/50 border border-border/50 p-6">
-            <h3 className="text-lg font-semibold mb-4">🏆 LynePlay vs JW Player</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border/50">
-                    <th className="text-left py-2 pr-4 text-muted-foreground font-medium">Feature</th>
-                    <th className="text-left py-2 pr-4 text-muted-foreground font-medium">LynePlay</th>
-                    <th className="text-left py-2 text-muted-foreground font-medium">JW Player</th>
-                  </tr>
-                </thead>
-                <tbody className="text-foreground/80">
-                  {[
-                    ["Start time", "< 2s (startLevel:0 + prefetch)", "~3-5s"],
-                    ["ABR Engine", "EWMA adaptativo + 7 otimizações", "Padrão HLS.js"],
-                    ["Auto-recovery", "5 níveis + stall detection 8s", "Básico"],
-                    ["Buffer inteligente", "0→30→120→600s dinâmico", "Fixo"],
-                    ["Client-side cache", "SessionStorage 30min", "Não"],
-                    ["API prefetch", "Paralelo ao mount", "Não"],
-                    ["Custo", "Gratuito", "$$$ por impression"],
-                  ].map(([feat, lyne, jw], i) => (
-                    <tr key={i} className="border-b border-border/30">
-                      <td className="py-2 pr-4 font-medium">{feat}</td>
-                      <td className="py-2 pr-4 text-green-400">{lyne}</td>
-                      <td className="py-2 text-muted-foreground">{jw}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {/* Listas de IDs */}
+            <div>
+              <h4 className="text-base font-bold mb-2">Exemplo de Integração Rápida</h4>
+              <p className="text-sm text-white/40 mb-4">Copie e cole no seu site para começar.</p>
+              <div className="relative rounded-xl bg-[#0d1117] border border-white/[0.08] p-4 overflow-x-auto">
+                <CopyBtn text={`<div style="position:relative;padding-top:56.25%;max-width:1280px;margin:0 auto;">
+  <iframe src="${BASE_DOMAIN}/embed?tmdb=550&type=movie&title=Fight%20Club"
+    style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;border-radius:12px;"
+    allowfullscreen allow="autoplay; fullscreen; picture-in-picture; encrypted-media">
+  </iframe>
+</div>`} id="quick-start" />
+                <pre className="text-[13px] text-green-400/90 font-mono whitespace-pre leading-relaxed pr-10">
+{`<div style="position:relative;padding-top:56.25%;max-width:1280px;margin:0 auto;">
+  <iframe src="${BASE_DOMAIN}/embed?tmdb=550&type=movie&title=Fight%20Club"
+    style="position:absolute;top:0;left:0;width:100%;height:100%;border:0;border-radius:12px;"
+    allowfullscreen allow="autoplay; fullscreen; picture-in-picture; encrypted-media">
+  </iframe>
+</div>`}
+                </pre>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      <Footer />
+      {/* Footer */}
+      <footer className="border-t border-white/[0.04] py-8 px-6">
+        <div className="max-w-5xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-6 h-6 rounded-lg bg-gradient-to-br from-red-600 to-red-800 flex items-center justify-center">
+              <Play className="w-3 h-3 text-white fill-white" />
+            </div>
+            <span className="text-xs text-white/20">LynePlay © {new Date().getFullYear()}</span>
+          </div>
+          <span className="text-[10px] text-white/15">Powered by Lyneflix Engine</span>
+        </div>
+      </footer>
     </div>
   );
 };
