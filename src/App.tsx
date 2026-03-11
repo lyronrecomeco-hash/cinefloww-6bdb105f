@@ -109,8 +109,8 @@ const App = () => (
             <Route path="/filme/:id" element={<DetailsPage type="movie" />} />
             <Route path="/serie/:id" element={<DetailsPage type="tv" />} />
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />
-            <Route path="/player" element={<PlayerPage />} />
-            <Route path="/player/:type/:id" element={<PlayerPage />} />
+            <Route path="/player" element={<Suspense fallback={<PlayerLoader />}><PlayerPage /></Suspense>} />
+            <Route path="/player/:type/:id" element={<Suspense fallback={<PlayerLoader />}><PlayerPage /></Suspense>} />
             <Route path="/lynetv" element={<TVPage />} />
             <Route path="/lynetv/:channelId" element={<TVPage />} />
             {/* <Route path="/download" element={<TVDownloadPage />} /> */}
