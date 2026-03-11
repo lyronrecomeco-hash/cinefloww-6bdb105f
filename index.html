@@ -99,9 +99,15 @@
   <body>
     <div id="root"></div>
     <script>
-      // Nuke stale SWs but KEEP Monetag sw.js (v527)
-      if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(reg){if(reg.active&&reg.active.scriptURL&&reg.active.scriptURL.endsWith('/sw.js'))return;reg.unregister()})});}
-      if('caches' in window){caches.keys().then(function(n){n.forEach(function(k){if(k.indexOf('monetag')!==-1||k.indexOf('3nbf4')!==-1)return;caches.delete(k)})});}
+      // Force-clear ALL stale caches on every page load (v532)
+      (function(){
+        var CV='lyneflix_cache_version',VER='532';
+        if(localStorage.getItem(CV)===VER)return;
+        if('caches' in window){caches.keys().then(function(n){n.forEach(function(k){caches.delete(k)})});}
+        if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(reg){if(reg.active&&reg.active.scriptURL&&reg.active.scriptURL.endsWith('/sw.js'))return;reg.unregister()})});}
+        localStorage.setItem(CV,VER);
+        if(document.readyState==='complete')window.location.reload();
+      })();
       // Register Monetag SW
       if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js',{scope:'/'}).catch(function(){});}
     </script>
