@@ -230,12 +230,10 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     // Check if ad was already completed this session
     const completedKey = `ad_completed_${type}_${id}`;
     if (sessionStorage.getItem(completedKey)) {
-      setNavigatingToPlayer(true);
       proceedToWatch();
       return;
     }
     setAdGateCallback(() => () => {
-      setNavigatingToPlayer(true);
       proceedToWatch();
     });
     setShowAdGate(true);
