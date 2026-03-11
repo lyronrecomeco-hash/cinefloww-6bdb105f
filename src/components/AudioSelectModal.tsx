@@ -40,7 +40,7 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSe
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/90 backdrop-blur-xl" />
+      <div className="absolute inset-0 bg-background/90 backdrop-blur-xl" />
       <div className="relative w-full max-w-md animate-scale-in" onClick={e => e.stopPropagation()}>
         <div className="bg-card/50 backdrop-blur-2xl border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
           <div className="p-6 sm:p-8">
