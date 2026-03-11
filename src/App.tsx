@@ -18,7 +18,7 @@ const ReleasesPage = lazy(() => import("./pages/ReleasesPage"));
 const AnimesPage = lazy(() => import("./pages/AnimesPage"));
 const ComingSoonPage = lazy(() => import("./pages/ComingSoonPage"));
 const PlayerPage = lazy(() => import("./pages/PlayerPage"));
-const PrototypePlayer = lazy(() => import("./pages/PrototypePlayer"));
+
 const ApiRedirect = lazy(() => import("./pages/ApiRedirect"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const DmcaPage = lazy(() => import("./pages/DmcaPage"));
