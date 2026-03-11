@@ -187,13 +187,18 @@ async function getChannelConfig() {
   return data;
 }
 
-async function sendWelcomeMessage(chatId: number | string, memberName: string) {
+async function sendWelcomeMessage(chatId: number | string, memberName: string, userId?: number) {
   const config = await getChannelConfig();
   if (!config || !config.welcome_enabled) return;
 
-  const message = (config.welcome_message || "Bem-vindo! 🎬")
-    .replace("{name}", memberName)
-    .replace("{nome}", memberName);
+  // Build user mention: if userId is available, use HTML mention link
+  const mention = userId 
+    ? `<a href="tg://user?id=${userId}">${memberName}</a>` 
+    : memberName;
+
+  const message = (config.welcome_message || "Bem-vindo, {name}! 🎬")
+    .replace("{name}", mention)
+    .replace("{nome}", mention);
 
   const imageUrl = config.welcome_image_url;
 
@@ -642,7 +647,7 @@ Deno.serve(async (req: Request) => {
       // User joined channel/group
       if (user && (newStatus === "member" || newStatus === "administrator") && (oldStatus === "left" || oldStatus === "kicked" || !oldStatus)) {
         const memberName = user.first_name || user.username || "Novo membro";
-        await sendWelcomeMessage(chat.id, memberName);
+        await sendWelcomeMessage(chat.id, memberName, user.id);
       }
       return new Response("ok", { headers: corsHeaders });
     }
@@ -652,7 +657,7 @@ Deno.serve(async (req: Request) => {
       for (const member of message.new_chat_members) {
         if (!member.is_bot) {
           const memberName = member.first_name || member.username || "Novo membro";
-          await sendWelcomeMessage(message.chat.id, memberName);
+          await sendWelcomeMessage(message.chat.id, memberName, member.id);
         }
       }
       return new Response("ok", { headers: corsHeaders });
