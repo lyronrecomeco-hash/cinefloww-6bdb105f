@@ -247,12 +247,13 @@ Deno.serve(async (req: Request) => {
 
   try {
     const body = await req.json();
-    const tmdbId = body.tmdb_id;
-    const cType = body.content_type || "movie";
+    const tmdbId = Number(body.tmdb_id);
+    const cTypeRaw = String(body.content_type || "movie");
+    const cType: "movie" | "series" = cTypeRaw === "movie" ? "movie" : "series";
     const season = body.season;
     const episode = body.episode;
 
-    if (!tmdbId) {
+    if (!tmdbId || Number.isNaN(tmdbId)) {
       return new Response(JSON.stringify({ error: "tmdb_id required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -263,6 +264,15 @@ Deno.serve(async (req: Request) => {
     let result: { url: string; type: string } | null = null;
 
     console.log(`[extract] tmdb=${tmdbId} type=${cType} s=${season} e=${episode}`);
+
+    // Fast path: use backend cache first (avoids external API 404s and speeds up player)
+    const cached = await getCachedVideo(tmdbId, cType, season, episode);
+    if (cached?.url) {
+      console.log(`[extract] Cache hit (${cached.provider}) for tmdb=${tmdbId}`);
+      return new Response(JSON.stringify(cached), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (isMovie) {
       // Search movies catalog
