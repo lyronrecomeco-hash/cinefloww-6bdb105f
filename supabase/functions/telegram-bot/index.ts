@@ -346,6 +346,31 @@ async function handleApiAction(action: string, body: any): Promise<Response> {
       });
     }
 
+    case "broadcast": {
+      const { channel_id, message, image_url } = body;
+      if (!channel_id || !message) {
+        return new Response(JSON.stringify({ error: "channel_id and message required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      try {
+        if (image_url) {
+          await sendPhoto(channel_id, image_url, message);
+        } else {
+          await sendMessage(channel_id, message);
+        }
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     default:
       return new Response(JSON.stringify({ error: "Unknown action" }), {
         status: 400,
