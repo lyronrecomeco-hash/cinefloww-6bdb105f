@@ -100,12 +100,36 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     }
   }, [detail, type, activeProfileId]);
 
+  // Fetch series continue progress
+  useEffect(() => {
+    if (!detail || type !== "tv") { setContinueEp(null); return; }
+    getLatestSeriesProgress(detail.id, "series").then((prog) => {
+      if (!prog) { setContinueEp(null); return; }
+      // If completed, suggest next episode
+      if (prog.completed) {
+        setContinueEp({ season: prog.season, episode: prog.episode + 1 });
+      } else if (prog.progress_seconds > 30) {
+        setContinueEp({ season: prog.season, episode: prog.episode });
+      } else {
+        setContinueEp(null);
+      }
+    }).catch(() => setContinueEp(null));
+  }, [detail, type]);
+
   // Prefetch video URL as soon as details load (before user clicks play)
   useEffect(() => {
     if (!detail || isFutureRelease || watchDisabled) return;
     const ct = type === "tv" ? "series" : "movie";
-    prefetchVideoUrl(String(detail.id), ct);
-  }, [detail, type, isFutureRelease, watchDisabled]);
+    // For series with continue progress, prefetch that specific episode
+    if (type === "tv" && continueEp) {
+      prefetchVideoUrl(String(detail.id), ct, String(continueEp.season), String(continueEp.episode));
+    } else if (type === "tv") {
+      // Default: prefetch S01E01
+      prefetchVideoUrl(String(detail.id), ct, "1", "1");
+    } else {
+      prefetchVideoUrl(String(detail.id), ct);
+    }
+  }, [detail, type, isFutureRelease, watchDisabled, continueEp]);
 
   useEffect(() => {
     let cancelled = false;
