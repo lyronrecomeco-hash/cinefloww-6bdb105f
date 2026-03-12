@@ -191,7 +191,7 @@ const Navbar = () => {
           </Link>
 
           {/* CineVeo Partner Icon */}
-          {cineveoPartner?.show_navbar_icon && (
+          {Boolean(cineveoPartner?.show_navbar_icon) && (
             <button
               onClick={() => setShowCineVeo(true)}
               className="w-9 h-9 sm:w-10 sm:h-10 flex items-center justify-center rounded-2xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors overflow-hidden"
