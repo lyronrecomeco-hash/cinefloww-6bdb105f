@@ -8,10 +8,15 @@ const CUSER = "lyneflix-vods";
 const CPASS = "uVljs2d";
 const CINEVEO_HOST = "cineveo.lat";
 
-/** Check if running on production domain with rewrites (Vercel or Netlify) */
+/** Check if running on production domain with proxy rewrites (Vercel or Netlify) */
 function isProductionDomain(): boolean {
-  const h = window.location.hostname;
-  return h === "lyneflix.online" || h.endsWith(".lyneflix.online") || h.endsWith(".netlify.app");
+  const h = window.location.hostname.toLowerCase();
+  return (
+    h === "lyneflix.online" ||
+    h.endsWith(".lyneflix.online") ||
+    h.endsWith(".netlify.app") ||
+    h.endsWith(".vercel.app")
+  );
 }
 
 /**

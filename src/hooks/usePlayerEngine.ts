@@ -341,8 +341,9 @@ export function usePlayerEngine(config: EngineConfig) {
 
       video.preload = "auto";
 
-      // For direct CineVeo URLs (non-proxied), remove crossOrigin and use no-referrer
-      const isDirect = finalUrl.includes("cineveo.lat") || finalUrl.includes("cineveo.site") || finalUrl.includes("brstream");
+      // For direct CineVeo URLs (non-proxied) OR any non-proxied environment,
+      // remove crossOrigin and use no-referrer to avoid CORS/referrer blocks
+      const isDirect = finalUrl.includes("cineveo.lat") || finalUrl.includes("cineveo.site") || finalUrl.includes("brstream") || !finalUrl.startsWith("/");
       if (isDirect) {
         video.removeAttribute("crossorigin");
         video.setAttribute("referrerpolicy", "no-referrer");

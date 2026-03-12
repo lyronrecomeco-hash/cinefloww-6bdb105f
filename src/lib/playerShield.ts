@@ -233,9 +233,13 @@ export function initPlayerShield() {
   const path = window.location.pathname;
   const isPlayerRoute = path.startsWith("/player");
 
-  // Always activate on production, partial on dev
-  const h = window.location.hostname;
-  const isProd = !h.includes("localhost") && !h.includes("127.0.0.1") && !h.endsWith(".lovable.app") && !h.endsWith(".lovableproject.com");
+  // Only activate on real production domains
+  const h = window.location.hostname.toLowerCase();
+  const isProd =
+    h === "lyneflix.online" ||
+    h.endsWith(".lyneflix.online") ||
+    h.endsWith(".netlify.app") ||
+    h.endsWith(".vercel.app");
 
   if (!isPlayerRoute) return;
 
