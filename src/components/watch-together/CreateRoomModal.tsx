@@ -68,7 +68,7 @@ const CreateRoomModal = ({ profileId, tmdbId, contentType, title, posterPath, se
 
           <h3 className="text-lg sm:text-xl font-bold text-center text-foreground mb-1">Assistir Junto</h3>
           <p className="text-xs sm:text-sm text-muted-foreground text-center mb-5 sm:mb-6 line-clamp-1">
-            {title}{season && episode ? ` • T${season}E${episode}` : ""}
+            {title}{season != null && episode != null ? ` • T${season}E${episode}` : ""}
           </p>
 
           {!roomCode ? (

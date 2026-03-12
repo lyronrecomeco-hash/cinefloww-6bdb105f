@@ -427,7 +427,7 @@ const PlayerPage = () => {
             <div className="p-4 sm:p-5">
               <p className="text-[10px] sm:text-xs text-muted-foreground mb-1 uppercase tracking-wider font-semibold">Próximo episódio</p>
               <p className="text-sm sm:text-base font-bold text-foreground mb-1">
-                {season && episode ? `T${season} • E${Number(episode) + 1}` : "Próximo"}
+                {season != null && episode != null ? `T${season} • E${Number(episode) + 1}` : "Próximo"}
               </p>
               {nextEpInfo?.name && (
                 <p className="text-xs text-muted-foreground mb-3 line-clamp-1">{nextEpInfo.name}</p>
@@ -484,7 +484,7 @@ const PlayerPage = () => {
             </button>
             <div className="flex-1 min-w-0">
               {title && <p className="text-sm sm:text-base font-semibold text-white truncate">{title}</p>}
-              {season && episode && (
+              {season != null && episode != null && (
                 <p className="text-[10px] text-white/40 font-medium">Temporada {season} · Episódio {episode}</p>
               )}
             </div>

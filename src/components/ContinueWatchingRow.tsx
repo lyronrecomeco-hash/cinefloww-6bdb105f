@@ -143,8 +143,8 @@ const ContinueWatchingRow = () => {
           const remaining = item.duration_seconds - item.progress_seconds;
           const typeRoute = item.content_type === "movie" ? "movie" : "tv";
           const params = new URLSearchParams({ title: item.title, audio: "legendado" });
-          if (item.season) params.set("s", String(item.season));
-          if (item.episode) params.set("e", String(item.episode));
+          if (item.season != null) params.set("s", String(item.season));
+          if (item.episode != null) params.set("e", String(item.episode));
           const slug = toSlug(item.title, item.tmdb_id);
           const watchUrl = `/player/${typeRoute === "movie" ? "movie" : "series"}/${slug}?${params.toString()}`;
 
@@ -188,7 +188,7 @@ const ContinueWatchingRow = () => {
                     <div className="h-full bg-primary rounded-r-full transition-all" style={{ width: `${Math.min(pct, 100)}%` }} />
                   </div>
                   {/* Episode badge */}
-                  {item.season && item.episode && (
+                  {item.season != null && item.episode != null && (
                     <div className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-md bg-background/70 backdrop-blur-sm text-[9px] sm:text-[10px] font-semibold text-foreground border border-white/10">
                       T{item.season}E{item.episode}
                     </div>

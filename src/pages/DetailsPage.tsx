@@ -297,14 +297,14 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
             {/* Meta */}
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-3 sm:gap-x-5 gap-y-1.5 sm:gap-y-2 mb-3 sm:mb-4">
-              {detail.vote_average > 0 && (
+              {(detail.vote_average ?? 0) > 0 && (
                 <div className="flex items-center gap-1">
                   <Star className="w-4 h-4 sm:w-5 sm:h-5 text-primary fill-primary" />
                   <span className="text-foreground font-bold text-base sm:text-lg">{detail.vote_average.toFixed(1)}</span>
                   <span className="text-muted-foreground text-[10px] sm:text-xs">/10</span>
                 </div>
               )}
-              {detail.runtime && (
+              {(detail.runtime ?? 0) > 0 && (
                 <div className="flex items-center gap-1 text-muted-foreground text-xs sm:text-sm">
                   <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   {Math.floor(detail.runtime / 60)}h {detail.runtime % 60}min
@@ -314,7 +314,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                 <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 {getYear(detail)}
               </div>
-              {detail.number_of_seasons && (
+              {(detail.number_of_seasons ?? 0) > 0 && (
                 <div className="flex items-center gap-1 text-muted-foreground text-xs sm:text-sm">
                   <Tv className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   {detail.number_of_seasons} Temp.
