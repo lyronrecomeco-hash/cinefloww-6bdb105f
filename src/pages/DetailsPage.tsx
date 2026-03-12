@@ -407,7 +407,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                   className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground font-semibold text-xs sm:text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25 disabled:opacity-50 disabled:pointer-events-none"
                 >
                   <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
-                  Assistir Agora
+                  {type === "tv" && continueEp ? `Continuar T${continueEp.season} EP ${continueEp.episode}` : "Assistir Agora"}
                 </button>
               )}
               {trailer && (
