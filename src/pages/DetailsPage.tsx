@@ -55,7 +55,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [showAdGate, setShowAdGate] = useState(false);
   const [adGateCallback, setAdGateCallback] = useState<(() => void) | null>(null);
-  
+  const [continueEp, setContinueEp] = useState<{ season: number; episode: number } | null>(null);
 
   // Check watch_disabled setting
   useEffect(() => {
