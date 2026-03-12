@@ -299,15 +299,11 @@ const TelegramPage = () => {
       <div className="flex gap-2 border-b border-border pb-2">
         <button onClick={() => setActiveTab("channel")}
           className={`px-4 py-2 rounded-t-xl text-sm font-medium transition-colors ${activeTab === "channel" ? "bg-primary/20 text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>
-          📢 Canal
+          Canal
         </button>
         <button onClick={() => setActiveTab("ingestions")}
           className={`px-4 py-2 rounded-t-xl text-sm font-medium transition-colors ${activeTab === "ingestions" ? "bg-primary/20 text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>
-          📥 Ingestão
-        </button>
-        <button onClick={() => setActiveTab("providers")}
-          className={`px-4 py-2 rounded-t-xl text-sm font-medium transition-colors ${activeTab === "providers" ? "bg-primary/20 text-primary border-b-2 border-primary" : "text-muted-foreground hover:text-foreground"}`}>
-          🌐 Provedores ({providers.length})
+          Ingestao
         </button>
       </div>
 
