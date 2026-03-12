@@ -4,7 +4,7 @@
  */
 
 const LOCAL_KEY = "lyneflix_cache_version";
-const APP_CACHE_VERSION = "540";
+const APP_CACHE_VERSION = "541";
 const CHECK_TIMEOUT_MS = 2000; // 2s max — if Cloud is slow, skip silently
 
 const toVersionNumber = (v: string) => {
