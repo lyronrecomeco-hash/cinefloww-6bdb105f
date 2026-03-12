@@ -1,3 +1,5 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 /**
  * extract-video: Real-time CineVeo API lookup.
  * Searches the CineVeo catalog API by tmdb_id and returns the stream_url directly.
