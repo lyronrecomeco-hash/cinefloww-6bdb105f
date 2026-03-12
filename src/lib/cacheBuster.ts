@@ -3,14 +3,16 @@
  * Uses a strict timeout to NEVER block app boot if Cloud DB is slow.
  */
 
-const LOCAL_KEY = "lyneflix_cache_version";
+import {
+  attemptVersionReload,
+  getLocalCacheVersion,
+  isRemoteVersionNewer,
+  resolveRemoteVersion,
+  setLocalCacheVersion,
+} from "./cacheVersion";
+
 const APP_CACHE_VERSION = "541";
 const CHECK_TIMEOUT_MS = 2000; // 2s max — if Cloud is slow, skip silently
-
-const toVersionNumber = (v: string) => {
-  const n = Number(String(v).replace(/[^\d]/g, ""));
-  return Number.isFinite(n) ? n : Number.NaN;
-};
 
 export async function checkCacheVersion(): Promise<void> {
   try {
@@ -30,24 +32,13 @@ export async function checkCacheVersion(): Promise<void> {
 
     if (!data?.value) return;
 
-    const val = data.value as Record<string, unknown> | string;
-    const remoteVersion = String(
-      typeof val === "object" && val !== null
-        ? (val as any).v ?? (val as any).version ?? JSON.stringify(val)
-        : val
-    );
+    const remoteVersion = resolveRemoteVersion(data.value);
+    if (!remoteVersion) return;
 
-    const localVersion = localStorage.getItem(LOCAL_KEY) ?? APP_CACHE_VERSION;
-    const remoteNum = toVersionNumber(remoteVersion);
-    const localNum = toVersionNumber(localVersion);
-
-    const remoteIsNewer =
-      Number.isFinite(remoteNum) && Number.isFinite(localNum)
-        ? remoteNum > localNum
-        : remoteVersion !== localVersion;
+    const localVersion = getLocalCacheVersion(APP_CACHE_VERSION);
 
     // Nunca forçar "downgrade" de versão local para evitar loop de cache
-    if (!remoteIsNewer) return;
+    if (!isRemoteVersionNewer(localVersion, remoteVersion)) return;
 
     console.log(`[CacheBuster] ${localVersion} → ${remoteVersion} — clearing caches…`);
 
@@ -61,8 +52,8 @@ export async function checkCacheVersion(): Promise<void> {
       await Promise.all(names.map((n) => caches.delete(n)));
     }
 
-    localStorage.setItem(LOCAL_KEY, remoteVersion);
-    window.location.reload();
+    setLocalCacheVersion(remoteVersion);
+    attemptVersionReload(remoteVersion);
   } catch {
     // Non-blocking — silently skip if Cloud is slow/down
   }

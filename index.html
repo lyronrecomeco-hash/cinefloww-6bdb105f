@@ -99,10 +99,27 @@
   <body>
     <div id="root"></div>
     <script>
-      // Cache nuke v541 — clear stale caches once + force single refresh
+      // Cache nuke v541 — clear stale caches once + force single refresh (with loop guard)
       (function(){
-        var CV='lyneflix_cache_version',VER='541',RK='lyneflix_cache_reload_541';
-        if(localStorage.getItem(CV)===VER)return;
+        var CV='lyneflix_cache_version';
+        var VER='541';
+        var RK='lyneflix_cache_reload_541';
+        var GK='lyneflix_cache_guard_541';
+        var storageOk=true;
+
+        try {
+          localStorage.getItem(CV);
+          sessionStorage.getItem(RK);
+        } catch(_) {
+          storageOk=false;
+        }
+
+        if(!storageOk) return;
+        if(localStorage.getItem(CV)===VER) return;
+        if(localStorage.getItem(GK)==='1') return;
+
+        // Persistent guard per version: never allow repeated auto-refresh loops.
+        localStorage.setItem(GK,'1');
 
         var jobs=[];
         if('serviceWorker' in navigator){
@@ -121,7 +138,7 @@
         }
 
         Promise.all(jobs).finally(function(){
-          localStorage.setItem(CV,VER);
+          try { localStorage.setItem(CV,VER); } catch(_) {}
           if(!sessionStorage.getItem(RK)){
             sessionStorage.setItem(RK,'1');
             window.location.reload();
