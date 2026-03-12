@@ -17,10 +17,15 @@ const STRIP_HEADERS = ["x-client-info"];
 
 function isProd(): boolean {
   if (typeof window === "undefined") return false;
-  const h = window.location.hostname;
-  // Rewrite on custom domains + Netlify (not dev/preview/lovable environments)
-  return h !== "localhost" && !h.endsWith(".app") && !h.endsWith(".dev") && !h.includes("127.0.0.1")
-    || h.endsWith(".netlify.app");
+  const h = window.location.hostname.toLowerCase();
+
+  // Only rewrite on hosts that are known to have /b/* proxy rewrites configured.
+  return (
+    h === "lyneflix.online" ||
+    h.endsWith(".lyneflix.online") ||
+    h.endsWith(".netlify.app") ||
+    h.endsWith(".vercel.app")
+  );
 }
 
 function rewriteUrl(url: string): string {

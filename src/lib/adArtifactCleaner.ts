@@ -1,10 +1,24 @@
 /**
  * Ad Artifact Cleaner
- * Remove artefatos "0" / "00" injetados fora do fluxo normal do app.
+ * Remove artefatos "0"/"00" injetados FORA da árvore React,
+ * sem tocar em nós gerenciados pela aplicação (evita crash de reconciliação).
  */
 
 const ZERO_ONLY_RE = /^0+$/;
 const SAFE_TAGS = new Set(["SCRIPT", "STYLE", "LINK", "META", "NOSCRIPT", "OPTION", "TEXTAREA", "PRE", "CODE"]);
+const SAFE_SELECTORS = [
+  "#root",
+  "[data-radix-portal]",
+  "[role='dialog']",
+  "[role='alertdialog']",
+  "[aria-live]",
+  "[data-sonner-toaster]",
+  "[data-allow-zero]",
+  "input",
+  "textarea",
+  "select",
+  "[contenteditable='true']",
+].join(",");
 
 const normalizeText = (value: string | null | undefined) =>
   (value ?? "").replace(/\u200B/g, "").replace(/\s+/g, "").trim();
@@ -14,40 +28,41 @@ const isZeroOnly = (value: string | null | undefined) => {
   return text.length > 0 && ZERO_ONLY_RE.test(text);
 };
 
-const hasSafeAncestor = (node: Node) => {
-  let el: HTMLElement | null = node instanceof HTMLElement ? node : node.parentElement;
-  while (el) {
-    if (SAFE_TAGS.has(el.tagName)) return true;
-    if (el.matches("input, textarea, select, [contenteditable='true'], [data-allow-zero]")) return true;
-    el = el.parentElement;
-  }
-  return false;
-};
-
-const isInsideRoot = (node: Node) => {
+const hasProtectedAncestor = (node: Node) => {
   const el = node instanceof HTMLElement ? node : node.parentElement;
-  return !!el?.closest("#root");
+  return !!el?.closest(SAFE_SELECTORS);
 };
 
 const shouldRemoveTextNode = (node: Text) => {
   if (!isZeroOnly(node.textContent)) return false;
-  if (hasSafeAncestor(node)) return false;
-
-  const parent = node.parentElement;
-  if (!parent) return true;
-
-  if (!isInsideRoot(node)) return true;
-
-  // Áreas mais afetadas por injeções externas
-  if (parent.id === "root") return true;
-  if (parent.closest("nav,header")) return true;
-  if (parent.closest(".fixed,.absolute,[style*='position:fixed'],[style*='position: fixed'],[style*='position:absolute'],[style*='position: absolute']")) return true;
-
-  return false;
+  if (hasProtectedAncestor(node)) return false;
+  return true;
 };
 
-function sweepZeroTextNodes() {
-  const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_TEXT);
+function sweepBodyRootArtifacts() {
+  const body = document.body;
+  if (!body) return;
+
+  for (const node of Array.from(body.childNodes)) {
+    if (node instanceof HTMLElement && (node.id === "root" || SAFE_TAGS.has(node.tagName))) continue;
+
+    if (node instanceof Text) {
+      if (isZeroOnly(node.textContent)) node.remove();
+      continue;
+    }
+
+    if (node instanceof HTMLElement) {
+      if (node.closest(SAFE_SELECTORS)) continue;
+      if (node.childElementCount === 0 && isZeroOnly(node.textContent)) node.remove();
+    }
+  }
+}
+
+function sweepOutsideAppTextNodes() {
+  const body = document.body;
+  if (!body) return;
+
+  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
   const targets: Text[] = [];
 
   let current = walker.nextNode();
@@ -61,16 +76,9 @@ function sweepZeroTextNodes() {
   }
 }
 
-function sweepBodyArtifacts() {
-  sweepZeroTextNodes();
-
-  const body = document.body;
-  if (!body) return;
-
-  for (const el of Array.from(body.children)) {
-    if (el.id === "root" || SAFE_TAGS.has(el.tagName)) continue;
-    if (isZeroOnly(el.textContent)) el.remove();
-  }
+function runSweep() {
+  sweepBodyRootArtifacts();
+  sweepOutsideAppTextNodes();
 }
 
 export function initAdArtifactCleaner() {
@@ -84,7 +92,7 @@ export function initAdArtifactCleaner() {
     rafScheduled = true;
     requestAnimationFrame(() => {
       rafScheduled = false;
-      sweepBodyArtifacts();
+      runSweep();
     });
   };
 
@@ -95,14 +103,17 @@ export function initAdArtifactCleaner() {
   }
 
   const observer = new MutationObserver(() => scheduleSweep());
-  observer.observe(document.documentElement, {
+  observer.observe(document.body || document.documentElement, {
     childList: true,
     characterData: true,
     subtree: true,
   });
 
-  const intervalId = window.setInterval(sweepBodyArtifacts, 1000);
-  window.addEventListener("beforeunload", () => window.clearInterval(intervalId), { once: true });
+  const intervalId = window.setInterval(scheduleSweep, 1500);
+  window.addEventListener("beforeunload", () => {
+    observer.disconnect();
+    window.clearInterval(intervalId);
+  }, { once: true });
 }
 
 
