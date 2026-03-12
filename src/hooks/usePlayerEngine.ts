@@ -371,7 +371,7 @@ export function usePlayerEngine(config: EngineConfig) {
             : buildEpisodeUrl(tmdbNum, Number(season || 1), Number(episode || 1));
           videoData = { url: directUrl, type: "mp4" };
         } else {
-          videoData = { url: data.url, type: data.type || "mp4" };
+          videoData = normalizeVideoForEnv({ url: data.url, type: data.type || "mp4" });
           setCachedUrl(tmdbId, contentType, season, episode, videoData.url, videoData.type);
         }
       }
