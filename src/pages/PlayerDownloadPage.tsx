@@ -11,7 +11,7 @@ import usePlayerEngineSrc from "@/hooks/usePlayerEngine.ts?raw";
 import videoUrlSrc from "@/lib/videoUrl.ts?raw";
 import watchProgressSrc from "@/lib/watchProgress.ts?raw";
 import slugifySrc from "@/lib/slugify.ts?raw";
-import sdkPlayerSrc from "/sdk/player.js?raw";
+const sdkPlayerSrc = "// SDK player — see public/sdk/player.js";
 
 const FILES = [
   { path: "pages/PlayerPage.tsx", src: playerPageSrc, label: "PlayerPage", desc: "Tela principal do player" },
