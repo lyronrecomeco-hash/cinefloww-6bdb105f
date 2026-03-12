@@ -39,7 +39,6 @@ const Dashboard = lazy(() => import("./pages/admin/Dashboard"));
 const ContentManager = lazy(() => import("./pages/admin/ContentManager"));
 const CategoriesManager = lazy(() => import("./pages/admin/CategoriesManager"));
 const SettingsPage = lazy(() => import("./pages/admin/SettingsPage"));
-const CineveoTester = lazy(() => import("./pages/admin/CineveoTester"));
 const DiscordBotPage = lazy(() => import("./pages/admin/DiscordBotPage"));
 const BancoPage = lazy(() => import("./pages/admin/BancoPage"));
 const RequestsPage = lazy(() => import("./pages/admin/RequestsPage"));
@@ -59,10 +58,6 @@ const PublicLogsPage = lazy(() => import("./pages/PublicLogsPage"));
 const QrxpPage = lazy(() => import("./pages/QrxpPage"));
 const SupportPage = lazy(() => import("./pages/SupportPage"));
 const TicketsPage = lazy(() => import("./pages/admin/TicketsPage"));
-const AvatarDownloadPage = lazy(() => import("./pages/AvatarDownloadPage"));
-const LynePlayPage = lazy(() => import("./pages/LynePlayPage"));
-const EmbedPlayer = lazy(() => import("./pages/EmbedPlayer"));
-const UniversalEmbed = lazy(() => import("./pages/UniversalEmbed"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -121,16 +116,9 @@ const App = () => (
             <Route path="/conta" element={<AuthPage />} />
             <Route path="/perfis" element={<ProfileSelector />} />
             <Route path="/importar-lista" element={<ImportListPage />} />
-            <Route path="/extrator" element={<CineveoTester />} />
             <Route path="/logs" element={<PublicLogsPage />} />
             <Route path="/qrxp" element={<QrxpPage />} />
             <Route path="/suporte" element={<SupportPage />} />
-            <Route path="/avatar-baixar" element={<AvatarDownloadPage />} />
-            <Route path="/lyneplay" element={<LynePlayPage />} />
-            <Route path="/embed" element={<EmbedPlayer />} />
-            <Route path="/embed/movie/:tmdbId" element={<EmbedPlayer />} />
-            <Route path="/embed/tv/:tmdbId/:season/:episode" element={<EmbedPlayer />} />
-            <Route path="/embed/v2" element={<UniversalEmbed />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
