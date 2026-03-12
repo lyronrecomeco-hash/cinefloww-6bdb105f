@@ -378,17 +378,8 @@ export function usePlayerEngine(config: EngineConfig) {
 
       if (cancelledRef.current) return;
 
-      // On non-production domains, m3u8 streams from cineveo are CORS-blocked.
-      // Convert to direct MP4 URL which works with referrerpolicy="no-referrer".
-      const isProd = isProductionDomain();
-      if (!isProd && videoData.type === "m3u8") {
-        console.log("[Engine] Non-prod: converting m3u8 to direct MP4 fallback");
-        const tmdbNum = Number(tmdbId);
-        const directUrl = contentType === "movie"
-          ? buildMovieUrl(tmdbNum)
-          : buildEpisodeUrl(tmdbNum, Number(season || 1), Number(episode || 1));
-        videoData = { url: directUrl, type: "mp4" };
-      }
+      // Normalize URL for current environment (preview/dev => direct MP4 when needed)
+      videoData = normalizeVideoForEnv(videoData);
 
       sourceUrlRef.current = videoData.url;
       sourceTypeRef.current = videoData.type;
