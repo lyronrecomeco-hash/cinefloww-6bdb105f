@@ -18,6 +18,7 @@ const hasSafeAncestor = (node: Node) => {
   let el: HTMLElement | null = node instanceof HTMLElement ? node : node.parentElement;
   while (el) {
     if (SAFE_TAGS.has(el.tagName)) return true;
+    if (el.matches("input, textarea, select, [contenteditable='true'], [data-allow-zero]")) return true;
     el = el.parentElement;
   }
   return false;
@@ -37,9 +38,10 @@ const shouldRemoveTextNode = (node: Text) => {
 
   if (!isInsideRoot(node)) return true;
 
-  // Corrige zeros fantasmas em áreas críticas da UI sem tocar no conteúdo normal
+  // Áreas mais afetadas por injeções externas
   if (parent.id === "root") return true;
   if (parent.closest("nav,header")) return true;
+  if (parent.closest(".fixed,.absolute,[style*='position:fixed'],[style*='position: fixed'],[style*='position:absolute'],[style*='position: absolute']")) return true;
 
   return false;
 };
@@ -97,10 +99,10 @@ export function initAdArtifactCleaner() {
     childList: true,
     characterData: true,
     subtree: true,
-    attributes: true,
   });
 
   const intervalId = window.setInterval(sweepBodyArtifacts, 1000);
   window.addEventListener("beforeunload", () => window.clearInterval(intervalId), { once: true });
 }
+
 

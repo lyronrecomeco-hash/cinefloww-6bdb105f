@@ -258,7 +258,7 @@ const EpisodeCard = forwardRef<HTMLDivElement, {
           )}
         </div>
         <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-xs text-muted-foreground mb-1 sm:mb-2">
-          {episode.runtime && (
+          {(episode.runtime ?? 0) > 0 && (
             <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{episode.runtime}min</span>
           )}
           {episode.air_date && <span>{new Date(episode.air_date).toLocaleDateString("pt-BR")}</span>}

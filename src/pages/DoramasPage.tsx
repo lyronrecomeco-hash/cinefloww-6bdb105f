@@ -111,7 +111,7 @@ const DoramasPage = () => {
                       </div>
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                    {item.vote_average && item.vote_average > 0 && (
+                    {(item.vote_average ?? 0) > 0 && (
                       <div className="absolute top-1.5 right-1.5 bg-black/70 backdrop-blur-sm px-1.5 py-0.5 rounded-lg">
                         <span className="text-[10px] font-bold text-yellow-400">★ {item.vote_average.toFixed(1)}</span>
                       </div>

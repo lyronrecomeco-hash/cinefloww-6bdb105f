@@ -166,7 +166,7 @@ const EmbedPlayer = () => {
         <div className="absolute top-0 left-0 right-0 px-4 sm:px-6 pt-4 sm:pt-5 flex items-center gap-3 z-20" onClick={e => e.stopPropagation()}>
           <div className="flex-1 min-w-0">
             {title && <p className="text-sm sm:text-base font-semibold text-white truncate">{title}</p>}
-            {season && episode && (
+            {season != null && episode != null && (
               <p className="text-[10px] text-white/40 font-medium">Temporada {season} · Episódio {episode}</p>
             )}
           </div>
