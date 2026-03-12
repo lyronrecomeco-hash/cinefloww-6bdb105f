@@ -1,6 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
 
-// Generate a persistent device ID for anonymous watch tracking
 function getDeviceId(): string {
   let id = localStorage.getItem("cineflow_device_id");
   if (!id) {
@@ -64,6 +63,33 @@ export async function getWatchProgress(
     content_type: data.content_type,
     season: data.season ?? undefined,
     episode: data.episode ?? undefined,
+    progress_seconds: Number(data.progress_seconds),
+    duration_seconds: Number(data.duration_seconds),
+    completed: data.completed,
+  };
+}
+
+export async function getLatestSeriesProgress(
+  tmdb_id: number,
+  content_type: string
+): Promise<{ season: number; episode: number; progress_seconds: number; duration_seconds: number; completed: boolean } | null> {
+  const device_id = getDeviceId();
+  const { data } = await supabase
+    .from("watch_progress")
+    .select("season, episode, progress_seconds, duration_seconds, completed, updated_at")
+    .eq("device_id", device_id)
+    .eq("tmdb_id", tmdb_id)
+    .eq("content_type", content_type)
+    .not("season", "is", null)
+    .not("episode", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!data || data.season == null || data.episode == null) return null;
+  return {
+    season: data.season,
+    episode: data.episode,
     progress_seconds: Number(data.progress_seconds),
     duration_seconds: Number(data.duration_seconds),
     completed: data.completed,

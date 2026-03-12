@@ -5,6 +5,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Play, Star, Clock, Calendar, Users, Tv, List, MessageSquare, Flag, Share2, BookmarkPlus, BookmarkCheck, TimerIcon } from "lucide-react";
 import { prefetchVideoUrl } from "@/hooks/usePlayerEngine";
+import { getLatestSeriesProgress } from "@/lib/watchProgress";
 
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -54,7 +55,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
   const [showAdGate, setShowAdGate] = useState(false);
   const [adGateCallback, setAdGateCallback] = useState<(() => void) | null>(null);
-  
+  const [continueEp, setContinueEp] = useState<{ season: number; episode: number } | null>(null);
 
   // Check watch_disabled setting
   useEffect(() => {
@@ -99,12 +100,36 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     }
   }, [detail, type, activeProfileId]);
 
+  // Fetch series continue progress
+  useEffect(() => {
+    if (!detail || type !== "tv") { setContinueEp(null); return; }
+    getLatestSeriesProgress(detail.id, "series").then((prog) => {
+      if (!prog) { setContinueEp(null); return; }
+      // If completed, suggest next episode
+      if (prog.completed) {
+        setContinueEp({ season: prog.season, episode: prog.episode + 1 });
+      } else if (prog.progress_seconds > 30) {
+        setContinueEp({ season: prog.season, episode: prog.episode });
+      } else {
+        setContinueEp(null);
+      }
+    }).catch(() => setContinueEp(null));
+  }, [detail, type]);
+
   // Prefetch video URL as soon as details load (before user clicks play)
   useEffect(() => {
     if (!detail || isFutureRelease || watchDisabled) return;
     const ct = type === "tv" ? "series" : "movie";
-    prefetchVideoUrl(String(detail.id), ct);
-  }, [detail, type, isFutureRelease, watchDisabled]);
+    // For series with continue progress, prefetch that specific episode
+    if (type === "tv" && continueEp) {
+      prefetchVideoUrl(String(detail.id), ct, String(continueEp.season), String(continueEp.episode));
+    } else if (type === "tv") {
+      // Default: prefetch S01E01
+      prefetchVideoUrl(String(detail.id), ct, "1", "1");
+    } else {
+      prefetchVideoUrl(String(detail.id), ct);
+    }
+  }, [detail, type, isFutureRelease, watchDisabled, continueEp]);
 
   useEffect(() => {
     let cancelled = false;
@@ -244,6 +269,13 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     setShowAudioModal(false);
     const params = new URLSearchParams({ title: getDisplayTitle(detail), audio });
     if (imdbId) params.set("imdb", imdbId);
+    // For series: add season/episode (continue or default S01E01)
+    if (type === "tv") {
+      const s = continueEp?.season || 1;
+      const e = continueEp?.episode || 1;
+      params.set("s", String(s));
+      params.set("e", String(e));
+    }
     const playerSlug = toSlug(getDisplayTitle(detail), detail.id);
     navigate(`/player/${type === "tv" ? "series" : "movie"}/${playerSlug}?${params.toString()}`);
   };
@@ -375,7 +407,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                   className="flex items-center gap-2 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground font-semibold text-xs sm:text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25 disabled:opacity-50 disabled:pointer-events-none"
                 >
                   <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
-                  Assistir Agora
+                  {type === "tv" && continueEp ? `Continuar T${continueEp.season} EP ${continueEp.episode}` : "Assistir Agora"}
                 </button>
               )}
               {trailer && (
