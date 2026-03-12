@@ -63,27 +63,35 @@ function isZeroArtifact(node: Text): boolean {
   if (SKIP_TAGS.has(parent.tagName)) return false;
   if (hasProtectedAncestor(parent)) return false;
 
-  // If parent is inside #root and has meaningful React structure,
-  // be more careful: only clean if parent's ENTIRE text is zero
   const root = document.getElementById("root");
   if (root && root.contains(parent)) {
-    // Parent's total text must also be just zeros
-    if (!isZeroOnly(parent.textContent)) return false;
-    // If parent has interactive or semantic attributes, skip
+    // Interactive / semantic elements — never clean
     if (parent.hasAttribute("onClick") || parent.hasAttribute("href")) return false;
     if (parent.tagName === "BUTTON" || parent.tagName === "A") return false;
-    // Check grandparent — if it has real content beyond zero, skip this
-    const gp = parent.parentElement;
-    if (gp && gp.childElementCount > 1) {
-      // This is one of several siblings — likely a bare injected wrapper
-      // Only clean if the parent itself looks injected (small, no meaningful attrs)
-      const attrs = Array.from(parent.attributes).map((a) => a.name);
-      const hasMeaningfulAttr = attrs.some(
-        (a) => a !== "style" && a !== "data-zero-cleaned" && !a.startsWith("data-zero")
-      );
-      if (hasMeaningfulAttr && parent.className && parent.className.length > 5) return false;
+
+    // CASE 1: Text node is a loose child among element siblings (e.g. between <nav> and <section>)
+    // This is the classic React numeric leak / ad-injected artifact pattern
+    if (parent.childElementCount > 0) {
+      // The text node sits among element children — it's a stray text node
+      // Check that this specific text node is not the only meaningful content
+      const siblingElements = parent.children.length;
+      if (siblingElements >= 1) return true; // loose "0" among real elements = artifact
     }
-    return true;
+
+    // CASE 2: Parent's ENTIRE text is zero (small wrapper with only "0")
+    if (isZeroOnly(parent.textContent)) {
+      const gp = parent.parentElement;
+      if (gp && gp.childElementCount > 1) {
+        const attrs = Array.from(parent.attributes).map((a) => a.name);
+        const hasMeaningfulAttr = attrs.some(
+          (a) => a !== "style" && a !== "data-zero-cleaned" && !a.startsWith("data-zero")
+        );
+        if (hasMeaningfulAttr && parent.className && parent.className.length > 5) return false;
+      }
+      return true;
+    }
+
+    return false;
   }
 
   // Outside #root — always clean
