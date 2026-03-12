@@ -339,10 +339,3 @@ img {
   content: none !important;
 }
 
-/*
- * CSS defense: hide any stray text/elements injected at body level by ad scripts.
- * Body direct children that aren't #root, script, style, link get hidden.
- */
-body > :not(#root):not(script):not(style):not(link):not(meta):not(noscript):not(iframe):not([data-radix-portal]):not([role="dialog"]):not([data-sonner-toaster]) {
-  display: none !important;
-}
