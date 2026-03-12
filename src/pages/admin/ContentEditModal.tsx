@@ -161,9 +161,9 @@ const ContentEditModal = ({ item, onClose, onSave }: ContentEditModalProps) => {
           <div className="flex flex-wrap gap-2 text-[10px]">
             <span className="px-2 py-1 rounded-lg bg-white/5 border border-white/10">TMDB: {item.tmdb_id}</span>
             {item.imdb_id && <span className="px-2 py-1 rounded-lg bg-white/5 border border-white/10">IMDB: {item.imdb_id}</span>}
-            {item.vote_average && <span className="px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">★ {Number(item.vote_average).toFixed(1)}</span>}
+            {Number(item.vote_average) > 0 && <span className="px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400">★ {Number(item.vote_average).toFixed(1)}</span>}
             {item.release_date && <span className="px-2 py-1 rounded-lg bg-white/5 border border-white/10">{item.release_date.split("-")[0]}</span>}
-            {item.runtime && <span className="px-2 py-1 rounded-lg bg-white/5 border border-white/10">{item.runtime}min</span>}
+            {Number(item.runtime) > 0 && <span className="px-2 py-1 rounded-lg bg-white/5 border border-white/10">{item.runtime}min</span>}
             <span className="px-2 py-1 rounded-lg bg-white/5 border border-white/10 capitalize">{item.content_type}</span>
           </div>
 
