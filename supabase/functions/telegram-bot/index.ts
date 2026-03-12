@@ -379,23 +379,76 @@ async function handleApiAction(action: string, body: any): Promise<Response> {
   }
 }
 
+// --- Telegram API helpers for channel management ---
+async function getChat(chatIdOrUsername: string | number): Promise<any> {
+  const res = await fetch(`${TELEGRAM_API}/getChat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatIdOrUsername }),
+  });
+  const data = await res.json();
+  return data.ok ? data.result : null;
+}
+
+async function getChatMemberCount(chatIdOrUsername: string | number): Promise<number> {
+  const res = await fetch(`${TELEGRAM_API}/getChatMemberCount`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chat_id: chatIdOrUsername }),
+  });
+  const data = await res.json();
+  return data.ok ? data.result : 0;
+}
+
+async function joinChat(inviteLink: string): Promise<any> {
+  // Bot can't join via invite link — it needs to be added by admin
+  // But we can try getChat to check if bot is already member
+  return null;
+}
+
+// Save managed channels to site_settings
+async function getManagedChannels(): Promise<any[]> {
+  const { data } = await supabase
+    .from("site_settings")
+    .select("value")
+    .eq("key", "tg_managed_channels")
+    .maybeSingle();
+  if (!data?.value) return [];
+  return (data.value as any)?.channels || [];
+}
+
+async function saveManagedChannels(channels: any[]) {
+  await supabase.from("site_settings").upsert(
+    { key: "tg_managed_channels", value: { channels } as any },
+    { onConflict: "key" }
+  );
+}
+
 // --- Main handlers (ingestor bot) ---
 async function handleCommand(chatId: number, userId: number, text: string) {
-  const cmd = text.split(" ")[0].toLowerCase();
-  const args = text.substring(cmd.length).trim();
+  const cmd = text.split(" ")[0].toLowerCase().split("@")[0]; // handle /cmd@botname
+  const args = text.substring(text.split(" ")[0].length).trim();
 
   switch (cmd) {
     case "/start":
       await sendMessage(chatId,
-        "🎬 <b>Bot LyneFlix</b>\n\n" +
-        "Bot oficial de gestão da LyneFlix.\n\n" +
-        "📌 <b>Comandos:</b>\n" +
+        "<b>Bot LyneFlix - Painel de Controle</b>\n\n" +
+        "Gerencie tudo pelo privado.\n\n" +
+        "<b>Sistema:</b>\n" +
         "/status — Resumo do sistema\n" +
         "/apis — Status dos provedores\n" +
-        "/addapi [nome] [url] — Adicionar provedor\n" +
+        "/addapi — Adicionar provedor\n" +
         "/raspar — Iniciar raspagem em lote\n" +
-        "/raspar_parar — Parar raspagem\n" +
-        "/cancelar — Cancela operação atual"
+        "/raspar_parar — Parar raspagem\n\n" +
+        "<b>Canal:</b>\n" +
+        "/enviar — Enviar mensagem ao canal principal\n" +
+        "/canais — Listar canais gerenciados\n" +
+        "/addcanal — Adicionar canal (envie o @ ou link)\n" +
+        "/infocanal — Info de um canal\n" +
+        "/msgcanal — Enviar msg a um canal gerenciado\n\n" +
+        "<b>Descoberta:</b>\n" +
+        "/buscar — Buscar canais publicos de filmes/series\n\n" +
+        "/cancelar — Cancela operacao atual"
       );
       break;
 
@@ -405,7 +458,7 @@ async function handleCommand(chatId: number, userId: number, text: string) {
         await deleteMessages(chatId, session.lastMsgIds);
         await setSession(chatId, null);
       }
-      await sendMessage(chatId, "❌ Operação cancelada.");
+      await sendMessage(chatId, "Operacao cancelada.");
       break;
     }
 
@@ -416,18 +469,19 @@ async function handleCommand(chatId: number, userId: number, text: string) {
       ]);
       
       const config = await getChannelConfig();
+      const managed = await getManagedChannels();
       
       await sendMessage(chatId,
-        "📊 <b>Status do Sistema:</b>\n\n" +
-        `<b>Catálogo:</b>\n` +
-        `📚 Total conteúdo: <b>${totalContent || 0}</b>\n` +
-        `🔗 Links cacheados: <b>${cachedVideos || 0}</b>\n` +
-        `📈 Cobertura: <b>${totalContent ? ((cachedVideos || 0) / (totalContent as number) * 100).toFixed(1) : 0}%</b>\n\n` +
+        "<b>Status do Sistema</b>\n\n" +
+        `<b>Catalogo:</b>\n` +
+        `Total conteudo: <b>${totalContent || 0}</b>\n` +
+        `Links cacheados: <b>${cachedVideos || 0}</b>\n` +
+        `Cobertura: <b>${totalContent ? ((cachedVideos || 0) / (totalContent as number) * 100).toFixed(1) : 0}%</b>\n\n` +
         `<b>Canal Telegram:</b>\n` +
-        `📢 Canal: ${config?.channel_username || "Não configurado"}\n` +
-        `🤖 Bot: ${config?.bot_username || "Não configurado"}\n` +
-        `🔔 Auto-notificações: ${config?.auto_notify_new_content ? "✅ Ativas" : "❌ Desativadas"}\n` +
-        `👋 Boas-vindas: ${config?.welcome_enabled ? "✅ Ativado" : "❌ Desativado"}`
+        `Canal: ${config?.channel_username || "Nao configurado"}\n` +
+        `Auto-notificacoes: ${config?.auto_notify_new_content ? "Ativas" : "Desativadas"}\n` +
+        `Boas-vindas: ${config?.welcome_enabled ? "Ativado" : "Desativado"}\n` +
+        `Canais gerenciados: <b>${managed.length}</b>`
       );
       break;
     }
@@ -439,26 +493,26 @@ async function handleCommand(chatId: number, userId: number, text: string) {
         .order("priority", { ascending: true });
       
       if (!providers?.length) {
-        await sendMessage(chatId, "❌ Nenhum provedor cadastrado.");
+        await sendMessage(chatId, "Nenhum provedor cadastrado.");
         return;
       }
 
-      let msg = "🌐 <b>Provedores de Raspagem:</b>\n\n";
+      let msg = "<b>Provedores de Raspagem:</b>\n\n";
       providers.forEach((p, i) => {
-        const statusIcon = p.health_status === "healthy" ? "🟢" : p.health_status === "degraded" ? "🟡" : p.health_status === "down" ? "🔴" : "⚪";
+        const statusIcon = p.health_status === "healthy" ? "ON" : p.health_status === "degraded" ? "WARN" : p.health_status === "down" ? "OFF" : "?";
         const rate = p.success_count + p.fail_count > 0 
           ? ((p.success_count / (p.success_count + p.fail_count)) * 100).toFixed(0) 
           : "N/A";
-        msg += `${i + 1}. ${statusIcon} <b>${p.name}</b> [P${p.priority}]\n`;
+        msg += `${i + 1}. [${statusIcon}] <b>${p.name}</b> [P${p.priority}]\n`;
         msg += `   ${p.base_url}\n`;
-        msg += `   ✅ ${p.success_count} | ❌ ${p.fail_count} | Taxa: ${rate}%\n`;
-        msg += `   ${p.active ? "🟢 Ativo" : "🔴 Inativo"}\n\n`;
+        msg += `   OK: ${p.success_count} | FAIL: ${p.fail_count} | Taxa: ${rate}%\n`;
+        msg += `   ${p.active ? "Ativo" : "Inativo"}\n\n`;
       });
 
       const buttons = providers.map(p => ([
-        { text: `${p.active ? "⏸" : "▶️"} ${p.name}`, callback_data: `toggle_provider_${p.id}` }
+        { text: `${p.active ? "Desativar" : "Ativar"} ${p.name}`, callback_data: `toggle_provider_${p.id}` }
       ]));
-      buttons.push([{ text: "🔄 Resetar contadores", callback_data: "reset_provider_stats" }]);
+      buttons.push([{ text: "Resetar contadores", callback_data: "reset_provider_stats" }]);
 
       await sendMessage(chatId, msg, { inline_keyboard: buttons });
       break;
@@ -467,14 +521,14 @@ async function handleCommand(chatId: number, userId: number, text: string) {
     case "/addapi": {
       if (!args) {
         await sendMessage(chatId,
-          "📝 <b>Formato:</b>\n" +
+          "<b>Formato:</b>\n" +
           "<code>/addapi Nome|https://url.com|/embed/movie/{tmdb_id}|/embed/tv/{tmdb_id}/{season}/{episode}</code>"
         );
         return;
       }
       const parts = args.split("|").map(p => p.trim());
       if (parts.length < 2) {
-        await sendMessage(chatId, "❌ Formato inválido. Use: Nome|URL base");
+        await sendMessage(chatId, "Formato invalido. Use: Nome|URL base");
         return;
       }
 
@@ -500,9 +554,271 @@ async function handleCommand(chatId: number, userId: number, text: string) {
       });
 
       await sendMessage(chatId,
-        `✅ <b>Provedor "${name}" adicionado!</b>\n\n` +
-        `🔗 ${baseUrl}\n📊 Prioridade: ${newPriority}\n\nUse /apis para ver todos.`
+        `<b>Provedor "${name}" adicionado!</b>\n\n` +
+        `${baseUrl}\nPrioridade: ${newPriority}\n\nUse /apis para ver todos.`
       );
+      break;
+    }
+
+    // ==========================================
+    // CHANNEL MANAGEMENT COMMANDS
+    // ==========================================
+
+    case "/enviar": {
+      if (!args) {
+        // Enter send mode — next message will be forwarded to channel
+        const session: UserSession = { step: "awaiting_channel_msg", data: {}, lastMsgIds: [] };
+        await setSession(chatId, session);
+        await clearAndSend(chatId, session, 
+          "<b>Enviar mensagem ao canal principal</b>\n\n" +
+          "Digite a mensagem que deseja enviar ao canal.\n" +
+          "Suporta HTML.\n\n" +
+          "Use /cancelar para cancelar."
+        );
+        await setSession(chatId, session);
+        return;
+      }
+      // Direct send with args
+      const config = await getChannelConfig();
+      const target = config?.channel_id || config?.channel_username;
+      if (!target) {
+        await sendMessage(chatId, "Canal principal nao configurado.");
+        return;
+      }
+      await sendMessage(target, args);
+      await sendMessage(chatId, "Mensagem enviada ao canal!");
+      break;
+    }
+
+    case "/canais": {
+      const managed = await getManagedChannels();
+      if (managed.length === 0) {
+        await sendMessage(chatId, 
+          "<b>Canais Gerenciados</b>\n\nNenhum canal adicionado.\nUse /addcanal @username para adicionar."
+        );
+        return;
+      }
+      
+      let msg = "<b>Canais Gerenciados:</b>\n\n";
+      const buttons: any[][] = [];
+      managed.forEach((ch, i) => {
+        msg += `${i + 1}. <b>${ch.title}</b>\n`;
+        msg += `   ${ch.username ? "@" + ch.username : ch.id}\n`;
+        msg += `   Tipo: ${ch.type} | Membros: ${ch.member_count || "?"}\n\n`;
+        buttons.push([
+          { text: `Enviar msg: ${ch.title}`, callback_data: `msg_channel_${ch.id}` },
+          { text: `Remover`, callback_data: `rm_channel_${ch.id}` },
+        ]);
+      });
+      
+      await sendMessage(chatId, msg, { inline_keyboard: buttons });
+      break;
+    }
+
+    case "/addcanal": {
+      if (!args) {
+        await sendMessage(chatId, 
+          "<b>Adicionar Canal</b>\n\n" +
+          "Envie o @ do canal ou link:\n" +
+          "<code>/addcanal @nome_do_canal</code>\n" +
+          "<code>/addcanal https://t.me/nome_do_canal</code>\n\n" +
+          "O bot precisa ser admin do canal para enviar mensagens."
+        );
+        return;
+      }
+
+      let channelRef = args.trim();
+      // Extract username from t.me link
+      const tmeMatch = channelRef.match(/(?:t\.me|telegram\.me)\/([a-zA-Z0-9_]+)/);
+      if (tmeMatch) channelRef = "@" + tmeMatch[1];
+      if (!channelRef.startsWith("@") && !channelRef.startsWith("-")) {
+        channelRef = "@" + channelRef;
+      }
+
+      const chatInfo = await getChat(channelRef);
+      if (!chatInfo) {
+        await sendMessage(chatId, 
+          `Nao foi possivel acessar <b>${channelRef}</b>.\n\n` +
+          "Verifique se:\n" +
+          "- O canal/grupo e publico\n" +
+          "- O bot e admin do canal\n" +
+          "- O username esta correto"
+        );
+        return;
+      }
+
+      const memberCount = await getChatMemberCount(chatInfo.id);
+      
+      const channelData = {
+        id: chatInfo.id,
+        title: chatInfo.title || channelRef,
+        username: chatInfo.username || null,
+        type: chatInfo.type,
+        member_count: memberCount,
+        added_at: new Date().toISOString(),
+      };
+
+      const managed = await getManagedChannels();
+      const exists = managed.find((c: any) => c.id === chatInfo.id);
+      if (!exists) {
+        managed.push(channelData);
+        await saveManagedChannels(managed);
+      }
+
+      await sendMessage(chatId,
+        `<b>Canal adicionado!</b>\n\n` +
+        `<b>${chatInfo.title}</b>\n` +
+        `Tipo: ${chatInfo.type}\n` +
+        `Username: ${chatInfo.username ? "@" + chatInfo.username : "Privado"}\n` +
+        `Membros: ${memberCount}\n` +
+        `ID: <code>${chatInfo.id}</code>\n\n` +
+        `Use /msgcanal ${chatInfo.id} para enviar mensagens.`,
+        {
+          inline_keyboard: [
+            [{ text: "Enviar mensagem de teste", callback_data: `test_channel_${chatInfo.id}` }],
+          ]
+        }
+      );
+      break;
+    }
+
+    case "/infocanal": {
+      if (!args) {
+        await sendMessage(chatId, "Use: <code>/infocanal @username</code>");
+        return;
+      }
+
+      let channelRef = args.trim();
+      const tmeMatch = channelRef.match(/(?:t\.me|telegram\.me)\/([a-zA-Z0-9_]+)/);
+      if (tmeMatch) channelRef = "@" + tmeMatch[1];
+      if (!channelRef.startsWith("@") && !channelRef.startsWith("-")) {
+        channelRef = "@" + channelRef;
+      }
+
+      const chatInfo = await getChat(channelRef);
+      if (!chatInfo) {
+        await sendMessage(chatId, `Nao consegui acessar <b>${channelRef}</b>. Verifique se o canal e publico.`);
+        return;
+      }
+
+      const memberCount = await getChatMemberCount(chatInfo.id);
+
+      await sendMessage(chatId,
+        `<b>Info do Canal</b>\n\n` +
+        `<b>${chatInfo.title}</b>\n` +
+        `Tipo: ${chatInfo.type}\n` +
+        `Username: ${chatInfo.username ? "@" + chatInfo.username : "N/A"}\n` +
+        `Membros: ${memberCount}\n` +
+        `ID: <code>${chatInfo.id}</code>\n` +
+        (chatInfo.description ? `\nDescricao: ${chatInfo.description.substring(0, 200)}` : ""),
+        {
+          inline_keyboard: [
+            [{ text: "Adicionar aos gerenciados", callback_data: `add_ch_${chatInfo.id}_${chatInfo.username || ""}` }],
+          ]
+        }
+      );
+      break;
+    }
+
+    case "/msgcanal": {
+      if (!args) {
+        // Show list of managed channels to choose
+        const managed = await getManagedChannels();
+        if (managed.length === 0) {
+          await sendMessage(chatId, "Nenhum canal gerenciado. Use /addcanal primeiro.");
+          return;
+        }
+        const buttons = managed.map((ch: any) => ([
+          { text: ch.title, callback_data: `msg_channel_${ch.id}` }
+        ]));
+        await sendMessage(chatId, "<b>Selecione o canal:</b>", { inline_keyboard: buttons });
+        return;
+      }
+      
+      // Parse: /msgcanal <id> <message>
+      const spaceIdx = args.indexOf(" ");
+      if (spaceIdx === -1) {
+        // Only channel ID, enter session
+        const session: UserSession = { step: "awaiting_managed_msg", data: { target_channel: args.trim() }, lastMsgIds: [] };
+        await setSession(chatId, session);
+        await clearAndSend(chatId, session,
+          `<b>Enviar mensagem ao canal</b>\n\nDigite a mensagem (suporta HTML).\nUse /cancelar para cancelar.`
+        );
+        await setSession(chatId, session);
+        return;
+      }
+      
+      const targetCh = args.substring(0, spaceIdx).trim();
+      const msgText = args.substring(spaceIdx + 1).trim();
+      
+      try {
+        await sendMessage(targetCh, msgText);
+        await sendMessage(chatId, "Mensagem enviada!");
+      } catch (err) {
+        await sendMessage(chatId, `Erro ao enviar: ${err}`);
+      }
+      break;
+    }
+
+    case "/buscar": {
+      const query = args || "filmes series";
+      // Use Telegram's username resolution to check known public channels
+      const knownChannels = [
+        "@filmesetc", "@filmeshd_br", "@seriesehd", "@filmesgratis",
+        "@canalfilmes", "@filmesseries", "@saborfilmes", "@filmeseseries",
+        "@filmeshdgratis", "@seriesfilmes", "@filmesnovos", "@lancamentosfilmes",
+        "@cinebrasil", "@filmeseseriesbr", "@telecinefilmes", "@filmesdeserie",
+        "@seriesbrasileiras", "@animesbrasil", "@animesgratis", "@doramas_br",
+      ];
+
+      await sendMessage(chatId, `<b>Buscando canais publicos...</b>\nVerificando ${knownChannels.length} canais conhecidos...`);
+
+      const found: any[] = [];
+      for (const username of knownChannels) {
+        try {
+          const info = await getChat(username);
+          if (info) {
+            const count = await getChatMemberCount(info.id);
+            found.push({
+              id: info.id,
+              title: info.title,
+              username: info.username,
+              type: info.type,
+              member_count: count,
+              description: info.description?.substring(0, 100) || "",
+            });
+          }
+        } catch {}
+        // Small delay to avoid rate limit
+        await new Promise(r => setTimeout(r, 200));
+      }
+
+      if (found.length === 0) {
+        await sendMessage(chatId, "Nenhum canal encontrado ativo no momento.");
+        return;
+      }
+
+      // Sort by member count
+      found.sort((a, b) => b.member_count - a.member_count);
+
+      let msg = `<b>Canais Publicos Encontrados (${found.length}):</b>\n\n`;
+      const buttons: any[][] = [];
+      
+      found.forEach((ch, i) => {
+        msg += `${i + 1}. <b>${ch.title}</b>\n`;
+        msg += `   @${ch.username} | ${ch.member_count} membros\n`;
+        if (ch.description) msg += `   ${ch.description}\n`;
+        msg += "\n";
+        
+        if (i < 10) { // Limit buttons to first 10
+          buttons.push([
+            { text: `Info: ${ch.title}`, callback_data: `info_ch_${ch.username}` },
+            { text: `Adicionar`, callback_data: `add_ch_${ch.id}_${ch.username}` },
+          ]);
+        }
+      });
+
+      await sendMessage(chatId, msg, buttons.length > 0 ? { inline_keyboard: buttons } : undefined);
       break;
     }
 
@@ -527,8 +843,8 @@ async function handleCommand(chatId: number, userId: number, text: string) {
       const missing = (total || 0) - (cached || 0);
 
       await sendMessage(chatId,
-        `🚀 <b>Iniciando raspagem!</b>\n\n` +
-        `📚 Catálogo: ${total}\n🔗 Cacheados: ${cached}\n❓ Faltando: ${missing}\n\n` +
+        `<b>Iniciando raspagem!</b>\n\n` +
+        `Catalogo: ${total}\nCacheados: ${cached}\nFaltando: ${missing}\n\n` +
         `Use /raspar_parar para cancelar.`
       );
 
@@ -557,15 +873,54 @@ async function handleCommand(chatId: number, userId: number, text: string) {
           { key: `scrape_session_${sessionId}`, value: { cancelled: true } as any },
           { onConflict: "key" }
         );
-        await sendMessage(chatId, "⏹ <b>Sinal de parada enviado.</b>");
+        await sendMessage(chatId, "<b>Sinal de parada enviado.</b>");
       } else {
-        await sendMessage(chatId, "❌ Nenhuma raspagem ativa.");
+        await sendMessage(chatId, "Nenhuma raspagem ativa.");
       }
       break;
     }
 
+    default: {
+      // Check if user is in a session (awaiting input)
+      const session = await getSession(chatId);
+      if (session) {
+        await handleSessionInput(chatId, userId, text, session);
+        return;
+      }
+      await sendMessage(chatId, "Comando nao reconhecido. Use /start para ver os comandos.");
+    }
+  }
+}
+
+// Handle session-based inputs (multi-step flows)
+async function handleSessionInput(chatId: number, userId: number, text: string, session: UserSession) {
+  switch (session.step) {
+    case "awaiting_channel_msg": {
+      const config = await getChannelConfig();
+      const target = config?.channel_id || config?.channel_username;
+      if (!target) {
+        await sendMessage(chatId, "Canal principal nao configurado.");
+        await setSession(chatId, null);
+        return;
+      }
+      await sendMessage(target, text);
+      await clearAndSend(chatId, session, "Mensagem enviada ao canal!");
+      await setSession(chatId, null);
+      break;
+    }
+    case "awaiting_managed_msg": {
+      const targetChannel = session.data.target_channel;
+      try {
+        await sendMessage(targetChannel, text);
+        await clearAndSend(chatId, session, "Mensagem enviada!");
+      } catch (err) {
+        await clearAndSend(chatId, session, `Erro ao enviar: ${err}`);
+      }
+      await setSession(chatId, null);
+      break;
+    }
     default:
-      await sendMessage(chatId, "❓ Comando não reconhecido. Use /start para ver os comandos.");
+      await setSession(chatId, null);
   }
 }
 
@@ -589,7 +944,7 @@ async function handleCallback(chatId: number, userId: number, callbackData: stri
       await supabase.from("scraping_providers")
         .update({ active: !prov.active })
         .eq("id", providerId);
-      await sendMessage(chatId, `${prov.active ? "⏸" : "▶️"} <b>${prov.name}</b> ${prov.active ? "desativado" : "ativado"}!`);
+      await sendMessage(chatId, `<b>${prov.name}</b> ${prov.active ? "desativado" : "ativado"}!`);
     }
   }
 
@@ -597,7 +952,84 @@ async function handleCallback(chatId: number, userId: number, callbackData: stri
     await supabase.from("scraping_providers")
       .update({ success_count: 0, fail_count: 0, health_status: "unknown" })
       .neq("id", "00000000-0000-0000-0000-000000000000");
-    await sendMessage(chatId, "🔄 Contadores resetados!");
+    await sendMessage(chatId, "Contadores resetados!");
+  }
+
+  // --- Channel management callbacks ---
+  if (callbackData.startsWith("msg_channel_")) {
+    const targetId = callbackData.replace("msg_channel_", "");
+    const session: UserSession = { step: "awaiting_managed_msg", data: { target_channel: targetId }, lastMsgIds: [] };
+    await setSession(chatId, session);
+    await clearAndSend(chatId, session,
+      `<b>Enviar mensagem ao canal</b>\n\nDigite a mensagem (suporta HTML).\nUse /cancelar para cancelar.`
+    );
+    await setSession(chatId, session);
+  }
+
+  if (callbackData.startsWith("rm_channel_")) {
+    const removeId = callbackData.replace("rm_channel_", "");
+    const managed = await getManagedChannels();
+    const updated = managed.filter((c: any) => String(c.id) !== removeId);
+    await saveManagedChannels(updated);
+    await sendMessage(chatId, "Canal removido da lista.");
+  }
+
+  if (callbackData.startsWith("test_channel_")) {
+    const testId = callbackData.replace("test_channel_", "");
+    try {
+      await sendMessage(testId, "<b>Mensagem de teste da LyneFlix Bot</b>\n\nSe voce esta vendo esta mensagem, o bot esta funcionando corretamente neste canal.");
+      await sendMessage(chatId, "Mensagem de teste enviada!");
+    } catch (err) {
+      await sendMessage(chatId, `Erro ao enviar teste: ${err}`);
+    }
+  }
+
+  if (callbackData.startsWith("add_ch_")) {
+    const parts = callbackData.replace("add_ch_", "").split("_");
+    const chId = parts[0];
+    const chUsername = parts.slice(1).join("_");
+    
+    const chatInfo = await getChat(chUsername ? "@" + chUsername : chId);
+    if (chatInfo) {
+      const memberCount = await getChatMemberCount(chatInfo.id);
+      const channelData = {
+        id: chatInfo.id,
+        title: chatInfo.title || chUsername || chId,
+        username: chatInfo.username || null,
+        type: chatInfo.type,
+        member_count: memberCount,
+        added_at: new Date().toISOString(),
+      };
+      const managed = await getManagedChannels();
+      if (!managed.find((c: any) => c.id === chatInfo.id)) {
+        managed.push(channelData);
+        await saveManagedChannels(managed);
+      }
+      await sendMessage(chatId, `<b>${chatInfo.title}</b> adicionado aos canais gerenciados!`);
+    } else {
+      await sendMessage(chatId, "Nao foi possivel acessar o canal.");
+    }
+  }
+
+  if (callbackData.startsWith("info_ch_")) {
+    const username = callbackData.replace("info_ch_", "");
+    const chatInfo = await getChat("@" + username);
+    if (chatInfo) {
+      const memberCount = await getChatMemberCount(chatInfo.id);
+      await sendMessage(chatId,
+        `<b>${chatInfo.title}</b>\n\n` +
+        `Username: @${chatInfo.username}\n` +
+        `Tipo: ${chatInfo.type}\n` +
+        `Membros: ${memberCount}\n` +
+        `ID: <code>${chatInfo.id}</code>\n` +
+        (chatInfo.description ? `\n${chatInfo.description.substring(0, 300)}` : ""),
+        {
+          inline_keyboard: [
+            [{ text: "Adicionar aos gerenciados", callback_data: `add_ch_${chatInfo.id}_${chatInfo.username}` }],
+          ]
+        }
+      );
+    }
   }
 }
 
@@ -715,6 +1147,12 @@ Deno.serve(async (req: Request) => {
     } else if (message) {
       if (message.text?.startsWith("/")) {
         await handleCommand(chatId, userId, message.text);
+      } else if (message.text && message.chat?.type === "private") {
+        // Check for active session (non-command text input)
+        const session = await getSession(chatId);
+        if (session) {
+          await handleSessionInput(chatId, userId, message.text, session);
+        }
       }
     }
 
