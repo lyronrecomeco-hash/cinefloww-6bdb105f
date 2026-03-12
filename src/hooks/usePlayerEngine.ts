@@ -65,6 +65,50 @@ function setCachedUrl(tmdbId: string, contentType: string, season: string | null
 // ── OPT 1: Prefetch API (call before player mounts) ──
 const prefetchMap = new Map<string, Promise<{ url: string; type: string } | null>>();
 
+function normalizeCineveoHost(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (host === "cinetvembed.cineveo.site" || host.endsWith(".cineveo.site") || host.endsWith(".cineveo.lat")) {
+      parsed.hostname = "cineveo.lat";
+      parsed.protocol = "https:";
+      return parsed.toString();
+    }
+  } catch {}
+  return rawUrl;
+}
+
+function deriveDirectMp4(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (!(host.includes("cineveo") || host.includes("brstream"))) return null;
+
+    if (parsed.pathname.toLowerCase().endsWith(".m3u8")) {
+      parsed.pathname = parsed.pathname.replace(/\.m3u8$/i, ".mp4");
+    }
+
+    parsed.hostname = "cineveo.lat";
+    parsed.protocol = "https:";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeVideoForEnv(video: { url: string; type: string }): { url: string; type: string } {
+  if (isProductionDomain()) return video;
+
+  // Preview/dev: prefer direct MP4 to avoid HLS CORS/manifest failures.
+  if (video.type === "m3u8") {
+    const mp4 = deriveDirectMp4(video.url);
+    if (mp4) return { url: mp4, type: "mp4" };
+  }
+
+  // Even for MP4, normalize host to cineveo.lat (stable direct playback).
+  return { url: normalizeCineveoHost(video.url), type: video.type || "mp4" };
+}
+
 export function prefetchVideoUrl(tmdbId: string, contentType: string, season?: string | null, episode?: string | null) {
   const key = `${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
   if (prefetchMap.has(key)) return prefetchMap.get(key)!;
@@ -72,7 +116,8 @@ export function prefetchVideoUrl(tmdbId: string, contentType: string, season?: s
   // Check session cache first
   const cached = getCachedUrl(tmdbId, contentType, season, episode);
   if (cached) {
-    const p = Promise.resolve(cached);
+    const normalizedCached = normalizeVideoForEnv(cached);
+    const p = Promise.resolve(normalizedCached);
     prefetchMap.set(key, p);
     return p;
   }
@@ -83,8 +128,9 @@ export function prefetchVideoUrl(tmdbId: string, contentType: string, season?: s
 
   const p = supabase.functions.invoke("extract-video", { body }).then(({ data, error }) => {
     if (error || !data?.url) return null;
-    setCachedUrl(tmdbId, contentType, season, episode, data.url, data.type || "mp4");
-    return { url: data.url, type: data.type || "mp4" };
+    const normalized = normalizeVideoForEnv({ url: data.url, type: data.type || "mp4" });
+    setCachedUrl(tmdbId, contentType, season, episode, normalized.url, normalized.type);
+    return normalized;
   }).catch(() => null);
 
   prefetchMap.set(key, p);
@@ -325,24 +371,15 @@ export function usePlayerEngine(config: EngineConfig) {
             : buildEpisodeUrl(tmdbNum, Number(season || 1), Number(episode || 1));
           videoData = { url: directUrl, type: "mp4" };
         } else {
-          videoData = { url: data.url, type: data.type || "mp4" };
+          videoData = normalizeVideoForEnv({ url: data.url, type: data.type || "mp4" });
           setCachedUrl(tmdbId, contentType, season, episode, videoData.url, videoData.type);
         }
       }
 
       if (cancelledRef.current) return;
 
-      // On non-production domains, m3u8 streams from cineveo are CORS-blocked.
-      // Convert to direct MP4 URL which works with referrerpolicy="no-referrer".
-      const isProd = isProductionDomain();
-      if (!isProd && videoData.type === "m3u8") {
-        console.log("[Engine] Non-prod: converting m3u8 to direct MP4 fallback");
-        const tmdbNum = Number(tmdbId);
-        const directUrl = contentType === "movie"
-          ? buildMovieUrl(tmdbNum)
-          : buildEpisodeUrl(tmdbNum, Number(season || 1), Number(episode || 1));
-        videoData = { url: directUrl, type: "mp4" };
-      }
+      // Normalize URL for current environment (preview/dev => direct MP4 when needed)
+      videoData = normalizeVideoForEnv(videoData);
 
       sourceUrlRef.current = videoData.url;
       sourceTypeRef.current = videoData.type;
@@ -461,31 +498,35 @@ export function usePlayerEngine(config: EngineConfig) {
 
       switch (data.type) {
         case Hls.ErrorTypes.NETWORK_ERROR:
-          // On manifest load failure, fallback to direct MP4 immediately
+          // On manifest load failure, fallback to direct MP4 derived from current URL.
           if (data.details === "manifestLoadError" || data.details === "manifestLoadTimeOut") {
-            console.log("[Engine] Manifest failed, falling back to direct MP4");
-            hls.destroy();
-            hlsRef.current = null;
-            const tmdbNum = Number(tmdbId);
-            const mp4Url = contentType === "movie"
-              ? buildMovieUrl(tmdbNum)
-              : buildEpisodeUrl(tmdbNum, Number(season || 1), Number(episode || 1));
-            sourceUrlRef.current = mp4Url;
-            sourceTypeRef.current = "mp4";
-            // Clear cache so we don't get stuck with m3u8
-            try {
-              const cacheKey = `lyne_vc_${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
-              sessionStorage.removeItem(cacheKey);
-            } catch {}
-            prefetchMap.delete(`${tmdbId}_${contentType}_${season || 0}_${episode || 0}`);
-            signVideoUrl(mp4Url).then(finalMp4 => {
-              if (!video || cancelledRef.current) return;
-              video.removeAttribute("crossorigin");
-              video.setAttribute("referrerpolicy", "no-referrer");
-              video.src = finalMp4;
-              video.load();
-              video.addEventListener("loadedmetadata", () => { tryPlay(video); }, { once: true });
-            });
+            const mp4Url = deriveDirectMp4(sourceUrlRef.current);
+            if (mp4Url) {
+              console.log("[Engine] Manifest failed, switching to direct MP4 URL");
+              hls.destroy();
+              hlsRef.current = null;
+              sourceUrlRef.current = mp4Url;
+              sourceTypeRef.current = "mp4";
+
+              // Clear stale cache/preload entry that may still point to m3u8
+              try {
+                const cacheKey = `lyne_vc_${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
+                sessionStorage.removeItem(cacheKey);
+              } catch {}
+              prefetchMap.delete(`${tmdbId}_${contentType}_${season || 0}_${episode || 0}`);
+
+              signVideoUrl(mp4Url).then((finalMp4) => {
+                if (!video || cancelledRef.current) return;
+                video.removeAttribute("crossorigin");
+                video.setAttribute("referrerpolicy", "no-referrer");
+                video.src = finalMp4;
+                video.load();
+                video.addEventListener("loadedmetadata", () => { tryPlay(video); }, { once: true });
+              });
+            } else {
+              console.log("[Engine] Manifest failed, no direct mp4 derived; retrying...");
+              hls.startLoad();
+            }
           } else {
             console.log("[Engine] Network error, attempting recovery...");
             hls.startLoad();
