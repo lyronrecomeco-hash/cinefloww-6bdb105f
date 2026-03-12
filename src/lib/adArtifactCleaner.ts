@@ -1,119 +1,93 @@
 /**
- * Ad Artifact Cleaner
- * Remove artefatos "0"/"00" injetados FORA da árvore React,
- * sem tocar em nós gerenciados pela aplicação (evita crash de reconciliação).
+ * Ad Artifact Cleaner — SAFE version
+ * 
+ * Removes "0"/"00"/etc text nodes injected by ad/tracking scripts.
+ * 
+ * CRITICAL RULE: NEVER touch anything inside #root.
+ * Only cleans direct children of document.body that are NOT #root,
+ * NOT <script>, NOT <style>, etc.
+ * This prevents React reconciliation crashes (insertBefore/removeChild errors).
  */
 
-const ZERO_ONLY_RE = /^0+$/;
-const SAFE_TAGS = new Set(["SCRIPT", "STYLE", "LINK", "META", "NOSCRIPT", "OPTION", "TEXTAREA", "PRE", "CODE"]);
-const SAFE_SELECTORS = [
-  "#root",
-  "[data-radix-portal]",
-  "[role='dialog']",
-  "[role='alertdialog']",
-  "[aria-live]",
-  "[data-sonner-toaster]",
-  "[data-allow-zero]",
-  "input",
-  "textarea",
-  "select",
-  "[contenteditable='true']",
-].join(",");
+const ZERO_RE = /^0+$/;
+const IGNORE_TAGS = new Set([
+  "SCRIPT", "STYLE", "LINK", "META", "NOSCRIPT",
+  "TEMPLATE", "IFRAME", "OBJECT", "EMBED",
+]);
 
-const normalizeText = (value: string | null | undefined) =>
-  (value ?? "").replace(/\u200B/g, "").replace(/\s+/g, "").trim();
+function normalizeText(t: string | null): string {
+  return (t ?? "").replace(/[\s\u200B\u00A0]/g, "").trim();
+}
 
-const isZeroOnly = (value: string | null | undefined) => {
-  const text = normalizeText(value);
-  return text.length > 0 && ZERO_ONLY_RE.test(text);
-};
+function isZeroArtifact(t: string | null): boolean {
+  const n = normalizeText(t);
+  return n.length > 0 && ZERO_RE.test(n);
+}
 
-const hasProtectedAncestor = (node: Node) => {
-  const el = node instanceof HTMLElement ? node : node.parentElement;
-  return !!el?.closest(SAFE_SELECTORS);
-};
-
-const shouldRemoveTextNode = (node: Text) => {
-  if (!isZeroOnly(node.textContent)) return false;
-  if (hasProtectedAncestor(node)) return false;
-  return true;
-};
-
-function sweepBodyRootArtifacts() {
+/** Remove stray zero-only nodes that are direct children of <body> */
+function sweepBodyChildren() {
   const body = document.body;
   if (!body) return;
 
-  for (const node of Array.from(body.childNodes)) {
-    if (node instanceof HTMLElement && (node.id === "root" || SAFE_TAGS.has(node.tagName))) continue;
-
-    if (node instanceof Text) {
-      if (isZeroOnly(node.textContent)) node.remove();
-      continue;
-    }
-
+  // Only iterate direct children of body
+  const children = Array.from(body.childNodes);
+  for (const node of children) {
+    // Never touch #root or ignored tags
     if (node instanceof HTMLElement) {
-      if (node.closest(SAFE_SELECTORS)) continue;
-      if (node.childElementCount === 0 && isZeroOnly(node.textContent)) node.remove();
+      if (node.id === "root") continue;
+      if (IGNORE_TAGS.has(node.tagName)) continue;
+      // Remove empty wrapper elements that only contain "0" text
+      if (node.childElementCount === 0 && isZeroArtifact(node.textContent)) {
+        node.remove();
+        continue;
+      }
+    }
+    // Remove bare text nodes with only zeros
+    if (node.nodeType === Node.TEXT_NODE && isZeroArtifact(node.textContent)) {
+      node.remove();
     }
   }
-}
-
-function sweepOutsideAppTextNodes() {
-  const body = document.body;
-  if (!body) return;
-
-  const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
-  const targets: Text[] = [];
-
-  let current = walker.nextNode();
-  while (current) {
-    if (current instanceof Text) targets.push(current);
-    current = walker.nextNode();
-  }
-
-  for (const textNode of targets) {
-    if (shouldRemoveTextNode(textNode)) textNode.remove();
-  }
-}
-
-function runSweep() {
-  sweepBodyRootArtifacts();
-  sweepOutsideAppTextNodes();
 }
 
 export function initAdArtifactCleaner() {
   if (typeof window === "undefined" || typeof document === "undefined") return;
-  if ((window as any).__lyneZeroCleanerInitialized) return;
-  (window as any).__lyneZeroCleanerInitialized = true;
+  if ((window as any).__lyneZeroCleanerV2) return;
+  (window as any).__lyneZeroCleanerV2 = true;
 
-  let rafScheduled = false;
-  const scheduleSweep = () => {
-    if (rafScheduled) return;
-    rafScheduled = true;
+  let scheduled = false;
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
     requestAnimationFrame(() => {
-      rafScheduled = false;
-      runSweep();
+      scheduled = false;
+      sweepBodyChildren();
     });
   };
 
+  // Run after DOM is ready
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", scheduleSweep, { once: true });
+    document.addEventListener("DOMContentLoaded", schedule, { once: true });
   } else {
-    scheduleSweep();
+    schedule();
   }
 
-  const observer = new MutationObserver(() => scheduleSweep());
-  observer.observe(document.body || document.documentElement, {
-    childList: true,
-    characterData: true,
-    subtree: true,
-  });
+  // Watch only direct children of body (NOT subtree inside #root)
+  const startObserver = () => {
+    const body = document.body;
+    if (!body) return;
+    const obs = new MutationObserver(() => schedule());
+    obs.observe(body, { childList: true, characterData: true });
+    // NOTE: subtree: false — we only watch body's direct children
+    window.addEventListener("beforeunload", () => obs.disconnect(), { once: true });
+  };
 
-  const intervalId = window.setInterval(scheduleSweep, 1500);
-  window.addEventListener("beforeunload", () => {
-    observer.disconnect();
-    window.clearInterval(intervalId);
-  }, { once: true });
+  if (document.body) {
+    startObserver();
+  } else {
+    document.addEventListener("DOMContentLoaded", startObserver, { once: true });
+  }
+
+  // Periodic fallback for late-injected scripts
+  const id = window.setInterval(schedule, 2000);
+  window.addEventListener("beforeunload", () => clearInterval(id), { once: true });
 }
-
-
