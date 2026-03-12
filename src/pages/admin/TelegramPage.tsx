@@ -54,7 +54,7 @@ const STATUS_MAP: Record<string, { label: string; color: string; icon: any }> = 
 const IMG_BASE = "https://image.tmdb.org/t/p";
 
 const TelegramPage = () => {
-  const [activeTab, setActiveTab] = useState<"channel" | "ingestions" | "providers">("channel");
+  const [activeTab, setActiveTab] = useState<"channel" | "ingestions">("channel");
   const [items, setItems] = useState<Ingestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
