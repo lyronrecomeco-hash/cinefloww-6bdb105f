@@ -1147,6 +1147,12 @@ Deno.serve(async (req: Request) => {
     } else if (message) {
       if (message.text?.startsWith("/")) {
         await handleCommand(chatId, userId, message.text);
+      } else if (message.text && message.chat?.type === "private") {
+        // Check for active session (non-command text input)
+        const session = await getSession(chatId);
+        if (session) {
+          await handleSessionInput(chatId, userId, message.text, session);
+        }
       }
     }
 
