@@ -18,6 +18,12 @@ const CUSER = "lyneflix-vods";
 const CPASS = "uVljs2d";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
+const SB_URL = Deno.env.get("SUPABASE_URL") ?? "";
+const SB_SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const db = SB_URL && SB_SERVICE_ROLE
+  ? createClient(SB_URL, SB_SERVICE_ROLE, { auth: { persistSession: false } })
+  : null;
+
 // ── Types ──
 interface CineveoEpisode {
   id_link: number;
@@ -41,6 +47,69 @@ interface CineveoItem {
 interface ApiPage {
   data: CineveoItem[];
   totalPages: number;
+}
+
+const inferTypeFromUrl = (url: string) => (url.toLowerCase().includes(".m3u8") ? "m3u8" : "mp4");
+
+async function getCachedVideo(
+  tmdbId: number,
+  contentType: "movie" | "series",
+  season?: number,
+  episode?: number,
+): Promise<{ url: string; type: string; provider: string; cached: boolean } | null> {
+  if (!db) return null;
+
+  try {
+    const nowIso = new Date().toISOString();
+    const { data: liveRows } = await db
+      .from("video_cache")
+      .select("video_url, video_type, provider, season, episode, created_at")
+      .eq("tmdb_id", tmdbId)
+      .eq("content_type", contentType)
+      .gt("expires_at", nowIso)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    const matchLive = (liveRows ?? []).find((row: any) => {
+      if (contentType === "movie") return true;
+      return Number(row.season ?? 0) === Number(season ?? 1) && Number(row.episode ?? 0) === Number(episode ?? 1);
+    });
+
+    if (matchLive?.video_url) {
+      return {
+        url: matchLive.video_url,
+        type: matchLive.video_type || inferTypeFromUrl(matchLive.video_url),
+        provider: matchLive.provider || "video-cache",
+        cached: true,
+      };
+    }
+
+    const { data: backupRows } = await db
+      .from("video_cache_backup")
+      .select("video_url, video_type, provider, season, episode, backed_up_at")
+      .eq("tmdb_id", tmdbId)
+      .eq("content_type", contentType)
+      .order("backed_up_at", { ascending: false })
+      .limit(50);
+
+    const matchBackup = (backupRows ?? []).find((row: any) => {
+      if (contentType === "movie") return true;
+      return Number(row.season ?? 0) === Number(season ?? 1) && Number(row.episode ?? 0) === Number(episode ?? 1);
+    });
+
+    if (matchBackup?.video_url) {
+      return {
+        url: matchBackup.video_url,
+        type: matchBackup.video_type || inferTypeFromUrl(matchBackup.video_url),
+        provider: matchBackup.provider || "video-cache-backup",
+        cached: true,
+      };
+    }
+  } catch (err) {
+    console.log(`[extract] cache lookup failed for tmdb=${tmdbId}: ${err}`);
+  }
+
+  return null;
 }
 
 // ── Fetch a single API page ──
