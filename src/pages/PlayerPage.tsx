@@ -607,14 +607,7 @@ const PlayerPage = () => {
               </div>
 
               <div className="flex items-center gap-1.5 sm:gap-2">
-                {/* Next episode button */}
-                {nextEpUrl && (
-                  <button onClick={goNextEpisode}
-                    className="h-9 px-3 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 flex items-center gap-1.5 text-xs font-medium text-white/60 hover:text-white hover:bg-white/10 transition-all">
-                    <SkipForward className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Próximo</span>
-                  </button>
-                )}
+                {/* Next episode button removed — card is sufficient */}
 
                 {/* Quality selector */}
                 {state.qualities.length > 1 && (
