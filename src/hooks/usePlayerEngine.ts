@@ -65,6 +65,50 @@ function setCachedUrl(tmdbId: string, contentType: string, season: string | null
 // ── OPT 1: Prefetch API (call before player mounts) ──
 const prefetchMap = new Map<string, Promise<{ url: string; type: string } | null>>();
 
+function normalizeCineveoHost(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (host === "cinetvembed.cineveo.site" || host.endsWith(".cineveo.site") || host.endsWith(".cineveo.lat")) {
+      parsed.hostname = "cineveo.lat";
+      parsed.protocol = "https:";
+      return parsed.toString();
+    }
+  } catch {}
+  return rawUrl;
+}
+
+function deriveDirectMp4(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (!(host.includes("cineveo") || host.includes("brstream"))) return null;
+
+    if (parsed.pathname.toLowerCase().endsWith(".m3u8")) {
+      parsed.pathname = parsed.pathname.replace(/\.m3u8$/i, ".mp4");
+    }
+
+    parsed.hostname = "cineveo.lat";
+    parsed.protocol = "https:";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeVideoForEnv(video: { url: string; type: string }): { url: string; type: string } {
+  if (isProductionDomain()) return video;
+
+  // Preview/dev: prefer direct MP4 to avoid HLS CORS/manifest failures.
+  if (video.type === "m3u8") {
+    const mp4 = deriveDirectMp4(video.url);
+    if (mp4) return { url: mp4, type: "mp4" };
+  }
+
+  // Even for MP4, normalize host to cineveo.lat (stable direct playback).
+  return { url: normalizeCineveoHost(video.url), type: video.type || "mp4" };
+}
+
 export function prefetchVideoUrl(tmdbId: string, contentType: string, season?: string | null, episode?: string | null) {
   const key = `${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
   if (prefetchMap.has(key)) return prefetchMap.get(key)!;
@@ -72,7 +116,8 @@ export function prefetchVideoUrl(tmdbId: string, contentType: string, season?: s
   // Check session cache first
   const cached = getCachedUrl(tmdbId, contentType, season, episode);
   if (cached) {
-    const p = Promise.resolve(cached);
+    const normalizedCached = normalizeVideoForEnv(cached);
+    const p = Promise.resolve(normalizedCached);
     prefetchMap.set(key, p);
     return p;
   }
@@ -83,8 +128,9 @@ export function prefetchVideoUrl(tmdbId: string, contentType: string, season?: s
 
   const p = supabase.functions.invoke("extract-video", { body }).then(({ data, error }) => {
     if (error || !data?.url) return null;
-    setCachedUrl(tmdbId, contentType, season, episode, data.url, data.type || "mp4");
-    return { url: data.url, type: data.type || "mp4" };
+    const normalized = normalizeVideoForEnv({ url: data.url, type: data.type || "mp4" });
+    setCachedUrl(tmdbId, contentType, season, episode, normalized.url, normalized.type);
+    return normalized;
   }).catch(() => null);
 
   prefetchMap.set(key, p);
