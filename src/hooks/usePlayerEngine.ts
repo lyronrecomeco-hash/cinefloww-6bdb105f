@@ -398,8 +398,9 @@ export function usePlayerEngine(config: EngineConfig) {
         video.setAttribute("referrerpolicy", "no-referrer");
       }
 
-      // Progress restore runs in background — don't block playback for it
-      const savedTime = 0;
+      // Progress restore runs in parallel — don't block initial playback
+      let savedTime = 0;
+      const progressPromise = restoreProgress().then(t => { savedTime = t; }).catch(() => {});
 
       // Destroy previous HLS instance
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
