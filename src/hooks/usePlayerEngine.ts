@@ -461,8 +461,35 @@ export function usePlayerEngine(config: EngineConfig) {
 
       switch (data.type) {
         case Hls.ErrorTypes.NETWORK_ERROR:
-          console.log("[Engine] Network error, attempting recovery...");
-          hls.startLoad();
+          // On manifest load failure, fallback to direct MP4 immediately
+          if (data.details === "manifestLoadError" || data.details === "manifestLoadTimeOut") {
+            console.log("[Engine] Manifest failed, falling back to direct MP4");
+            hls.destroy();
+            hlsRef.current = null;
+            const tmdbNum = Number(tmdbId);
+            const mp4Url = contentType === "movie"
+              ? buildMovieUrl(tmdbNum)
+              : buildEpisodeUrl(tmdbNum, Number(season || 1), Number(episode || 1));
+            sourceUrlRef.current = mp4Url;
+            sourceTypeRef.current = "mp4";
+            // Clear cache so we don't get stuck with m3u8
+            try {
+              const cacheKey = `lyne_vc_${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
+              sessionStorage.removeItem(cacheKey);
+            } catch {}
+            prefetchMap.delete(`${tmdbId}_${contentType}_${season || 0}_${episode || 0}`);
+            signVideoUrl(mp4Url).then(finalMp4 => {
+              if (!video || cancelledRef.current) return;
+              video.removeAttribute("crossorigin");
+              video.setAttribute("referrerpolicy", "no-referrer");
+              video.src = finalMp4;
+              video.load();
+              video.addEventListener("loadedmetadata", () => { tryPlay(video); }, { once: true });
+            });
+          } else {
+            console.log("[Engine] Network error, attempting recovery...");
+            hls.startLoad();
+          }
           break;
         case Hls.ErrorTypes.MEDIA_ERROR:
           console.log("[Engine] Media error, attempting recovery...");
