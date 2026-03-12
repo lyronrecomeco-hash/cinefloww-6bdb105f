@@ -269,6 +269,13 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     setShowAudioModal(false);
     const params = new URLSearchParams({ title: getDisplayTitle(detail), audio });
     if (imdbId) params.set("imdb", imdbId);
+    // For series: add season/episode (continue or default S01E01)
+    if (type === "tv") {
+      const s = continueEp?.season || 1;
+      const e = continueEp?.episode || 1;
+      params.set("s", String(s));
+      params.set("e", String(e));
+    }
     const playerSlug = toSlug(getDisplayTitle(detail), detail.id);
     navigate(`/player/${type === "tv" ? "series" : "movie"}/${playerSlug}?${params.toString()}`);
   };
