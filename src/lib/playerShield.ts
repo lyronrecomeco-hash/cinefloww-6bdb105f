@@ -1,7 +1,7 @@
 /**
  * PlayerShield — Advanced runtime protection for player pages.
  * Blocks debugging, source inspection, network sniffing, and code extraction.
- * Applied on: /player, /embed, /embed/v2
+ * Applied on: /player
  */
 
 // ── Anti-debugger: infinite debugger trap ──
