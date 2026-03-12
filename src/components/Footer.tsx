@@ -5,9 +5,14 @@ import DnsHelpModal from "@/components/DnsHelpModal";
 import PartnersModal from "@/components/PartnersModal";
 import { WifiOff, Handshake, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  attemptVersionReload,
+  isRemoteVersionNewer,
+  resolveRemoteVersion,
+  setLocalCacheVersion,
+} from "@/lib/cacheVersion";
 
 const CURRENT_VERSION = "V-541";
-const LOCAL_KEY = "lyneflix_cache_version";
 
 const Footer = forwardRef<HTMLElement>((_, ref) => {
   const [showDnsHelp, setShowDnsHelp] = useState(false);
@@ -29,27 +34,24 @@ const Footer = forwardRef<HTMLElement>((_, ref) => {
         return;
       }
 
-      const val = data.value as Record<string, unknown> | string;
-      const remoteVersion = String(
-        typeof val === "object" && val !== null
-          ? (val as any).v ?? (val as any).version ?? JSON.stringify(val)
-          : val
-      );
+      const remoteVersion = resolveRemoteVersion(data.value);
+      if (!remoteVersion) {
+        setChecking(false);
+        return;
+      }
 
       const localNum = CURRENT_VERSION.replace("V-", "");
-      const parseVersion = (v: string) => Number(String(v).replace(/[^\d]/g, ""));
-      const remoteNum = parseVersion(remoteVersion);
-      const localVerNum = parseVersion(localNum);
-
-      const hasNewerRemote =
-        Number.isFinite(remoteNum) && Number.isFinite(localVerNum)
-          ? remoteNum > localVerNum
-          : remoteVersion !== localNum;
+      const hasNewerRemote = isRemoteVersionNewer(localNum, remoteVersion);
 
       if (!hasNewerRemote) {
         // Already up to date (or local is newer) — brief flash green
         const el = document.getElementById("lyneflix-version");
-        if (el) { el.style.color = "#22c55e"; setTimeout(() => { el.style.color = ""; }, 1500); }
+        if (el) {
+          el.style.color = "#22c55e";
+          setTimeout(() => {
+            el.style.color = "";
+          }, 1500);
+        }
       } else {
         // Outdated — force full cache clear + reload
         console.log(`[VersionCheck] ${localNum} → ${remoteVersion} — atualizando…`);
@@ -61,9 +63,9 @@ const Footer = forwardRef<HTMLElement>((_, ref) => {
           const names = await caches.keys();
           await Promise.all(names.map((n) => caches.delete(n)));
         }
-        localStorage.setItem(LOCAL_KEY, remoteVersion);
-        window.location.reload();
-        return;
+        setLocalCacheVersion(remoteVersion);
+        const didReload = attemptVersionReload(remoteVersion);
+        if (didReload) return;
       }
     } catch {
       // silently fail
