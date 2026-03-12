@@ -94,8 +94,17 @@ const preventFraming = () => {
 };
 
 export const initSecurity = () => {
-  // TEMP: ALL security disabled for debugging zero artifacts
-  return;
+  if (typeof window === "undefined") return;
+
+  // Only activate on real production domains (with proxy infrastructure)
+  const h = window.location.hostname.toLowerCase();
+  const isProduction =
+    h === "lyneflix.online" ||
+    h.endsWith(".lyneflix.online") ||
+    h.endsWith(".netlify.app") ||
+    h.endsWith(".vercel.app");
+
+  if (!isProduction) return; // Skip on dev, preview, lovable.app
 
   const path = window.location.pathname;
   const isPlayerRoute = path.startsWith("/player") || path.startsWith("/embed");
