@@ -94,12 +94,8 @@ const preventFraming = () => {
 };
 
 export const initSecurity = () => {
-  if (typeof window === "undefined") return;
-
-  const h = window.location.hostname;
-  const isDev = h === "localhost" || h.includes("127.0.0.1") || h.endsWith(".lovable.app") || h.endsWith(".lovableproject.com") || h.endsWith(".app") || h.endsWith(".dev");
-  // TEMP: Disable all security to debug zero artifacts
-  if (true) return;
+  // TEMP: ALL security disabled for debugging zero artifacts
+  return;
 
   const path = window.location.pathname;
   const isPlayerRoute = path.startsWith("/player") || path.startsWith("/embed");
