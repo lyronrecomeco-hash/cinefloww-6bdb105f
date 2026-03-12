@@ -1,12 +1,8 @@
 /**
- * Ad Artifact Cleaner — PRODUCTION-SAFE version v3
- * 
- * Removes "0"/"00"/etc text nodes injected by ad/tracking scripts.
- * 
- * Strategy:
- * - OUTSIDE #root: remove nodes directly (safe, no React there)
- * - INSIDE #root: wrap stray zero-only text nodes in a hidden <span>
- *   instead of removing them, to avoid React reconciliation crashes.
+ * Ad Artifact Cleaner — PRODUCTION-SAFE version v4
+ *
+ * Removes stray "0/00" text artifacts injected by third-party scripts
+ * without mutating React-owned structure in a dangerous way.
  */
 
 const ZERO_RE = /^0+$/;
@@ -16,7 +12,7 @@ const IGNORE_TAGS = new Set([
   "TEXTAREA", "INPUT", "SELECT", "CANVAS", "SVG", "VIDEO", "AUDIO",
 ]);
 
-/** Tags where "0" text is legitimately rendered (timers, counters, badges) */
+/** Tags where "0" text may be legitimate UI output */
 const CONTENT_TAGS = new Set([
   "SPAN", "P", "H1", "H2", "H3", "H4", "H5", "H6", "DIV",
   "BUTTON", "A", "LABEL", "TD", "TH", "LI", "STRONG", "EM", "B", "I",
@@ -31,38 +27,43 @@ function isZeroArtifact(t: string | null): boolean {
   return n.length > 0 && ZERO_RE.test(n);
 }
 
+function isBareParent(el: HTMLElement): boolean {
+  const attrs = Array.from(el.attributes).map((a) => a.name);
+  if (attrs.length === 0) return true;
+  return attrs.every((name) => name === "style" || name === "data-zero-cleaned");
+}
+
 /** Check if a text node looks like an ad-injected artifact */
 function isAdArtifactTextNode(node: Text): boolean {
   if (!isZeroArtifact(node.textContent)) return false;
-  
+
   const parent = node.parentElement;
-  if (!parent) return true; // orphan text node with "0" — artifact
-  
-  // Never touch content inside legitimate UI elements that might show "0"
-  // Check if parent has meaningful React/UI attributes
+  if (!parent) return true;
+
   const tag = parent.tagName;
-  
-  // If parent is a known content tag with other children or classes, skip
-  if (CONTENT_TAGS.has(tag)) {
-    // If the parent has data attributes, classes, or other children, it's likely legit UI
-    if (parent.children.length > 0) return false; // has child elements = UI component
-    if (parent.className && parent.className.length > 0) return false; // has CSS classes = styled component
-    if (parent.hasAttribute("data-version-text")) return false; // version display
-    if (parent.hasAttribute("data-version-btn")) return false;
-    
-    // A bare tag with ONLY "0" text and no classes = likely artifact
-    // But be conservative — only flag if the tag is a bare div/span with no attributes
-    const attrCount = parent.attributes.length;
-    if (attrCount > 0) return false;
-  }
-  
-  // If parent is in ignore list, skip
   if (IGNORE_TAGS.has(tag)) return false;
-  
-  return true;
+
+  if (parent.hasAttribute("data-version-text") || parent.hasAttribute("data-version-btn")) {
+    return false;
+  }
+
+  // Conservative rules for common UI tags: only touch completely bare wrappers.
+  if (CONTENT_TAGS.has(tag)) {
+    if (parent.children.length > 0) return false;
+    if (parent.className && parent.className.length > 0) return false;
+    if (parent.childNodes.length > 1) return false;
+    if (!isBareParent(parent)) return false;
+    return true;
+  }
+
+  if (parent.children.length > 0) return false;
+  if (parent.className && parent.className.length > 0) return false;
+  if (parent.childNodes.length > 1) return false;
+
+  return isBareParent(parent);
 }
 
-/** Remove stray zero-only nodes that are direct children of <body> (outside #root) */
+/** Remove zero-only nodes that are direct children of <body> (outside #root) */
 function sweepBodyChildren() {
   const body = document.body;
   if (!body) return;
@@ -72,63 +73,56 @@ function sweepBodyChildren() {
     if (node instanceof HTMLElement) {
       if (node.id === "root") continue;
       if (IGNORE_TAGS.has(node.tagName)) continue;
-      if (node.childElementCount === 0 && isZeroArtifact(node.textContent)) {
+      if (
+        node.childElementCount === 0 &&
+        isZeroArtifact(node.textContent) &&
+        (!node.className || node.className.length === 0)
+      ) {
         node.remove();
         continue;
       }
     }
+
     if (node.nodeType === Node.TEXT_NODE && isZeroArtifact(node.textContent)) {
       node.remove();
     }
   }
 }
 
-/** Inside #root: hide (not remove) zero-artifact text nodes injected by scripts */
-function hideArtifactsInsideRoot() {
+/** Inside #root: neutralize only suspicious zero text nodes (do not remove structure) */
+function neutralizeArtifactsInsideRoot() {
   const root = document.getElementById("root");
   if (!root) return;
 
-  // Use TreeWalker to find bare text nodes with only "0"
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
-      if (!isZeroArtifact(node.textContent)) return NodeFilter.FILTER_REJECT;
-      // Only target text nodes that are the ONLY child of their parent
-      const parent = node.parentElement;
-      if (!parent) return NodeFilter.FILTER_ACCEPT;
-      if (IGNORE_TAGS.has(parent.tagName)) return NodeFilter.FILTER_REJECT;
-      // Skip if parent has meaningful content (other text or elements)
-      if (parent.childNodes.length > 1) return NodeFilter.FILTER_REJECT;
-      // Skip styled/classed elements (legitimate UI)
-      if (parent.className && parent.className.length > 5) return NodeFilter.FILTER_REJECT;
-      if (parent.hasAttribute("data-version-text")) return NodeFilter.FILTER_REJECT;
-      // If parent is completely bare (no class, no id, no data attrs) = artifact
-      if (parent.attributes.length === 0 || 
-          (parent.attributes.length === 1 && parent.hasAttribute("style"))) {
-        return NodeFilter.FILTER_ACCEPT;
-      }
-      return NodeFilter.FILTER_REJECT;
-    }
+      return isAdArtifactTextNode(node as Text)
+        ? NodeFilter.FILTER_ACCEPT
+        : NodeFilter.FILTER_REJECT;
+    },
   });
 
-  const toHide: HTMLElement[] = [];
+  const toNeutralize: Text[] = [];
   while (walker.nextNode()) {
-    const parent = walker.currentNode.parentElement;
-    if (parent && !parent.hasAttribute("data-zero-hidden")) {
-      toHide.push(parent);
+    const textNode = walker.currentNode as Text;
+    if (normalizeText(textNode.textContent).length > 0) {
+      toNeutralize.push(textNode);
     }
   }
 
-  // Hide by setting display:none (safe — doesn't remove from DOM, no React crash)
-  for (const el of toHide) {
-    el.style.display = "none";
-    el.setAttribute("data-zero-hidden", "1");
+  for (const node of toNeutralize) {
+    node.textContent = "";
+    const parent = node.parentElement;
+    if (parent && !parent.hasAttribute("data-zero-cleaned")) {
+      parent.setAttribute("data-zero-cleaned", "1");
+    }
   }
 }
 
 export function initAdArtifactCleaner() {
   if (typeof window === "undefined" || typeof document === "undefined") return;
-  if ((window as any).__lyneZeroCleanerV3) return;
-  (window as any).__lyneZeroCleanerV3 = true;
+  if ((window as any).__lyneZeroCleanerV4) return;
+  (window as any).__lyneZeroCleanerV4 = true;
 
   let scheduled = false;
   const schedule = () => {
@@ -137,7 +131,7 @@ export function initAdArtifactCleaner() {
     requestAnimationFrame(() => {
       scheduled = false;
       sweepBodyChildren();
-      hideArtifactsInsideRoot();
+      neutralizeArtifactsInsideRoot();
     });
   };
 
@@ -148,31 +142,29 @@ export function initAdArtifactCleaner() {
     schedule();
   }
 
-  // Watch body direct children (outside #root)
   const startObserver = () => {
     const body = document.body;
     if (!body) return;
-    
+
     // Observer for body direct children
     const bodyObs = new MutationObserver(() => schedule());
     bodyObs.observe(body, { childList: true, characterData: true });
-    
-    // Observer inside #root — watch for script-injected nodes
+
+    // Observer inside #root — watch new nodes and characterData changes
     const root = document.getElementById("root");
     if (root) {
       const rootObs = new MutationObserver((mutations) => {
-        // Only schedule if mutations added new nodes (not React re-renders)
         for (const m of mutations) {
-          if (m.addedNodes.length > 0) {
+          if (m.type === "characterData" || m.addedNodes.length > 0) {
             schedule();
             break;
           }
         }
       });
-      rootObs.observe(root, { childList: true, subtree: true });
+      rootObs.observe(root, { childList: true, subtree: true, characterData: true });
       window.addEventListener("beforeunload", () => rootObs.disconnect(), { once: true });
     }
-    
+
     window.addEventListener("beforeunload", () => bodyObs.disconnect(), { once: true });
   };
 
@@ -183,6 +175,6 @@ export function initAdArtifactCleaner() {
   }
 
   // Periodic fallback for late-injected scripts
-  const id = window.setInterval(schedule, 3000);
+  const id = window.setInterval(schedule, 4000);
   window.addEventListener("beforeunload", () => clearInterval(id), { once: true });
 }

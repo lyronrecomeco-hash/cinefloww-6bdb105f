@@ -229,24 +229,13 @@ function blockSourceView() {
 export function initPlayerShield() {
   if (typeof window === "undefined") return;
 
-  // Only activate on actual player/embed routes — NOT on /lyneplay docs
+  // Only activate on player routes
   const path = window.location.pathname;
-  const isPlayerRoute =
-    (path.startsWith("/player") || path.startsWith("/embed")) &&
-    !path.startsWith("/lyneplay");
+  const isPlayerRoute = path.startsWith("/player");
 
   // Always activate on production, partial on dev
   const h = window.location.hostname;
   const isProd = !h.includes("localhost") && !h.includes("127.0.0.1") && !h.endsWith(".lovable.app") && !h.endsWith(".lovableproject.com");
-
-  // If embedded inside same-origin parent (e.g. /lyneplay demo), skip all protection
-  let isInternalDemo = false;
-  try {
-    if (window.self !== window.top && window.top?.location?.pathname?.startsWith("/lyneplay")) {
-      isInternalDemo = true;
-    }
-  } catch {}
-  if (isInternalDemo) return;
 
   if (!isPlayerRoute) return;
 

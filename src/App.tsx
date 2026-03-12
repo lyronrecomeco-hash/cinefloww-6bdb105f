@@ -116,16 +116,9 @@ const App = () => (
             <Route path="/conta" element={<AuthPage />} />
             <Route path="/perfis" element={<ProfileSelector />} />
             <Route path="/importar-lista" element={<ImportListPage />} />
-            <Route path="/extrator" element={<CineveoTester />} />
             <Route path="/logs" element={<PublicLogsPage />} />
             <Route path="/qrxp" element={<QrxpPage />} />
             <Route path="/suporte" element={<SupportPage />} />
-            <Route path="/avatar-baixar" element={<AvatarDownloadPage />} />
-            <Route path="/lyneplay" element={<LynePlayPage />} />
-            <Route path="/embed" element={<EmbedPlayer />} />
-            <Route path="/embed/movie/:tmdbId" element={<EmbedPlayer />} />
-            <Route path="/embed/tv/:tmdbId/:season/:episode" element={<EmbedPlayer />} />
-            <Route path="/embed/v2" element={<UniversalEmbed />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
