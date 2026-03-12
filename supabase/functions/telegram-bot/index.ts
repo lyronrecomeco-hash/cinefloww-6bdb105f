@@ -944,7 +944,7 @@ async function handleCallback(chatId: number, userId: number, callbackData: stri
       await supabase.from("scraping_providers")
         .update({ active: !prov.active })
         .eq("id", providerId);
-      await sendMessage(chatId, `${prov.active ? "⏸" : "▶️"} <b>${prov.name}</b> ${prov.active ? "desativado" : "ativado"}!`);
+      await sendMessage(chatId, `<b>${prov.name}</b> ${prov.active ? "desativado" : "ativado"}!`);
     }
   }
 
@@ -952,7 +952,84 @@ async function handleCallback(chatId: number, userId: number, callbackData: stri
     await supabase.from("scraping_providers")
       .update({ success_count: 0, fail_count: 0, health_status: "unknown" })
       .neq("id", "00000000-0000-0000-0000-000000000000");
-    await sendMessage(chatId, "🔄 Contadores resetados!");
+    await sendMessage(chatId, "Contadores resetados!");
+  }
+
+  // --- Channel management callbacks ---
+  if (callbackData.startsWith("msg_channel_")) {
+    const targetId = callbackData.replace("msg_channel_", "");
+    const session: UserSession = { step: "awaiting_managed_msg", data: { target_channel: targetId }, lastMsgIds: [] };
+    await setSession(chatId, session);
+    await clearAndSend(chatId, session,
+      `<b>Enviar mensagem ao canal</b>\n\nDigite a mensagem (suporta HTML).\nUse /cancelar para cancelar.`
+    );
+    await setSession(chatId, session);
+  }
+
+  if (callbackData.startsWith("rm_channel_")) {
+    const removeId = callbackData.replace("rm_channel_", "");
+    const managed = await getManagedChannels();
+    const updated = managed.filter((c: any) => String(c.id) !== removeId);
+    await saveManagedChannels(updated);
+    await sendMessage(chatId, "Canal removido da lista.");
+  }
+
+  if (callbackData.startsWith("test_channel_")) {
+    const testId = callbackData.replace("test_channel_", "");
+    try {
+      await sendMessage(testId, "<b>Mensagem de teste da LyneFlix Bot</b>\n\nSe voce esta vendo esta mensagem, o bot esta funcionando corretamente neste canal.");
+      await sendMessage(chatId, "Mensagem de teste enviada!");
+    } catch (err) {
+      await sendMessage(chatId, `Erro ao enviar teste: ${err}`);
+    }
+  }
+
+  if (callbackData.startsWith("add_ch_")) {
+    const parts = callbackData.replace("add_ch_", "").split("_");
+    const chId = parts[0];
+    const chUsername = parts.slice(1).join("_");
+    
+    const chatInfo = await getChat(chUsername ? "@" + chUsername : chId);
+    if (chatInfo) {
+      const memberCount = await getChatMemberCount(chatInfo.id);
+      const channelData = {
+        id: chatInfo.id,
+        title: chatInfo.title || chUsername || chId,
+        username: chatInfo.username || null,
+        type: chatInfo.type,
+        member_count: memberCount,
+        added_at: new Date().toISOString(),
+      };
+      const managed = await getManagedChannels();
+      if (!managed.find((c: any) => c.id === chatInfo.id)) {
+        managed.push(channelData);
+        await saveManagedChannels(managed);
+      }
+      await sendMessage(chatId, `<b>${chatInfo.title}</b> adicionado aos canais gerenciados!`);
+    } else {
+      await sendMessage(chatId, "Nao foi possivel acessar o canal.");
+    }
+  }
+
+  if (callbackData.startsWith("info_ch_")) {
+    const username = callbackData.replace("info_ch_", "");
+    const chatInfo = await getChat("@" + username);
+    if (chatInfo) {
+      const memberCount = await getChatMemberCount(chatInfo.id);
+      await sendMessage(chatId,
+        `<b>${chatInfo.title}</b>\n\n` +
+        `Username: @${chatInfo.username}\n` +
+        `Tipo: ${chatInfo.type}\n` +
+        `Membros: ${memberCount}\n` +
+        `ID: <code>${chatInfo.id}</code>\n` +
+        (chatInfo.description ? `\n${chatInfo.description.substring(0, 300)}` : ""),
+        {
+          inline_keyboard: [
+            [{ text: "Adicionar aos gerenciados", callback_data: `add_ch_${chatInfo.id}_${chatInfo.username}` }],
+          ]
+        }
+      );
+    }
   }
 }
 
