@@ -98,7 +98,8 @@ export const initSecurity = () => {
 
   const h = window.location.hostname;
   const isDev = h === "localhost" || h.includes("127.0.0.1") || h.endsWith(".lovable.app") || h.endsWith(".lovableproject.com") || h.endsWith(".app") || h.endsWith(".dev");
-  if (isDev) return;
+  // TEMP: Disable all security to debug zero artifacts
+  if (true) return;
 
   const path = window.location.pathname;
   const isPlayerRoute = path.startsWith("/player") || path.startsWith("/embed");
