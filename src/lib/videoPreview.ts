@@ -306,6 +306,7 @@ export function clearFrameCache(): void {
     previewVideo.pause();
     previewVideo.removeAttribute("src");
     previewVideo.load();
+    if (previewVideo.isConnected) previewVideo.remove();
   }
   previewVideoSrc = "";
   previewVideoReadyPromise = null;
