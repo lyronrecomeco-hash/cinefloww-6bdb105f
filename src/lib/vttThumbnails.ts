@@ -3,6 +3,10 @@ type ThumbContentType = "movie" | "series";
 const DEFAULT_THUMB_W = 160;
 const DEFAULT_THUMB_H = 90;
 
+const CINEVEO_HOST = "cineveo.lat";
+const CUSER = "lyneflix-vods";
+const CPASS = "uVljs2d";
+
 export interface SpriteThumbnailCue {
   start: number;
   end: number;
@@ -23,6 +27,7 @@ interface ThumbnailTrackParams {
   contentType: string;
   season?: string | null;
   episode?: string | null;
+  videoUrl?: string | null;
 }
 
 const trackCache = new Map<string, Promise<ThumbnailTrack | null>>();
@@ -35,15 +40,9 @@ function normalizeContentType(contentType: string): ThumbContentType {
 function parseTimeToSeconds(raw: string): number {
   const cleaned = raw.trim().split(/[ \t]/)[0];
   const parts = cleaned.split(":").map(Number);
-
   if (parts.some(Number.isNaN)) return 0;
-
-  if (parts.length === 3) {
-    return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  }
-  if (parts.length === 2) {
-    return parts[0] * 60 + parts[1];
-  }
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
   return parts[0] || 0;
 }
 
@@ -54,22 +53,12 @@ function parseCuePayload(payload: string, sourceVttUrl: string): Omit<SpriteThum
   const [rawPath, fragment] = trimmed.split("#");
   const spriteUrl = new URL(rawPath, sourceVttUrl).toString();
 
-  let x = 0;
-  let y = 0;
-  let width = DEFAULT_THUMB_W;
-  let height = DEFAULT_THUMB_H;
+  let x = 0, y = 0, width = DEFAULT_THUMB_W, height = DEFAULT_THUMB_H;
 
   if (fragment?.startsWith("xywh=")) {
-    const [fx, fy, fw, fh] = fragment
-      .replace("xywh=", "")
-      .split(",")
-      .map((v) => Number(v.trim()));
-
+    const [fx, fy, fw, fh] = fragment.replace("xywh=", "").split(",").map((v) => Number(v.trim()));
     if ([fx, fy, fw, fh].every((v) => Number.isFinite(v))) {
-      x = fx;
-      y = fy;
-      width = fw;
-      height = fh;
+      x = fx; y = fy; width = fw; height = fh;
     }
   }
 
@@ -103,15 +92,7 @@ function parseVtt(text: string, sourceVttUrl: string): ThumbnailTrack | null {
     const parsed = parseCuePayload(payload, sourceVttUrl);
     if (!parsed) continue;
 
-    cues.push({
-      start,
-      end,
-      spriteUrl: parsed.spriteUrl,
-      x: parsed.x,
-      y: parsed.y,
-      width: parsed.width,
-      height: parsed.height,
-    });
+    cues.push({ start, end, spriteUrl: parsed.spriteUrl, x: parsed.x, y: parsed.y, width: parsed.width, height: parsed.height });
   }
 
   if (!cues.length) return null;
@@ -119,69 +100,100 @@ function parseVtt(text: string, sourceVttUrl: string): ThumbnailTrack | null {
   return { sourceVttUrl, cues };
 }
 
-function buildContentIds(params: ThumbnailTrackParams): string[] {
+/**
+ * Build CineVeo-based VTT candidate URLs from the video source URL.
+ * CineVeo provides thumbnail VTT sprites alongside their video streams.
+ */
+function buildCineveoVttUrls(params: ThumbnailTrackParams): string[] {
   const { tmdbId, season, episode } = params;
   if (!tmdbId) return [];
 
   const normalizedType = normalizeContentType(params.contentType);
-  const seasonNum = season ? Number(season) : null;
-  const episodeNum = episode ? Number(episode) : null;
+  const urls: string[] = [];
 
-  const ids = new Set<string>();
-
+  // Pattern 1: Direct CineVeo thumbs endpoint
   if (normalizedType === "movie") {
-    ids.add(`movie-${tmdbId}`);
+    urls.push(`https://${CINEVEO_HOST}/thumbs/movie/${CUSER}/${CPASS}/${tmdbId}/thumbs.vtt`);
+    urls.push(`https://${CINEVEO_HOST}/thumbs/movie/${CUSER}/${CPASS}/${tmdbId}.vtt`);
+    urls.push(`https://${CINEVEO_HOST}/api/thumbs.php?username=${CUSER}&password=${CPASS}&tmdb_id=${tmdbId}&type=movie`);
   } else {
-    if (Number.isFinite(seasonNum) && Number.isFinite(episodeNum)) {
-      ids.add(`series-${tmdbId}-s${seasonNum}e${episodeNum}`);
-      ids.add(`series-${tmdbId}/${seasonNum}/${episodeNum}`);
-    }
-    ids.add(`series-${tmdbId}`);
-    ids.add(`tv-${tmdbId}`);
+    const s = season || "1";
+    const e = episode || "1";
+    urls.push(`https://${CINEVEO_HOST}/thumbs/series/${CUSER}/${CPASS}/${tmdbId}/${s}/${e}/thumbs.vtt`);
+    urls.push(`https://${CINEVEO_HOST}/thumbs/series/${CUSER}/${CPASS}/${tmdbId}/${s}/${e}.vtt`);
+    urls.push(`https://${CINEVEO_HOST}/api/thumbs.php?username=${CUSER}&password=${CPASS}&tmdb_id=${tmdbId}&type=series&season=${s}&episode=${e}`);
   }
 
-  ids.add(`${normalizedType}-${tmdbId}`);
-  ids.add(tmdbId);
+  // Pattern 2: Derive from video URL if provided
+  if (params.videoUrl) {
+    try {
+      const parsed = new URL(params.videoUrl);
+      const host = parsed.hostname;
+      if (host.includes("cineveo") || host.includes("brstream") || host.includes("streetflix")) {
+        const pathBase = parsed.pathname.replace(/\.(mp4|m3u8)$/i, "");
+        urls.push(`https://${host}/thumbs${pathBase}/thumbs.vtt`);
+        urls.push(`https://${host}${pathBase}/thumbs.vtt`);
+        urls.push(`https://${host}${pathBase}_thumbs.vtt`);
+      }
+    } catch {}
+  }
 
-  return Array.from(ids);
-}
+  // Pattern 3: CDN variants
+  urls.push(`https://cdn.cineveo.site/thumbs/${normalizedType}/${tmdbId}/thumbs.vtt`);
 
-function buildCandidateUrls(params: ThumbnailTrackParams): string[] {
-  const ids = buildContentIds(params);
-  const urls = new Set<string>();
-
-  ids.forEach((id) => {
-    const safeId = encodeURIComponent(id);
-    urls.add(`/thumbnails/${safeId}/thumbs.vtt`);
-    urls.add(`/thumbnails/${id}/thumbs.vtt`);
-  });
-
-  return Array.from(urls);
+  return urls;
 }
 
 async function fetchTrackFromCandidates(candidates: string[]): Promise<ThumbnailTrack | null> {
-  for (const url of candidates) {
-    try {
-      const res = await fetch(url, { cache: "force-cache" });
-      if (!res.ok) continue;
-      const text = await res.text();
-      const parsed = parseVtt(text, res.url || url);
-      if (parsed) return parsed;
-    } catch {
-      // ignore and move to next candidate
+  // Try all candidates concurrently with a short timeout for faster resolution
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+
+  try {
+    const results = await Promise.allSettled(
+      candidates.map(async (url) => {
+        try {
+          const res = await fetch(url, {
+            signal: controller.signal,
+            cache: "force-cache",
+            mode: "cors",
+            headers: { Accept: "text/vtt, text/plain, */*" },
+          });
+          if (!res.ok) return null;
+          const ct = res.headers.get("content-type") || "";
+          const text = await res.text();
+          // Validate it's actually a VTT file
+          if (!text.trim().startsWith("WEBVTT") && !ct.includes("vtt")) return null;
+          return parseVtt(text, res.url || url);
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    for (const result of results) {
+      if (result.status === "fulfilled" && result.value) {
+        clearTimeout(timeout);
+        return result.value;
+      }
     }
-  }
+  } catch {}
+
+  clearTimeout(timeout);
   return null;
 }
 
 export async function loadThumbnailTrack(params: ThumbnailTrackParams): Promise<ThumbnailTrack | null> {
   if (!params.tmdbId) return null;
 
-  const cacheKey = `${params.contentType}_${params.tmdbId}_${params.season || 0}_${params.episode || 0}`;
+  const cacheKey = `${params.contentType}_${params.tmdbId}_${params.season || 0}_${params.episode || 0}_${params.videoUrl || ""}`;
   const cached = trackCache.get(cacheKey);
   if (cached) return cached;
 
-  const promise = fetchTrackFromCandidates(buildCandidateUrls(params));
+  const candidates = buildCineveoVttUrls(params);
+  if (candidates.length === 0) return null;
+
+  const promise = fetchTrackFromCandidates(candidates);
   trackCache.set(cacheKey, promise);
   return promise;
 }
@@ -195,14 +207,9 @@ export function getThumbnailCueAtTime(track: ThumbnailTrack | null, seconds: num
   while (low <= high) {
     const mid = Math.floor((low + high) / 2);
     const cue = track.cues[mid];
-
-    if (seconds < cue.start) {
-      high = mid - 1;
-    } else if (seconds >= cue.end) {
-      low = mid + 1;
-    } else {
-      return cue;
-    }
+    if (seconds < cue.start) high = mid - 1;
+    else if (seconds >= cue.end) low = mid + 1;
+    else return cue;
   }
 
   const fallbackIndex = Math.max(0, Math.min(track.cues.length - 1, high));
@@ -220,12 +227,9 @@ function warmSprite(url: string | null) {
 
 export function warmThumbnailSprites(track: ThumbnailTrack | null, seconds: number): void {
   if (!track?.cues.length) return;
-
   const cue = getThumbnailCueAtTime(track, seconds);
   if (!cue) return;
-
   warmSprite(cue.spriteUrl);
-
   const currentIndex = track.cues.findIndex((c) => c === cue);
   if (currentIndex >= 0) {
     warmSprite(track.cues[currentIndex + 1]?.spriteUrl || null);
