@@ -264,11 +264,6 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const ageRating = getAgeRating();
 
   const proceedToWatch = () => {
-    const savedPref = localStorage.getItem("cineflow_audio_pref");
-    if (savedPref) {
-      handleAudioSelect(savedPref);
-      return;
-    }
     setShowAudioModal(true);
   };
 
