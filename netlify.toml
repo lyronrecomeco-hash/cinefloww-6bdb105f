@@ -2,16 +2,32 @@
   command = "npm run build"
   publish = "dist"
 
-# SPA fallback
+# Dynamic sitemap via edge function
 [[redirects]]
   from = "/sitemap.xml"
-  to = "/sitemap.xml"
+  to = "https://mfcnkltcdvitxczjwoer.supabase.co/functions/v1/dynamic-sitemap"
   status = 200
+  force = true
 
 [[redirects]]
   from = "/robots.txt"
   to = "/robots.txt"
   status = 200
+
+# OG meta for bots on detail pages
+[[redirects]]
+  from = "/filme/*"
+  to = "https://mfcnkltcdvitxczjwoer.supabase.co/functions/v1/og-meta?path=/filme/:splat"
+  status = 200
+  force = true
+  conditions = {Role = ["bot"]}
+
+[[redirects]]
+  from = "/serie/*"
+  to = "https://mfcnkltcdvitxczjwoer.supabase.co/functions/v1/og-meta?path=/serie/:splat"
+  status = 200
+  force = true
+  conditions = {Role = ["bot"]}
 
 # ── Video proxies ──
 [[redirects]]
