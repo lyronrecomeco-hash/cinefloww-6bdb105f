@@ -106,14 +106,13 @@ const PlayerPage = () => {
     setSpriteCue(null);
     setPreviewThumb(null);
 
-    loadThumbnailTrack({ tmdbId, contentType, season, episode }).then((track) => {
+    const videoUrl = sourceUrlRef.current || videoRef.current?.dataset?.previewSrc || null;
+    loadThumbnailTrack({ tmdbId, contentType, season, episode, videoUrl }).then((track) => {
       if (!cancelled) setThumbTrack(track);
     });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [tmdbId, contentType, season, episode]);
+    return () => { cancelled = true; };
+  }, [tmdbId, contentType, season, episode, state.duration]);
 
   // Resume prompt — check once when video loads
   useEffect(() => {
