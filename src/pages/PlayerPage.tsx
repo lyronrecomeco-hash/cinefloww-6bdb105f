@@ -251,10 +251,10 @@ const PlayerPage = () => {
 
   const goBack = () => navigate(-1);
 
-  // Cache thumbnail frames passively during playback (every ~1s)
+  // Cache thumbnail frames passively during playback (fallback when VTT sprites are unavailable)
   useEffect(() => {
     const v = videoRef.current;
-    if (!v) return;
+    if (!v || thumbTrack) return;
 
     const onTimeUpdate = () => cacheCurrentFrame(v);
     const onSeeked = () => cacheCurrentFrame(v);
@@ -266,7 +266,7 @@ const PlayerPage = () => {
       v.removeEventListener("timeupdate", onTimeUpdate);
       v.removeEventListener("seeked", onSeeked);
     };
-  }, []);
+  }, [thumbTrack]);
 
   const updateHoverPreview = useCallback((time: number) => {
     const v = videoRef.current;
