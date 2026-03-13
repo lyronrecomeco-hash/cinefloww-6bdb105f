@@ -87,12 +87,34 @@ function clearCachedUrl(tmdbId: string, contentType: string, season?: string | n
 // ── OPT 1: Prefetch API (call before player mounts) ──
 const prefetchMap = new Map<string, Promise<{ url: string; type: string } | null>>();
 
+const CINEVEO_HOST_POOL = ["cineveo.lat", "cinetvembed.cineveo.site"];
+const blockedCineveoHosts = new Set<string>();
+
+function isCineveoLikeHost(host: string): boolean {
+  return host === "cinetvembed.cineveo.site" || host.endsWith(".cineveo.site") || host.endsWith(".cineveo.lat") || host.includes("cineveo") || host.includes("brstream") || host.includes("streetflix");
+}
+
+function pickHealthyCineveoHost() {
+  return CINEVEO_HOST_POOL.find((host) => !blockedCineveoHosts.has(host)) || CINEVEO_HOST_POOL[0];
+}
+
+function markCurrentHostBlocked(rawUrl: string) {
+  try {
+    const host = new URL(rawUrl).hostname.toLowerCase();
+    if (CINEVEO_HOST_POOL.includes(host)) {
+      blockedCineveoHosts.add(host);
+    }
+  } catch {
+    // ignore non-absolute URL or parsing issues
+  }
+}
+
 function normalizeCineveoHost(rawUrl: string): string {
   try {
     const parsed = new URL(rawUrl);
     const host = parsed.hostname.toLowerCase();
-    if (host === "cinetvembed.cineveo.site" || host.endsWith(".cineveo.site") || host.endsWith(".cineveo.lat")) {
-      parsed.hostname = "cineveo.lat";
+    if (isCineveoLikeHost(host)) {
+      parsed.hostname = pickHealthyCineveoHost();
       parsed.protocol = "https:";
       return parsed.toString();
     }
@@ -104,13 +126,13 @@ function deriveDirectMp4(rawUrl: string): string | null {
   try {
     const parsed = new URL(rawUrl);
     const host = parsed.hostname.toLowerCase();
-    if (!(host.includes("cineveo") || host.includes("brstream") || host.includes("streetflix"))) return null;
+    if (!isCineveoLikeHost(host)) return null;
 
     if (parsed.pathname.toLowerCase().endsWith(".m3u8")) {
       parsed.pathname = parsed.pathname.replace(/\.m3u8$/i, ".mp4");
     }
 
-    parsed.hostname = "cineveo.lat";
+    parsed.hostname = pickHealthyCineveoHost();
     parsed.protocol = "https:";
     return parsed.toString();
   } catch {
