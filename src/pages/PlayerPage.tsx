@@ -566,14 +566,20 @@ const PlayerPage = () => {
               className="group/bar cursor-pointer relative"
               onClick={seek}
               onMouseMove={onProgressHover}
-              onMouseLeave={() => { setHoverTime(null); setPreviewThumb(null); }}
+              onMouseLeave={() => {
+                hoverSecondRef.current = null;
+                setHoverTime(null);
+                setPreviewThumb(null);
+              }}
               onTouchStart={(e) => {
                 setTouchSeeking(true);
                 const rect = e.currentTarget.getBoundingClientRect();
                 const touch = e.touches[0];
                 const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
-                setHoverTime(pct * state.duration);
+                const time = pct * state.duration;
+                setHoverTime(time);
                 setHoverX(touch.clientX - rect.left);
+                updateHoverPreview(time);
               }}
               onTouchMove={(e) => {
                 if (!touchSeeking) return;
@@ -583,14 +589,14 @@ const PlayerPage = () => {
                 const time = pct * state.duration;
                 setHoverTime(time);
                 setHoverX(touch.clientX - rect.left);
-                const v = videoRef.current;
-                if (v) setPreviewThumb(captureFrameFromVideo(v, time));
+                updateHoverPreview(time);
               }}
               onTouchEnd={() => {
                 if (touchSeeking && hoverTime !== null) {
                   controls.seekTo(hoverTime);
                 }
                 setTouchSeeking(false);
+                hoverSecondRef.current = null;
                 setHoverTime(null);
                 setPreviewThumb(null);
               }}
