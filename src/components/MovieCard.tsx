@@ -1,10 +1,11 @@
-import { memo, useState } from "react";
+import { memo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Star, Calendar } from "lucide-react";
 import { TMDBMovie, posterUrl, getDisplayTitle, getYear, getMediaType, isValidDate, isValidPoster } from "@/services/tmdb";
 import { toSlug } from "@/lib/slugify";
 import { Skeleton } from "@/components/ui/skeleton";
 import ComingSoonModal from "@/components/ComingSoonModal";
+import { prefetchVideoUrl } from "@/hooks/usePlayerEngine";
 
 interface MovieCardProps {
   movie: TMDBMovie;
@@ -20,6 +21,13 @@ const MovieCard = memo(({ movie, comingSoon }: MovieCardProps) => {
 
   const releaseDate = movie.release_date || movie.first_air_date;
   const isFuture = comingSoon || (isValidDate(releaseDate) && releaseDate! > new Date().toISOString().split("T")[0]);
+
+  // Prefetch video URL on hover for instant playback
+  const handleHoverPrefetch = useCallback(() => {
+    if (isFuture) return;
+    const ct = type === "movie" ? "movie" : "series";
+    prefetchVideoUrl(String(movie.id), ct, type === "tv" ? "1" : undefined, type === "tv" ? "1" : undefined);
+  }, [movie.id, type, isFuture]);
 
   const formattedDate = releaseDate ? new Date(releaseDate + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }) : "";
 
@@ -76,7 +84,7 @@ const MovieCard = memo(({ movie, comingSoon }: MovieCardProps) => {
   }
 
   return (
-    <Link to={link} className="group flex-shrink-0 w-full block">
+    <Link to={link} className="group flex-shrink-0 w-full block" onMouseEnter={handleHoverPrefetch}>
       {cardContent}
       <h3 className="font-medium text-[11px] sm:text-xs leading-tight line-clamp-1 group-hover:text-primary transition-colors">{title}</h3>
       <p className="text-muted-foreground text-[9px] sm:text-[10px] mt-0.5">{getYear(movie)}</p>
