@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Flame, Film, Tv, Heart, Sparkles, Clock } from "lucide-react";
+import { isKidsModeEnabled, filterKidsTitles } from "@/lib/kidsMode";
 import Navbar from "@/components/Navbar";
 import HeroSlider from "@/components/HeroSlider";
 import ContentRow from "@/components/ContentRow";
