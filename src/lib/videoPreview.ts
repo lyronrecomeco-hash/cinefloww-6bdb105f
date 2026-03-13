@@ -183,7 +183,7 @@ async function captureWithPreviewVideo(sourceUrl: string, second: number): Promi
 
 function queueAsyncCapture(video: HTMLVideoElement, timeSeconds: number, onAsyncPreview?: AsyncPreviewCallback) {
   const roundedTime = Math.round(timeSeconds);
-  const sourceUrl = video.currentSrc || video.src || lastVideoSrc;
+  const sourceUrl = video.dataset.previewSrc || video.currentSrc || video.src || lastVideoSrc;
 
   if (!sourceUrl || frameCache.has(roundedTime) || blockedPreviewSources.has(sourceUrl)) {
     if (onAsyncPreview) onAsyncPreview(frameCache.get(roundedTime) ?? null, roundedTime);
