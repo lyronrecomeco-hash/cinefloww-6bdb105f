@@ -7,6 +7,18 @@ import { Calendar, Film, Tv, ChevronLeft, ChevronRight } from "lucide-react";
 
 type TabType = "movies" | "series";
 
+const TARGET_ITEMS = 21;
+const MAX_SCAN_PAGES = 4;
+
+type RankedTMDBMovie = TMDBMovie & { popularity?: number; vote_count?: number };
+
+const scoreInterest = (item: RankedTMDBMovie) => {
+  const popularity = Number(item.popularity || 0);
+  const votes = Number(item.vote_count || 0);
+  const rating = Number(item.vote_average || 0);
+  return popularity * 2 + Math.log10(votes + 1) * 20 + rating * 6;
+};
+
 const ComingSoonPage = () => {
   const [items, setItems] = useState<TMDBMovie[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,23 +32,42 @@ const ComingSoonPage = () => {
       const today = new Date().toISOString().split("T")[0];
       const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
       const futureLimit = "2026-12-31";
-      const data = tab === "movies"
-        ? await discoverMovies(p, {
-            "primary_release_date.gte": tomorrow,
-            "primary_release_date.lte": futureLimit,
-            sort_by: "popularity.desc",
-          })
-        : await discoverSeries(p, {
-            "first_air_date.gte": tomorrow,
-            "first_air_date.lte": futureLimit,
-            sort_by: "popularity.desc",
-          });
-      const future = data.results.filter((item) => {
-        const d = item.release_date || item.first_air_date;
-        return item.poster_path && d && d > today;
-      });
-      setItems(future);
-      setTotalPages(Math.min(data.total_pages, 500));
+
+      let cursor = p;
+      let total = 1;
+      const collected: RankedTMDBMovie[] = [];
+
+      for (let scanned = 0; scanned < MAX_SCAN_PAGES && collected.length < TARGET_ITEMS; scanned += 1) {
+        const data = tab === "movies"
+          ? await discoverMovies(cursor, {
+              "primary_release_date.gte": tomorrow,
+              "primary_release_date.lte": futureLimit,
+              sort_by: "popularity.desc",
+            })
+          : await discoverSeries(cursor, {
+              "first_air_date.gte": tomorrow,
+              "first_air_date.lte": futureLimit,
+              sort_by: "popularity.desc",
+            });
+
+        total = Math.min(data.total_pages, 500);
+        const future = (data.results as RankedTMDBMovie[]).filter((item) => {
+          const d = item.release_date || item.first_air_date;
+          const popularity = Number(item.popularity || 0);
+          const votes = Number(item.vote_count || 0);
+          return !!item.poster_path && !!item.backdrop_path && !!d && d > today && popularity >= 8 && votes >= 20;
+        });
+        collected.push(...future);
+
+        cursor += 1;
+        if (cursor > total) break;
+      }
+
+      const unique = Array.from(new Map(collected.map((m) => [m.id, m])).values());
+      unique.sort((a, b) => scoreInterest(b) - scoreInterest(a));
+
+      setItems(unique.slice(0, TARGET_ITEMS));
+      setTotalPages(total);
       setPage(p);
     } catch {}
     setLoading(false);

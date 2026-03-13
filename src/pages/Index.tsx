@@ -3,9 +3,9 @@ import { Flame, Film, Tv, Heart, Sparkles, Clock } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import HeroSlider from "@/components/HeroSlider";
 import ContentRow from "@/components/ContentRow";
+import ContinueWatchingRow from "@/components/ContinueWatchingRow";
 import Footer from "@/components/Footer";
 import DailyVerseModal from "@/components/DailyVerseModal";
-import { fetchCatalogRow } from "@/lib/catalogFetcher";
 import {
   TMDBMovie,
   getTrending,
