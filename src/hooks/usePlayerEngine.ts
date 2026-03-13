@@ -672,6 +672,7 @@ export function usePlayerEngine(config: EngineConfig) {
     const onPlaying = () => { patch({ loading: false, isStalled: false }); resetStallDetection(); if (!video.paused) startStallDetection(); };
     const onError = () => {
       console.error("[Engine] Video element error");
+      markCurrentHostBlocked(sourceUrlRef.current);
       if (tmdbId) {
         clearCachedUrl(tmdbId, contentType, season, episode);
         prefetchMap.delete(`${tmdbId}_${contentType}_${season || 0}_${episode || 0}`);
