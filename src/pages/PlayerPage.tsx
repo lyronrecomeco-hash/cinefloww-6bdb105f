@@ -637,13 +637,27 @@ const PlayerPage = () => {
                   className="absolute -translate-x-1/2 pointer-events-none flex flex-col items-center"
                   style={{ left: Math.max(40, Math.min(hoverX, (containerRef.current?.clientWidth || 300) - 60)), bottom: "calc(100% + 8px)" }}
                 >
-                  {previewThumb && (
+                  {spriteCue ? (
+                    <div className="w-[160px] h-[90px] rounded-lg border border-white/20 shadow-xl overflow-hidden mb-1 bg-black/60">
+                      <div
+                        className="bg-no-repeat"
+                        style={{
+                          width: `${spriteCue.width}px`,
+                          height: `${spriteCue.height}px`,
+                          transform: `scale(${160 / Math.max(spriteCue.width, 1)}, ${90 / Math.max(spriteCue.height, 1)})`,
+                          transformOrigin: "top left",
+                          backgroundImage: `url(${spriteCue.spriteUrl})`,
+                          backgroundPosition: `-${spriteCue.x}px -${spriteCue.y}px`,
+                        }}
+                      />
+                    </div>
+                  ) : previewThumb ? (
                     <img
                       src={previewThumb}
                       alt=""
                       className="w-[160px] h-[90px] rounded-lg border border-white/20 shadow-xl object-cover mb-1"
                     />
-                  )}
+                  ) : null}
                   <span className="px-2.5 py-1 rounded-lg bg-black/90 backdrop-blur-sm border border-white/10 text-[11px] font-mono text-white">
                     {fmt(hoverTime)}
                   </span>
