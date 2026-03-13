@@ -600,6 +600,8 @@ export function usePlayerEngine(config: EngineConfig) {
 
       switch (data.type) {
         case Hls.ErrorTypes.NETWORK_ERROR:
+          markCurrentHostBlocked(sourceUrlRef.current);
+
           // On manifest load failure, fallback to direct MP4 derived from current URL.
           if (data.details === "manifestLoadError" || data.details === "manifestLoadTimeOut") {
             const mp4Url = deriveDirectMp4(sourceUrlRef.current);
