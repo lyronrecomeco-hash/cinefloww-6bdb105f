@@ -3,7 +3,7 @@ import {
   Smartphone, Settings, Bell, Shield, Download, BarChart3,
   Users, Clock, Activity, AlertTriangle, Send, Upload,
   Power, Eye, RefreshCw, Wifi, WifiOff, ChevronRight,
-  ToggleLeft, ToggleRight, FileText, Megaphone
+  ToggleLeft, ToggleRight, FileText, Megaphone, Image, Trash2, Link as LinkIcon, Plus
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
