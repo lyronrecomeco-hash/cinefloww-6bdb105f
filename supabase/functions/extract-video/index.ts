@@ -365,15 +365,36 @@ Deno.serve(async (req: Request) => {
     }
 
     if (result) {
-      console.log(`[extract] Found: ${result.url.substring(0, 80)} (${result.type})`);
-      return new Response(JSON.stringify({
-        url: result.url,
-        type: result.type,
-        provider: "cineveo-api",
-        cached: false,
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      let finalUrl = result.url;
+      let finalType = result.type;
+
+      let playable = await probeStreamUrl(finalUrl);
+      if (!playable) {
+        const swapped = swapCineveoHost(finalUrl);
+        if (swapped) {
+          const swappedOk = await probeStreamUrl(swapped);
+          if (swappedOk) {
+            finalUrl = swapped;
+            finalType = inferTypeFromUrl(swapped);
+            playable = true;
+            console.log(`[extract] Host swap fixed URL for tmdb=${tmdbId}`);
+          }
+        }
+      }
+
+      if (playable) {
+        console.log(`[extract] Found: ${finalUrl.substring(0, 80)} (${finalType})`);
+        return new Response(JSON.stringify({
+          url: finalUrl,
+          type: finalType,
+          provider: "cineveo-api",
+          cached: false,
+        }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      console.log(`[extract] URL unresolved/unplayable for tmdb=${tmdbId}`);
     }
 
     // Not found in any catalog
