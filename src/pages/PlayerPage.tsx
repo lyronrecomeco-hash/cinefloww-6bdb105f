@@ -599,6 +599,7 @@ const PlayerPage = () => {
                 hoverSecondRef.current = null;
                 setHoverTime(null);
                 setPreviewThumb(null);
+                setSpriteCue(null);
               }}
               onTouchStart={(e) => {
                 setTouchSeeking(true);
