@@ -40,7 +40,7 @@ interface EngineConfig {
 const STALL_THRESHOLD_MS = 3000;
 const PROGRESS_SAVE_INTERVAL = 10_000;
 const MAX_RETRIES = 5;
-const RETRY_DELAYS = [200, 500, 1200, 2500, 5000];
+const RETRY_DELAYS = [150, 400, 1000, 2000, 4000];
 
 // ── OPT 2: Client-side URL cache ──
 function getCachedUrl(tmdbId: string, contentType: string, season?: string | null, episode?: string | null): { url: string; type: string } | null {
@@ -184,11 +184,11 @@ export function usePlayerEngine(config: EngineConfig) {
       abrBandWidthFactor: 0.95,
       abrBandWidthUpFactor: 0.8,
 
-      // Ultra-minimal initial buffer — play ASAP (2s enough for first frame)
-      maxBufferLength: 3,
+      // Ultra-minimal initial buffer — play ASAP (1s enough for first frame)
+      maxBufferLength: 2,
       maxMaxBufferLength: 120,
       maxBufferSize: 60 * 1000 * 1000,
-      maxBufferHole: 0.5,
+      maxBufferHole: 0.3,
 
       // Fast start
       lowLatencyMode: false,
@@ -197,16 +197,16 @@ export function usePlayerEngine(config: EngineConfig) {
       enableWorker: true,
 
       // Faster timeouts for quicker failure detection
-      fragLoadingTimeOut: 6000,
+      fragLoadingTimeOut: 5000,
       fragLoadingMaxRetry: 6,
-      fragLoadingRetryDelay: 200,
-      fragLoadingMaxRetryTimeout: 12000,
-      manifestLoadingTimeOut: 5000,
+      fragLoadingRetryDelay: 150,
+      fragLoadingMaxRetryTimeout: 10000,
+      manifestLoadingTimeOut: 4000,
       manifestLoadingMaxRetry: 3,
-      manifestLoadingRetryDelay: 200,
-      levelLoadingTimeOut: 5000,
+      manifestLoadingRetryDelay: 150,
+      levelLoadingTimeOut: 4000,
       levelLoadingMaxRetry: 4,
-      levelLoadingRetryDelay: 200,
+      levelLoadingRetryDelay: 150,
     };
   }, []);
 

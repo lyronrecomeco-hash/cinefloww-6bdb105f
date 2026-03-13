@@ -13,6 +13,7 @@ import { useWatchRoom } from "@/hooks/useWatchRoom";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { usePlayerEngine, prefetchVideoUrl } from "@/hooks/usePlayerEngine";
 import RoomOverlay from "@/components/watch-together/RoomOverlay";
+import { captureFrameFromVideo, cacheCurrentFrame } from "@/lib/videoPreview";
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
@@ -57,6 +58,7 @@ const PlayerPage = () => {
   const [hoverX, setHoverX] = useState(0);
   const [seekIndicator, setSeekIndicator] = useState<{ side: "left" | "right"; seconds: number } | null>(null);
   const [touchSeeking, setTouchSeeking] = useState(false);
+  const [previewThumb, setPreviewThumb] = useState<string | null>(null);
 
   // Next episode
   const [nextEpUrl, setNextEpUrl] = useState<string | null>(null);
@@ -230,6 +232,15 @@ const PlayerPage = () => {
 
   const goBack = () => navigate(-1);
 
+  // Cache thumbnail frames passively during playback
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const onTimeUpdate = () => cacheCurrentFrame(v);
+    v.addEventListener("timeupdate", onTimeUpdate);
+    return () => v.removeEventListener("timeupdate", onTimeUpdate);
+  }, []);
+
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
     if (locked) return;
     const rect = e.currentTarget.getBoundingClientRect();
@@ -240,8 +251,15 @@ const PlayerPage = () => {
   const onProgressHover = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    setHoverTime(pct * state.duration);
+    const time = pct * state.duration;
+    setHoverTime(time);
     setHoverX(e.clientX - rect.left);
+    // Try to get a preview thumbnail
+    const v = videoRef.current;
+    if (v) {
+      const thumb = captureFrameFromVideo(v, time);
+      setPreviewThumb(thumb);
+    }
   };
 
   const progressPct = state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0;
@@ -526,7 +544,7 @@ const PlayerPage = () => {
               className="group/bar cursor-pointer relative"
               onClick={seek}
               onMouseMove={onProgressHover}
-              onMouseLeave={() => setHoverTime(null)}
+              onMouseLeave={() => { setHoverTime(null); setPreviewThumb(null); }}
               onTouchStart={(e) => {
                 setTouchSeeking(true);
                 const rect = e.currentTarget.getBoundingClientRect();
@@ -540,8 +558,11 @@ const PlayerPage = () => {
                 const rect = e.currentTarget.getBoundingClientRect();
                 const touch = e.touches[0];
                 const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
-                setHoverTime(pct * state.duration);
+                const time = pct * state.duration;
+                setHoverTime(time);
                 setHoverX(touch.clientX - rect.left);
+                const v = videoRef.current;
+                if (v) setPreviewThumb(captureFrameFromVideo(v, time));
               }}
               onTouchEnd={() => {
                 if (touchSeeking && hoverTime !== null) {
@@ -549,14 +570,24 @@ const PlayerPage = () => {
                 }
                 setTouchSeeking(false);
                 setHoverTime(null);
+                setPreviewThumb(null);
               }}
             >
               {hoverTime !== null && (
                 <div
-                  className="absolute -top-9 -translate-x-1/2 px-2.5 py-1 rounded-lg bg-black/90 backdrop-blur-sm border border-white/10 text-[11px] font-mono text-white pointer-events-none"
-                  style={{ left: Math.max(20, Math.min(hoverX, (containerRef.current?.clientWidth || 300) - 40)) }}
+                  className="absolute -translate-x-1/2 pointer-events-none flex flex-col items-center"
+                  style={{ left: Math.max(40, Math.min(hoverX, (containerRef.current?.clientWidth || 300) - 60)), bottom: "calc(100% + 8px)" }}
                 >
-                  {fmt(hoverTime)}
+                  {previewThumb && (
+                    <img
+                      src={previewThumb}
+                      alt=""
+                      className="w-[160px] h-[90px] rounded-lg border border-white/20 shadow-xl object-cover mb-1"
+                    />
+                  )}
+                  <span className="px-2.5 py-1 rounded-lg bg-black/90 backdrop-blur-sm border border-white/10 text-[11px] font-mono text-white">
+                    {fmt(hoverTime)}
+                  </span>
                 </div>
               )}
               <div className={`relative w-full ${touchSeeking ? "h-3" : "h-1.5 group-hover/bar:h-2.5"} rounded-full bg-white/15 transition-all duration-200 overflow-hidden`}>
