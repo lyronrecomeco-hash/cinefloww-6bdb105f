@@ -25,4 +25,8 @@ setTimeout(() => {
   trackVisit().catch(() => {});
   checkCacheVersion().catch(() => {});
   try { initPushNotifications(); } catch {}
+  // Register service worker
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
 }, 100);
