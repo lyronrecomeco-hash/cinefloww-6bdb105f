@@ -371,6 +371,76 @@ async function handleApiAction(action: string, body: any): Promise<Response> {
       }
     }
 
+    case "notifyReport": {
+      const { report } = body;
+      if (!report) {
+        return new Response(JSON.stringify({ error: "report required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const ADMIN_CHAT_ID = 8393477913;
+      const typeLabel = report.content_type === "movie" ? "Filme" : "Série";
+      const msg = `🚨 <b>Report Novo!</b>\n\n` +
+        `📺 <b>Título:</b> ${report.title}\n` +
+        `🎬 <b>Tipo:</b> ${typeLabel}\n` +
+        `🆔 <b>TMDB:</b> ${report.tmdb_id}\n` +
+        `📝 <b>Descrição:</b> ${report.message}\n` +
+        `🔗 <b>Página:</b> ${report.page_url || "N/A"}\n` +
+        `🕐 <b>Data:</b> ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}`;
+      
+      const buttons = {
+        inline_keyboard: [
+          [{ text: "📋 Ver Reports", url: `${SITE_URL}/admin/pedidos` }],
+        ],
+      };
+      
+      try {
+        await sendMessage(ADMIN_CHAT_ID, msg, buttons);
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+    case "notifyTicket": {
+      const { ticket } = body;
+      if (!ticket) {
+        return new Response(JSON.stringify({ error: "ticket required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const ADMIN_CHAT_ID = 8393477913;
+      const msg = `🎫 <b>Ticket Novo!</b>\n\n` +
+        `👤 <b>Usuário:</b> ${ticket.user_email}\n` +
+        `📋 <b>Assunto:</b> ${ticket.subject}\n` +
+        `🕐 <b>Data:</b> ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}`;
+      
+      const buttons = {
+        inline_keyboard: [
+          [{ text: "🎫 Ver Tickets", url: `${SITE_URL}/admin/tickets` }],
+        ],
+      };
+      
+      try {
+        await sendMessage(ADMIN_CHAT_ID, msg, buttons);
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     default:
       return new Response(JSON.stringify({ error: "Unknown action" }), {
         status: 400,
