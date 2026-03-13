@@ -84,7 +84,40 @@ function clearCachedUrl(tmdbId: string, contentType: string, season?: string | n
   } catch {}
 }
 
-function isLikelyMismatchedSource(
+// ── OPT 1: Prefetch API (call before player mounts) ──
+const prefetchMap = new Map<string, Promise<{ url: string; type: string } | null>>();
+
+function normalizeCineveoHost(rawUrl: string): string {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (host === "cinetvembed.cineveo.site" || host.endsWith(".cineveo.site") || host.endsWith(".cineveo.lat")) {
+      parsed.hostname = "cineveo.lat";
+      parsed.protocol = "https:";
+      return parsed.toString();
+    }
+  } catch {}
+  return rawUrl;
+}
+
+function deriveDirectMp4(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl);
+    const host = parsed.hostname.toLowerCase();
+    if (!(host.includes("cineveo") || host.includes("brstream") || host.includes("streetflix"))) return null;
+
+    if (parsed.pathname.toLowerCase().endsWith(".m3u8")) {
+      parsed.pathname = parsed.pathname.replace(/\.m3u8$/i, ".mp4");
+    }
+
+    parsed.hostname = "cineveo.lat";
+    parsed.protocol = "https:";
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
   url: string,
   tmdbId: string,
   contentType: string,
