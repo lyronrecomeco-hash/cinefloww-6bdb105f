@@ -402,6 +402,10 @@ export function usePlayerEngine(config: EngineConfig) {
       const video = videoRef.current;
       if (!video || cancelledRef.current) return;
 
+      const previewSource = videoData.type === "m3u8"
+        ? (deriveDirectMp4(videoData.url) || videoData.url)
+        : videoData.url;
+      video.dataset.previewSrc = previewSource;
       video.preload = "auto";
 
       // For direct CineVeo URLs (non-proxied) OR any non-proxied environment,
@@ -532,6 +536,7 @@ export function usePlayerEngine(config: EngineConfig) {
 
               signVideoUrl(mp4Url).then((finalMp4) => {
                 if (!video || cancelledRef.current) return;
+                video.dataset.previewSrc = mp4Url;
                 video.removeAttribute("crossorigin");
                 video.setAttribute("referrerpolicy", "no-referrer");
                 video.src = finalMp4;

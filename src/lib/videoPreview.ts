@@ -92,6 +92,21 @@ function resetSourceState(currentSrc: string) {
   }
 }
 
+async function loadPreviewVideoSource(sourceUrl: string, useAnonymousCors: boolean): Promise<void> {
+  if (!previewVideo) throw new Error("Preview video not initialized");
+
+  if (useAnonymousCors) previewVideo.crossOrigin = "anonymous";
+  else previewVideo.removeAttribute("crossorigin");
+
+  previewVideo.setAttribute("referrerpolicy", "no-referrer");
+  previewVideo.src = sourceUrl;
+  previewVideo.load();
+
+  if (previewVideo.readyState < 1) {
+    await waitForEvent(previewVideo, "loadedmetadata", CAPTURE_TIMEOUT_MS);
+  }
+}
+
 async function ensurePreviewVideo(sourceUrl: string): Promise<HTMLVideoElement | null> {
   if (!sourceUrl || blockedPreviewSources.has(sourceUrl)) return null;
 
@@ -100,7 +115,6 @@ async function ensurePreviewVideo(sourceUrl: string): Promise<HTMLVideoElement |
     previewVideo.muted = true;
     previewVideo.playsInline = true;
     previewVideo.preload = "auto";
-    previewVideo.crossOrigin = "anonymous";
     previewVideo.style.position = "fixed";
     previewVideo.style.left = "-99999px";
     previewVideo.style.top = "-99999px";
@@ -108,15 +122,16 @@ async function ensurePreviewVideo(sourceUrl: string): Promise<HTMLVideoElement |
     previewVideo.style.height = "1px";
   }
 
+  if (!previewVideo.isConnected && document.body) {
+    document.body.appendChild(previewVideo);
+  }
+
   if (previewVideoSrc !== sourceUrl) {
     previewVideoSrc = sourceUrl;
-    previewVideoReadyPromise = (async () => {
-      previewVideo!.src = sourceUrl;
-      previewVideo!.load();
-      if (previewVideo!.readyState < 1) {
-        await waitForEvent(previewVideo!, "loadedmetadata", CAPTURE_TIMEOUT_MS);
-      }
-    })();
+    previewVideoReadyPromise = loadPreviewVideoSource(sourceUrl, true).catch(async () => {
+      // Fallback for providers that reject CORS-mode fetches.
+      await loadPreviewVideoSource(sourceUrl, false);
+    });
   }
 
   try {
@@ -168,7 +183,7 @@ async function captureWithPreviewVideo(sourceUrl: string, second: number): Promi
 
 function queueAsyncCapture(video: HTMLVideoElement, timeSeconds: number, onAsyncPreview?: AsyncPreviewCallback) {
   const roundedTime = Math.round(timeSeconds);
-  const sourceUrl = video.currentSrc || video.src || lastVideoSrc;
+  const sourceUrl = video.dataset.previewSrc || video.currentSrc || video.src || lastVideoSrc;
 
   if (!sourceUrl || frameCache.has(roundedTime) || blockedPreviewSources.has(sourceUrl)) {
     if (onAsyncPreview) onAsyncPreview(frameCache.get(roundedTime) ?? null, roundedTime);
@@ -204,7 +219,7 @@ export function captureFrameFromVideo(
   timeSeconds: number,
   onAsyncPreview?: AsyncPreviewCallback,
 ): string | null {
-  const currentSrc = video.currentSrc || video.src || "";
+  const currentSrc = video.dataset.previewSrc || video.currentSrc || video.src || "";
   resetSourceState(currentSrc);
 
   const roundedTime = Math.round(timeSeconds);
@@ -257,7 +272,7 @@ export function cacheCurrentFrame(video: HTMLVideoElement): void {
   const roundedTime = Math.round(video.currentTime);
   if (frameCache.has(roundedTime)) return;
 
-  const currentSrc = video.currentSrc || video.src || "";
+  const currentSrc = video.dataset.previewSrc || video.currentSrc || video.src || "";
   resetSourceState(currentSrc);
 
   const pair = getCanvas();
@@ -291,6 +306,7 @@ export function clearFrameCache(): void {
     previewVideo.pause();
     previewVideo.removeAttribute("src");
     previewVideo.load();
+    if (previewVideo.isConnected) previewVideo.remove();
   }
   previewVideoSrc = "";
   previewVideoReadyPromise = null;
