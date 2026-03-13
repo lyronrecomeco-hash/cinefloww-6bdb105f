@@ -269,10 +269,20 @@ const PlayerPage = () => {
   }, [thumbTrack]);
 
   const updateHoverPreview = useCallback((time: number) => {
-    const v = videoRef.current;
     const rounded = Math.round(time);
     hoverSecondRef.current = rounded;
 
+    const cue = getThumbnailCueAtTime(thumbTrack, time);
+    if (cue) {
+      warmThumbnailSprites(thumbTrack, time);
+      setSpriteCue(cue);
+      setPreviewThumb(null);
+      return;
+    }
+
+    setSpriteCue(null);
+
+    const v = videoRef.current;
     if (!v) {
       setPreviewThumb(null);
       return;
@@ -285,7 +295,7 @@ const PlayerPage = () => {
     });
 
     if (immediate) setPreviewThumb(immediate);
-  }, []);
+  }, [thumbTrack]);
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
     if (locked) return;
