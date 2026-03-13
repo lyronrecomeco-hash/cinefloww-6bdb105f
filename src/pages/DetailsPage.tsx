@@ -18,6 +18,7 @@ import RequestModal from "@/components/RequestModal";
 import ReportModal from "@/components/ReportModal";
 import DetailAutoWarning from "@/components/DetailAutoWarning";
 import LoginRequiredModal from "@/components/LoginRequiredModal";
+import AgeRatingBadge from "@/components/AgeRatingBadge";
 import WatchTogetherButton from "@/components/watch-together/WatchTogetherButton";
 import { fromSlug } from "@/lib/slugify";
 import { toSlug } from "@/lib/slugify";
