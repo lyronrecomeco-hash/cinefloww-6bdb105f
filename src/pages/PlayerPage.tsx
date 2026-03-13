@@ -636,6 +636,7 @@ const PlayerPage = () => {
                     <input
                       type="range" min="0" max="1" step="0.02" value={state.muted ? 0 : state.volume}
                       onChange={(e) => controls.setVolume(parseFloat(e.target.value))}
+                      aria-label="Volume"
                       className="w-full accent-primary h-1 cursor-pointer"
                     />
                   </div>
