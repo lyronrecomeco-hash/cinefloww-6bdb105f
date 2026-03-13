@@ -59,6 +59,7 @@ const PublicLogsPage = lazy(() => import("./pages/PublicLogsPage"));
 const QrxpPage = lazy(() => import("./pages/QrxpPage"));
 const SupportPage = lazy(() => import("./pages/SupportPage"));
 const TicketsPage = lazy(() => import("./pages/admin/TicketsPage"));
+const DownloadAppPage = lazy(() => import("./pages/DownloadAppPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
