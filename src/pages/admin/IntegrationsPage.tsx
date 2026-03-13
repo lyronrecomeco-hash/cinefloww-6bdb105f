@@ -56,6 +56,7 @@ const IntegrationsPage = () => {
       {tab === "manutencao" && <TabManutencao />}
       {tab === "atualizacao" && <TabAtualizacao />}
       {tab === "notificacoes" && <TabNotificacoes />}
+      {tab === "download_page" && <TabDownloadPage />}
     </div>
   );
 };
