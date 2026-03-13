@@ -466,10 +466,15 @@ export function usePlayerEngine(config: EngineConfig) {
         }
 
         if (!videoData) {
-          console.warn("[Engine] API slow/failed ou URL inválida, usando fallback direto");
-          videoData = { url: directUrl, type: "mp4" };
+          console.warn("[Engine] API slow/failed ou URL inválida");
           clearCachedUrl(tmdbId, contentType, season, episode);
           prefetchMap.delete(`${tmdbId}_${contentType}_${season || 0}_${episode || 0}`);
+
+          if (isProductionDomain()) {
+            videoData = { url: directUrl, type: "mp4" };
+          } else {
+            throw new Error("NO_PLAYABLE_SOURCE");
+          }
         }
       }
 
