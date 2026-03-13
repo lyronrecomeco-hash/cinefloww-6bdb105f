@@ -609,15 +609,18 @@ const PlayerPage = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 sm:gap-3">
                 <button onClick={controls.togglePlay}
+                  aria-label={state.playing ? "Pausar" : "Reproduzir"}
                   className="w-9 h-9 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white hover:bg-white/10 transition-all">
                   {state.playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
                 </button>
 
                 <button onClick={() => { controls.seekRelative(-10); flashSeek("left", 10); }}
+                  aria-label="Voltar 10 segundos"
                   className="w-9 h-9 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all">
                   <SkipBack className="w-4 h-4" />
                 </button>
                 <button onClick={() => { controls.seekRelative(10); flashSeek("right", 10); }}
+                  aria-label="Avançar 10 segundos"
                   className="w-9 h-9 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all">
                   <SkipForward className="w-4 h-4" />
                 </button>
@@ -625,6 +628,7 @@ const PlayerPage = () => {
                 {/* Volume */}
                 <div className="flex items-center gap-1.5 group/vol">
                   <button onClick={controls.toggleMute}
+                    aria-label={state.muted ? "Ativar som" : "Silenciar"}
                     className="w-9 h-9 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all">
                     {state.muted || state.volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                   </button>
@@ -632,6 +636,7 @@ const PlayerPage = () => {
                     <input
                       type="range" min="0" max="1" step="0.02" value={state.muted ? 0 : state.volume}
                       onChange={(e) => controls.setVolume(parseFloat(e.target.value))}
+                      aria-label="Volume"
                       className="w-full accent-primary h-1 cursor-pointer"
                     />
                   </div>
@@ -716,6 +721,7 @@ const PlayerPage = () => {
                 {/* PiP */}
                 {!isMobile && (
                   <button onClick={togglePiP}
+                    aria-label="Picture-in-Picture"
                     className="w-9 h-9 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all hidden sm:flex"
                     title="Picture-in-Picture">
                     <PictureInPicture2 className="w-4 h-4" />
@@ -724,6 +730,7 @@ const PlayerPage = () => {
 
                 {/* Fullscreen */}
                 <button onClick={toggleFullscreen}
+                  aria-label={fullscreen ? "Sair da tela cheia" : "Tela cheia"}
                   className="w-9 h-9 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all"
                   title="Tela cheia (F)">
                   {fullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}

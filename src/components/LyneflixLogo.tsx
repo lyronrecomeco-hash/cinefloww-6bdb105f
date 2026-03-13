@@ -1,3 +1,5 @@
+import { forwardRef } from "react";
+
 interface LyneflixLogoProps {
   size?: "sm" | "md" | "lg";
   animate?: boolean;
@@ -8,7 +10,7 @@ interface LyneflixLogoProps {
  * Reusable LyneFlix logo component with blue gradient.
  * Used in site alert modals and other places.
  */
-const LyneflixLogo = ({ size = "md", animate = true, className = "" }: LyneflixLogoProps) => {
+const LyneflixLogo = forwardRef<HTMLDivElement, LyneflixLogoProps>(({ size = "md", animate = true, className = "" }, ref) => {
   const sizeClass = {
     sm: "text-2xl sm:text-3xl",
     md: "text-3xl sm:text-4xl",
@@ -16,7 +18,7 @@ const LyneflixLogo = ({ size = "md", animate = true, className = "" }: LyneflixL
   }[size];
 
   return (
-    <div className={`flex items-center justify-center ${className}`}>
+    <div ref={ref} className={`flex items-center justify-center ${className}`}>
       <span
         className={`font-display font-black select-none ${sizeClass} ${animate ? "lyneflix-logo-animated" : ""}`}
         style={{
@@ -31,6 +33,7 @@ const LyneflixLogo = ({ size = "md", animate = true, className = "" }: LyneflixL
       </span>
     </div>
   );
-};
+});
+LyneflixLogo.displayName = "LyneflixLogo";
 
 export default LyneflixLogo;
