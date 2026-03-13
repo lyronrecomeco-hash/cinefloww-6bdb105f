@@ -344,14 +344,14 @@ Deno.serve(async (req: Request) => {
 
     console.log(`[extract] tmdb=${tmdbId} type=${cType} s=${season} e=${episode}`);
 
-    // Fast path: use backend cache first (avoids external API 404s and speeds up player)
-    const cached = await getCachedVideo(tmdbId, cType, season, episode);
-    if (cached?.url) {
-      console.log(`[extract] Cache hit (${cached.provider}) for tmdb=${tmdbId}`);
-      return new Response(JSON.stringify(cached), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // Cache temporarily bypassed: existing rows may contain stale provider links.
+    // We resolve from live catalog to guarantee fresh stream URLs.
+    // const cached = await getCachedVideo(tmdbId, cType, season, episode);
+    // if (cached?.url) {
+    //   return new Response(JSON.stringify(cached), {
+    //     headers: { ...corsHeaders, "Content-Type": "application/json" },
+    //   });
+    // }
 
     if (isMovie) {
       // Search movies catalog
