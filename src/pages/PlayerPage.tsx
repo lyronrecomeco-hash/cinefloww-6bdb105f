@@ -59,6 +59,7 @@ const PlayerPage = () => {
   const [seekIndicator, setSeekIndicator] = useState<{ side: "left" | "right"; seconds: number } | null>(null);
   const [touchSeeking, setTouchSeeking] = useState(false);
   const [previewThumb, setPreviewThumb] = useState<string | null>(null);
+  const hoverSecondRef = useRef<number | null>(null);
 
   // Next episode
   const [nextEpUrl, setNextEpUrl] = useState<string | null>(null);
