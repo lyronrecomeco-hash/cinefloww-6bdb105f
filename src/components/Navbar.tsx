@@ -33,7 +33,6 @@ const navItems = [
   { label: "Animes", path: "/animes" },
   { label: "Em Breve", path: "/em-breve" },
   { label: "Minha Lista", path: "/minha-lista" },
-  { label: "Suporte", path: "/suporte" },
 ];
 
 const Navbar = () => {
