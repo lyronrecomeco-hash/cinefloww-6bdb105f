@@ -386,7 +386,6 @@ async function handleApiAction(action: string, body: any): Promise<Response> {
         `🎬 <b>Tipo:</b> ${typeLabel}\n` +
         `🆔 <b>TMDB:</b> ${report.tmdb_id}\n` +
         `📝 <b>Descrição:</b> ${report.message}\n` +
-        `🔗 <b>Página:</b> ${report.page_url || "N/A"}\n` +
         `🕐 <b>Data:</b> ${new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}`;
       
       const buttons = {

@@ -406,26 +406,25 @@ export function usePlayerEngine(config: EngineConfig) {
 
       // Progress restore runs in parallel — don't block initial playback
       let savedTime = 0;
-      const progressPromise = restoreProgress().then(t => { savedTime = t; }).catch(() => {});
+      restoreProgress().then(t => { savedTime = t; }).catch(() => {});
 
       // Destroy previous HLS instance
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
       if (videoData.type === "m3u8" && Hls.isSupported()) {
-        // OPT 4: Preload manifest in parallel with HLS init
-        const manifestPreload = fetch(finalUrl, { mode: "cors", credentials: "omit" }).catch(() => null);
-        attachHls(finalUrl, video, savedTime, manifestPreload);
+        attachHls(finalUrl, video, savedTime, null as any);
       } else if (videoData.type === "m3u8" && video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = finalUrl;
         video.load();
-        video.addEventListener("loadedmetadata", () => {
+        video.addEventListener("canplay", () => {
           if (savedTime > 0) video.currentTime = savedTime;
           tryPlay(video);
         }, { once: true });
       } else {
+        // MP4: use canplay for fastest possible start
         video.src = finalUrl;
         video.load();
-        video.addEventListener("loadedmetadata", () => {
+        video.addEventListener("canplay", () => {
           if (savedTime > 0) video.currentTime = savedTime;
           tryPlay(video);
         }, { once: true });
