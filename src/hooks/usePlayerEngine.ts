@@ -402,6 +402,10 @@ export function usePlayerEngine(config: EngineConfig) {
       const video = videoRef.current;
       if (!video || cancelledRef.current) return;
 
+      const previewSource = videoData.type === "m3u8"
+        ? (deriveDirectMp4(videoData.url) || videoData.url)
+        : videoData.url;
+      video.dataset.previewSrc = previewSource;
       video.preload = "auto";
 
       // For direct CineVeo URLs (non-proxied) OR any non-proxied environment,
