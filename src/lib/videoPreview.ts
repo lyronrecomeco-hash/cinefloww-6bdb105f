@@ -31,9 +31,15 @@ function getCanvas(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D
   return { canvas: previewCanvas, ctx: previewCtx };
 }
 
-function waitForEvent(target: EventTarget, eventName: string, timeoutMs: number): Promise<void> {
+function waitForEvent(
+  target: EventTarget,
+  eventName: string,
+  timeoutMs: number,
+  options?: { failOnStall?: boolean }
+): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    const failOnStall = options?.failOnStall ?? false;
 
     const onDone = () => {
       if (settled) return;
@@ -60,14 +66,14 @@ function waitForEvent(target: EventTarget, eventName: string, timeoutMs: number)
       clearTimeout(timeout);
       target.removeEventListener(eventName, onDone as EventListener);
       target.removeEventListener("error", onError as EventListener);
-      target.removeEventListener("stalled", onError as EventListener);
       target.removeEventListener("abort", onError as EventListener);
+      if (failOnStall) target.removeEventListener("stalled", onError as EventListener);
     };
 
     target.addEventListener(eventName, onDone as EventListener, { once: true });
     target.addEventListener("error", onError as EventListener, { once: true });
-    target.addEventListener("stalled", onError as EventListener, { once: true });
     target.addEventListener("abort", onError as EventListener, { once: true });
+    if (failOnStall) target.addEventListener("stalled", onError as EventListener, { once: true });
   });
 }
 
