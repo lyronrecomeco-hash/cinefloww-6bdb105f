@@ -568,7 +568,9 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
           tmdbId={detail.id}
           type={type}
           title={getDisplayTitle(detail)}
-          subtitle={type === "tv" ? `${detail.number_of_seasons} Temporadas` : undefined}
+          subtitle={type === "tv" ? `T${continueEp?.season || 1} • EP ${continueEp?.episode || 1}` : undefined}
+          season={type === "tv" ? (continueEp?.season || 1) : undefined}
+          episode={type === "tv" ? (continueEp?.episode || 1) : undefined}
           onSelect={handleAudioSelect}
           onClose={() => { setShowAudioModal(false); }}
         />

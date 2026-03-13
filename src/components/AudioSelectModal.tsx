@@ -86,7 +86,7 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSe
 
     checkAvailability();
     return () => { cancelled = true; };
-  }, [tmdbId, type]);
+  }, [tmdbId, type, season, episode]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
