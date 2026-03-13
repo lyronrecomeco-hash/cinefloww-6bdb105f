@@ -14,6 +14,7 @@ import { useWebRTC } from "@/hooks/useWebRTC";
 import { usePlayerEngine, prefetchVideoUrl } from "@/hooks/usePlayerEngine";
 import RoomOverlay from "@/components/watch-together/RoomOverlay";
 import { captureFrameFromVideo, cacheCurrentFrame } from "@/lib/videoPreview";
+import { getThumbnailCueAtTime, loadThumbnailTrack, warmThumbnailSprites, type ThumbnailTrack, type SpriteThumbnailCue } from "@/lib/vttThumbnails";
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
