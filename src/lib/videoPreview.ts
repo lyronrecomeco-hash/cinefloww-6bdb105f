@@ -272,7 +272,7 @@ export function cacheCurrentFrame(video: HTMLVideoElement): void {
   const roundedTime = Math.round(video.currentTime);
   if (frameCache.has(roundedTime)) return;
 
-  const currentSrc = video.currentSrc || video.src || "";
+  const currentSrc = video.dataset.previewSrc || video.currentSrc || video.src || "";
   resetSourceState(currentSrc);
 
   const pair = getCanvas();
