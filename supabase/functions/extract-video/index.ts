@@ -51,6 +51,52 @@ interface ApiPage {
 
 const inferTypeFromUrl = (url: string) => (url.toLowerCase().includes(".m3u8") ? "m3u8" : "mp4");
 
+const BAD_URL_TTL_MS = 10 * 60 * 1000;
+const PROBE_TIMEOUT_MS = 2500;
+const badUrlMemo = new Map<string, number>();
+
+function isMemoBad(url: string): boolean {
+  const t = badUrlMemo.get(url);
+  if (!t) return false;
+  if (Date.now() - t > BAD_URL_TTL_MS) {
+    badUrlMemo.delete(url);
+    return false;
+  }
+  return true;
+}
+
+function memoBad(url: string) {
+  badUrlMemo.set(url, Date.now());
+}
+
+async function probeStreamUrl(url: string): Promise<boolean> {
+  if (!url) return false;
+  if (isMemoBad(url)) return false;
+
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "User-Agent": UA,
+        "Range": "bytes=0-1",
+        "Accept": "*/*",
+      },
+      redirect: "follow",
+      signal: ctrl.signal,
+    });
+
+    return res.ok || res.status === 206;
+  } catch {
+    memoBad(url);
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function getCachedVideo(
   tmdbId: number,
   contentType: "movie" | "series",
