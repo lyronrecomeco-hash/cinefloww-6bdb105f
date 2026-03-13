@@ -36,6 +36,14 @@
 
     --radius: 1rem;
 
+    /* Age rating tokens */
+    --rating-l: 132 57% 43%;
+    --rating-10: 198 50% 58%;
+    --rating-12: 42 92% 56%;
+    --rating-14: 27 90% 56%;
+    --rating-16: 2 84% 57%;
+    --rating-18: 0 0% 9%;
+
     /* Glassmorphism tokens */
     --glass-bg: 220 25% 100% / 0.05;
     --glass-border: 220 25% 100% / 0.1;

@@ -91,25 +91,31 @@ export async function getLatestSeriesProgress(
   content_type: string
 ): Promise<{ season: number; episode: number; progress_seconds: number; duration_seconds: number; completed: boolean } | null> {
   const device_id = getScopedWatchProgressDeviceId();
+  const normalized = content_type === "movie" ? "movie" : "series";
+  const contentTypes = normalized === "series" ? ["series", "tv"] : ["movie"];
+
   const { data } = await supabase
     .from("watch_progress")
     .select("season, episode, progress_seconds, duration_seconds, completed, updated_at")
     .eq("device_id", device_id)
     .eq("tmdb_id", tmdb_id)
-    .eq("content_type", content_type)
+    .in("content_type", contentTypes)
     .not("season", "is", null)
     .not("episode", "is", null)
     .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .limit(30);
 
-  if (!data || data.season == null || data.episode == null) return null;
+  if (!data?.length) return null;
+
+  const preferred = data.find((row) => !row.completed && Number(row.progress_seconds) > 30) ?? data[0];
+  if (!preferred || preferred.season == null || preferred.episode == null) return null;
+
   return {
-    season: data.season,
-    episode: data.episode,
-    progress_seconds: Number(data.progress_seconds),
-    duration_seconds: Number(data.duration_seconds),
-    completed: data.completed,
+    season: preferred.season,
+    episode: preferred.episode,
+    progress_seconds: Number(preferred.progress_seconds),
+    duration_seconds: Number(preferred.duration_seconds),
+    completed: preferred.completed,
   };
 }
 

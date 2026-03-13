@@ -101,15 +101,12 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     }
   }, [detail, type, activeProfileId]);
 
-  // Fetch series continue progress
   useEffect(() => {
     if (!detail || type !== "tv") { setContinueEp(null); return; }
     getLatestSeriesProgress(detail.id, "series").then((prog) => {
       if (!prog) { setContinueEp(null); return; }
-      // If completed, suggest next episode
-      if (prog.completed) {
-        setContinueEp({ season: prog.season, episode: prog.episode + 1 });
-      } else if (prog.progress_seconds > 30) {
+      const watched = Number(prog.progress_seconds || 0);
+      if (prog.completed || watched > 5) {
         setContinueEp({ season: prog.season, episode: prog.episode });
       } else {
         setContinueEp(null);
@@ -267,11 +264,6 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   const ageRating = getAgeRating();
 
   const proceedToWatch = () => {
-    const savedPref = localStorage.getItem("cineflow_audio_pref");
-    if (savedPref) {
-      handleAudioSelect(savedPref);
-      return;
-    }
     setShowAudioModal(true);
   };
 
@@ -576,7 +568,9 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
           tmdbId={detail.id}
           type={type}
           title={getDisplayTitle(detail)}
-          subtitle={type === "tv" ? `${detail.number_of_seasons} Temporadas` : undefined}
+          subtitle={type === "tv" ? `T${continueEp?.season || 1} • EP ${continueEp?.episode || 1}` : undefined}
+          season={type === "tv" ? (continueEp?.season || 1) : undefined}
+          episode={type === "tv" ? (continueEp?.episode || 1) : undefined}
           onSelect={handleAudioSelect}
           onClose={() => { setShowAudioModal(false); }}
         />

@@ -47,12 +47,18 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSe
           return;
         }
 
-        // 2. Check video_cache_safe for cached audio types
-        const { data: cacheData } = await supabase
+        // 2. Check video_cache_safe for cached audio types (episode-aware when provided)
+        let cacheQuery = supabase
           .from("video_cache_safe" as any)
-          .select("audio_type")
+          .select("audio_type, season, episode")
           .eq("tmdb_id", tmdbId)
           .eq("content_type", contentType);
+
+        if (type === "tv" && season != null && episode != null) {
+          cacheQuery = cacheQuery.eq("season", season).eq("episode", episode);
+        }
+
+        const { data: cacheData } = await cacheQuery;
 
         if (cancelled) return;
 
@@ -80,22 +86,13 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSe
 
     checkAvailability();
     return () => { cancelled = true; };
-  }, [tmdbId, type]);
+  }, [tmdbId, type, season, episode]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
-
-  // If only 1 audio available and not loading, auto-select
-  useEffect(() => {
-    if (!loading && availableAudios.size === 1) {
-      const audio = [...availableAudios][0];
-      localStorage.setItem("cineflow_audio_pref", audio);
-      onSelect(audio);
-    }
-  }, [loading, availableAudios]);
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4" onClick={onClose}>
