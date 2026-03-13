@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense, forwardRef } from "react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
+import ErrorBoundary from "./components/ErrorBoundary";
 
 import Index from "./pages/Index";
 import MobileBottomNav from "./components/MobileBottomNav";
