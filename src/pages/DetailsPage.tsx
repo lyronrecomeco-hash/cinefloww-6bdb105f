@@ -388,8 +388,13 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                   <Tv className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                   {detail.number_of_seasons} Temp.
                 </div>
-              )}
-            </div>
+                )}
+                {ageRating && (
+                  <span className={`px-2 py-0.5 rounded-md text-[10px] sm:text-xs font-bold border ${getAgeRatingColor(ageRating)}`}>
+                    {ageRating}
+                  </span>
+                )}
+              </div>
 
             {/* Genres */}
             <div className="flex flex-wrap justify-center sm:justify-start gap-1.5 sm:gap-2 mb-3 sm:mb-4">
