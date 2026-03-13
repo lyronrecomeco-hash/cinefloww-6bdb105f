@@ -107,7 +107,7 @@ const PlayerPage = () => {
     setSpriteCue(null);
     setPreviewThumb(null);
 
-    const videoUrl = sourceUrlRef.current || videoRef.current?.dataset?.previewSrc || null;
+    const videoUrl = videoRef.current?.dataset?.previewSrc || null;
     loadThumbnailTrack({ tmdbId, contentType, season, episode, videoUrl }).then((track) => {
       if (!cancelled) setThumbTrack(track);
     });
