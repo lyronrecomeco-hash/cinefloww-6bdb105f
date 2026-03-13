@@ -534,7 +534,14 @@ export function usePlayerEngine(config: EngineConfig) {
       // Don't reset retry count here — only reset on successful playback
     } catch (err: unknown) {
       if (!cancelledRef.current) {
-        console.error("[Engine] Load error:", err);
+        const msg = err instanceof Error ? err.message : "Load error";
+        console.error("[Engine] Load error:", msg);
+
+        if (msg === "NO_PLAYABLE_SOURCE") {
+          patch({ error: "Vídeo indisponível no momento", loading: false });
+          return;
+        }
+
         retryLoad();
       }
     }
