@@ -47,12 +47,18 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSe
           return;
         }
 
-        // 2. Check video_cache_safe for cached audio types
-        const { data: cacheData } = await supabase
+        // 2. Check video_cache_safe for cached audio types (episode-aware when provided)
+        let cacheQuery = supabase
           .from("video_cache_safe" as any)
-          .select("audio_type")
+          .select("audio_type, season, episode")
           .eq("tmdb_id", tmdbId)
           .eq("content_type", contentType);
+
+        if (type === "tv" && season != null && episode != null) {
+          cacheQuery = cacheQuery.eq("season", season).eq("episode", episode);
+        }
+
+        const { data: cacheData } = await cacheQuery;
 
         if (cancelled) return;
 
