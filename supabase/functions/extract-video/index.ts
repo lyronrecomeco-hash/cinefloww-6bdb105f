@@ -97,6 +97,24 @@ async function probeStreamUrl(url: string): Promise<boolean> {
   }
 }
 
+function swapCineveoHost(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (host === "cinetvembed.cineveo.site") {
+      parsed.hostname = "cineveo.lat";
+      return parsed.toString();
+    }
+    if (host === "cineveo.lat") {
+      parsed.hostname = "cinetvembed.cineveo.site";
+      return parsed.toString();
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 async function getCachedVideo(
   tmdbId: number,
   contentType: "movie" | "series",
