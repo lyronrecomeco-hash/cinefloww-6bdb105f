@@ -721,6 +721,7 @@ const PlayerPage = () => {
                 {/* PiP */}
                 {!isMobile && (
                   <button onClick={togglePiP}
+                    aria-label="Picture-in-Picture"
                     className="w-9 h-9 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all hidden sm:flex"
                     title="Picture-in-Picture">
                     <PictureInPicture2 className="w-4 h-4" />
