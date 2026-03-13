@@ -466,10 +466,15 @@ export function usePlayerEngine(config: EngineConfig) {
         }
 
         if (!videoData) {
-          console.warn("[Engine] API slow/failed ou URL inválida, usando fallback direto");
-          videoData = { url: directUrl, type: "mp4" };
+          console.warn("[Engine] API slow/failed ou URL inválida");
           clearCachedUrl(tmdbId, contentType, season, episode);
           prefetchMap.delete(`${tmdbId}_${contentType}_${season || 0}_${episode || 0}`);
+
+          if (isProductionDomain()) {
+            videoData = { url: directUrl, type: "mp4" };
+          } else {
+            throw new Error("NO_PLAYABLE_SOURCE");
+          }
         }
       }
 
@@ -529,7 +534,14 @@ export function usePlayerEngine(config: EngineConfig) {
       // Don't reset retry count here — only reset on successful playback
     } catch (err: unknown) {
       if (!cancelledRef.current) {
-        console.error("[Engine] Load error:", err);
+        const msg = err instanceof Error ? err.message : "Load error";
+        console.error("[Engine] Load error:", msg);
+
+        if (msg === "NO_PLAYABLE_SOURCE") {
+          patch({ error: "Vídeo indisponível no momento", loading: false });
+          return;
+        }
+
         retryLoad();
       }
     }

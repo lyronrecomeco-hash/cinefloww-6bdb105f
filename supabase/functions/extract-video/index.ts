@@ -51,6 +51,70 @@ interface ApiPage {
 
 const inferTypeFromUrl = (url: string) => (url.toLowerCase().includes(".m3u8") ? "m3u8" : "mp4");
 
+const BAD_URL_TTL_MS = 10 * 60 * 1000;
+const PROBE_TIMEOUT_MS = 2500;
+const badUrlMemo = new Map<string, number>();
+
+function isMemoBad(url: string): boolean {
+  const t = badUrlMemo.get(url);
+  if (!t) return false;
+  if (Date.now() - t > BAD_URL_TTL_MS) {
+    badUrlMemo.delete(url);
+    return false;
+  }
+  return true;
+}
+
+function memoBad(url: string) {
+  badUrlMemo.set(url, Date.now());
+}
+
+async function probeStreamUrl(url: string): Promise<boolean> {
+  if (!url) return false;
+  if (isMemoBad(url)) return false;
+
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        "User-Agent": UA,
+        "Range": "bytes=0-1",
+        "Accept": "*/*",
+      },
+      redirect: "follow",
+      signal: ctrl.signal,
+    });
+
+    return res.ok || res.status === 206;
+  } catch {
+    memoBad(url);
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function swapCineveoHost(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (host === "cinetvembed.cineveo.site") {
+      parsed.hostname = "cineveo.lat";
+      return parsed.toString();
+    }
+    if (host === "cineveo.lat") {
+      parsed.hostname = "cinetvembed.cineveo.site";
+      return parsed.toString();
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 async function getCachedVideo(
   tmdbId: number,
   contentType: "movie" | "series",
@@ -63,47 +127,62 @@ async function getCachedVideo(
     const nowIso = new Date().toISOString();
     const { data: liveRows } = await db
       .from("video_cache")
-      .select("video_url, video_type, provider, season, episode, created_at")
+      .select("id, video_url, video_type, provider, season, episode, created_at")
       .eq("tmdb_id", tmdbId)
       .eq("content_type", contentType)
       .gt("expires_at", nowIso)
       .order("created_at", { ascending: false })
       .limit(50);
 
-    const matchLive = (liveRows ?? []).find((row: any) => {
+    const liveCandidates = (liveRows ?? []).filter((row: any) => {
       if (contentType === "movie") return true;
       return Number(row.season ?? 0) === Number(season ?? 1) && Number(row.episode ?? 0) === Number(episode ?? 1);
     });
 
-    if (matchLive?.video_url) {
-      return {
-        url: matchLive.video_url,
-        type: matchLive.video_type || inferTypeFromUrl(matchLive.video_url),
-        provider: matchLive.provider || "video-cache",
-        cached: true,
-      };
+    for (const row of liveCandidates) {
+      if (!row.video_url) continue;
+      const ok = await probeStreamUrl(row.video_url);
+      if (ok) {
+        return {
+          url: row.video_url,
+          type: row.video_type || inferTypeFromUrl(row.video_url),
+          provider: row.provider || "video-cache",
+          cached: true,
+        };
+      }
+
+      memoBad(row.video_url);
+      console.log(`[extract] Pruning stale cache URL for tmdb=${tmdbId}: ${row.video_url}`);
+      await db.from("video_cache").delete().eq("id", row.id);
     }
 
     const { data: backupRows } = await db
       .from("video_cache_backup")
-      .select("video_url, video_type, provider, season, episode, backed_up_at")
+      .select("id, video_url, video_type, provider, season, episode, backed_up_at")
       .eq("tmdb_id", tmdbId)
       .eq("content_type", contentType)
       .order("backed_up_at", { ascending: false })
       .limit(50);
 
-    const matchBackup = (backupRows ?? []).find((row: any) => {
+    const backupCandidates = (backupRows ?? []).filter((row: any) => {
       if (contentType === "movie") return true;
       return Number(row.season ?? 0) === Number(season ?? 1) && Number(row.episode ?? 0) === Number(episode ?? 1);
     });
 
-    if (matchBackup?.video_url) {
-      return {
-        url: matchBackup.video_url,
-        type: matchBackup.video_type || inferTypeFromUrl(matchBackup.video_url),
-        provider: matchBackup.provider || "video-cache-backup",
-        cached: true,
-      };
+    for (const row of backupCandidates) {
+      if (!row.video_url) continue;
+      const ok = await probeStreamUrl(row.video_url);
+      if (ok) {
+        return {
+          url: row.video_url,
+          type: row.video_type || inferTypeFromUrl(row.video_url),
+          provider: row.provider || "video-cache-backup",
+          cached: true,
+        };
+      }
+
+      memoBad(row.video_url);
+      console.log(`[extract] Ignoring stale backup URL for tmdb=${tmdbId}: ${row.video_url}`);
     }
   } catch (err) {
     console.log(`[extract] cache lookup failed for tmdb=${tmdbId}: ${err}`);
@@ -265,14 +344,14 @@ Deno.serve(async (req: Request) => {
 
     console.log(`[extract] tmdb=${tmdbId} type=${cType} s=${season} e=${episode}`);
 
-    // Fast path: use backend cache first (avoids external API 404s and speeds up player)
-    const cached = await getCachedVideo(tmdbId, cType, season, episode);
-    if (cached?.url) {
-      console.log(`[extract] Cache hit (${cached.provider}) for tmdb=${tmdbId}`);
-      return new Response(JSON.stringify(cached), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    // Cache temporarily bypassed: existing rows may contain stale provider links.
+    // We resolve from live catalog to guarantee fresh stream URLs.
+    // const cached = await getCachedVideo(tmdbId, cType, season, episode);
+    // if (cached?.url) {
+    //   return new Response(JSON.stringify(cached), {
+    //     headers: { ...corsHeaders, "Content-Type": "application/json" },
+    //   });
+    // }
 
     if (isMovie) {
       // Search movies catalog
