@@ -170,11 +170,9 @@ const ComingSoonPage = () => {
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-2.5 sm:gap-4 lg:gap-5" style={{ contentVisibility: "auto" }}>
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-7 gap-3 sm:gap-4" style={{ contentVisibility: "auto" }}>
               {items.map((item, idx) => (
-                <div key={`${item.id}-${idx}`} className="w-full lg:max-w-[158px] xl:max-w-[168px] mx-auto">
-                  <MovieCard movie={item} comingSoon />
-                </div>
+                <MovieCard key={`${item.id}-${idx}`} movie={item} comingSoon />
               ))}
             </div>
 

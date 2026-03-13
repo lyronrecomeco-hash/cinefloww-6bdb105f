@@ -18,6 +18,7 @@ import RequestModal from "@/components/RequestModal";
 import ReportModal from "@/components/ReportModal";
 import DetailAutoWarning from "@/components/DetailAutoWarning";
 import LoginRequiredModal from "@/components/LoginRequiredModal";
+import AgeRatingBadge from "@/components/AgeRatingBadge";
 import WatchTogetherButton from "@/components/watch-together/WatchTogetherButton";
 import { fromSlug } from "@/lib/slugify";
 import { toSlug } from "@/lib/slugify";
@@ -244,18 +245,15 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
 
   // Extract age rating / certification
   const getAgeRating = (): string | null => {
-    // For movies: release_dates.results
     const releaseDates = (detail as any)?.release_dates?.results;
     if (releaseDates) {
       const br = releaseDates.find((r: any) => r.iso_3166_1 === "BR");
       const cert = br?.release_dates?.find((d: any) => d.certification)?.certification;
       if (cert) return cert;
-      // Fallback to US
       const us = releaseDates.find((r: any) => r.iso_3166_1 === "US");
       const usCert = us?.release_dates?.find((d: any) => d.certification)?.certification;
       if (usCert) return usCert;
     }
-    // For TV: content_ratings.results
     const contentRatings = (detail as any)?.content_ratings?.results;
     if (contentRatings) {
       const br = contentRatings.find((r: any) => r.iso_3166_1 === "BR");
@@ -267,17 +265,6 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
   };
 
   const ageRating = getAgeRating();
-
-  const getAgeRatingColor = (rating: string) => {
-    const r = rating.toUpperCase();
-    if (r === "L" || r === "G" || r === "TV-G" || r === "TV-Y") return "bg-green-500/20 text-green-400 border-green-500/30";
-    if (r === "10" || r === "PG" || r === "TV-PG" || r === "TV-Y7") return "bg-blue-500/20 text-blue-400 border-blue-500/30";
-    if (r === "12" || r === "PG-13" || r === "TV-14") return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
-    if (r === "14") return "bg-orange-500/20 text-orange-400 border-orange-500/30";
-    if (r === "16") return "bg-orange-600/20 text-orange-500 border-orange-600/30";
-    if (r === "18" || r === "R" || r === "NC-17" || r === "TV-MA") return "bg-red-500/20 text-red-400 border-red-500/30";
-    return "bg-white/10 text-muted-foreground border-white/20";
-  };
 
   const proceedToWatch = () => {
     const savedPref = localStorage.getItem("cineflow_audio_pref");
@@ -389,11 +376,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                   {detail.number_of_seasons} Temp.
                 </div>
                 )}
-                {ageRating && (
-                  <span className={`px-2 py-0.5 rounded-md text-[10px] sm:text-xs font-bold border ${getAgeRatingColor(ageRating)}`}>
-                    {ageRating}
-                  </span>
-                )}
+                {ageRating && <AgeRatingBadge rating={ageRating} />}
               </div>
 
             {/* Genres */}

@@ -1,5 +1,6 @@
-import { useEffect } from "react";
-import { X, Mic, Subtitles, Globe, ChevronRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { X, Mic, Subtitles, Globe, ChevronRight, Loader2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 interface AudioSelectModalProps {
   tmdbId: number;
@@ -18,10 +19,68 @@ const AUDIO_OPTIONS = [
 ];
 
 const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSelect, onClose }: AudioSelectModalProps) => {
-  // Always show both audio options — real availability is checked at playback by extract-video
-  // This prevents false "sem fontes" for content that exists in CineVeo API but not in M3U shards
-  const availableAudios = new Set(["dublado", "legendado"]);
-  const loading = false;
+  const [availableAudios, setAvailableAudios] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+
+  // Check real audio availability from backend
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkAvailability = async () => {
+      setLoading(true);
+
+      try {
+        // 1. Check content table for audio_type array
+        const contentType = type === "movie" ? "movie" : "series";
+        const { data: contentData } = await supabase
+          .from("content")
+          .select("audio_type")
+          .eq("tmdb_id", tmdbId)
+          .eq("content_type", contentType)
+          .maybeSingle();
+
+        if (cancelled) return;
+
+        if (contentData?.audio_type && Array.isArray(contentData.audio_type) && contentData.audio_type.length > 0) {
+          setAvailableAudios(new Set(contentData.audio_type));
+          setLoading(false);
+          return;
+        }
+
+        // 2. Check video_cache_safe for cached audio types
+        const { data: cacheData } = await supabase
+          .from("video_cache_safe" as any)
+          .select("audio_type")
+          .eq("tmdb_id", tmdbId)
+          .eq("content_type", contentType);
+
+        if (cancelled) return;
+
+        if (cacheData && cacheData.length > 0) {
+          const types = new Set<string>();
+          cacheData.forEach((row: any) => {
+            if (row.audio_type) types.add(row.audio_type);
+          });
+          if (types.size > 0) {
+            setAvailableAudios(types);
+            setLoading(false);
+            return;
+          }
+        }
+
+        // 3. Fallback: show both as available (real check at playback)
+        setAvailableAudios(new Set(["dublado", "legendado"]));
+      } catch {
+        // On error, show both
+        setAvailableAudios(new Set(["dublado", "legendado"]));
+      }
+
+      if (!cancelled) setLoading(false);
+    };
+
+    checkAvailability();
+    return () => { cancelled = true; };
+  }, [tmdbId, type]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -29,7 +88,7 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSe
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // If only 1 audio available and it's not loading, auto-select
+  // If only 1 audio available and not loading, auto-select
   useEffect(() => {
     if (!loading && availableAudios.size === 1) {
       const audio = [...availableAudios][0];
@@ -56,8 +115,9 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSe
             </div>
 
             {loading ? (
-              <div className="flex justify-center py-8">
-                <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <div className="flex flex-col items-center gap-3 py-8">
+                <Loader2 className="w-6 h-6 text-primary animate-spin" />
+                <p className="text-xs text-muted-foreground">Verificando disponibilidade...</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -117,12 +177,10 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSe
               </div>
             )}
 
-            {/* Only show skip button if there are available audios and user might want to skip selection */}
             {!loading && availableAudios.size > 1 && (
               <div className="mt-5 pt-5 border-t border-white/10">
                 <button
                   onClick={() => {
-                    // Auto-select first available
                     const first = AUDIO_OPTIONS.find(o => availableAudios.has(o.key));
                     if (first) {
                       localStorage.setItem("cineflow_audio_pref", first.key);

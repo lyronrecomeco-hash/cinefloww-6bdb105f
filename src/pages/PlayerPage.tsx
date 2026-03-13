@@ -12,6 +12,7 @@ import { getSeasonDetails, posterUrl, TMDBEpisode } from "@/services/tmdb";
 import { useWatchRoom } from "@/hooks/useWatchRoom";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { usePlayerEngine, prefetchVideoUrl } from "@/hooks/usePlayerEngine";
+// Access sourceUrlRef via videoRef.dataset.previewSrc
 import RoomOverlay from "@/components/watch-together/RoomOverlay";
 import { captureFrameFromVideo, cacheCurrentFrame } from "@/lib/videoPreview";
 import { getThumbnailCueAtTime, loadThumbnailTrack, warmThumbnailSprites, type ThumbnailTrack, type SpriteThumbnailCue } from "@/lib/vttThumbnails";
@@ -106,14 +107,13 @@ const PlayerPage = () => {
     setSpriteCue(null);
     setPreviewThumb(null);
 
-    loadThumbnailTrack({ tmdbId, contentType, season, episode }).then((track) => {
+    const videoUrl = videoRef.current?.dataset?.previewSrc || null;
+    loadThumbnailTrack({ tmdbId, contentType, season, episode, videoUrl }).then((track) => {
       if (!cancelled) setThumbTrack(track);
     });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [tmdbId, contentType, season, episode]);
+    return () => { cancelled = true; };
+  }, [tmdbId, contentType, season, episode, state.duration]);
 
   // Resume prompt — check once when video loads
   useEffect(() => {
