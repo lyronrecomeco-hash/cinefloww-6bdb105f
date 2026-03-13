@@ -412,28 +412,29 @@ export function usePlayerEngine(config: EngineConfig) {
         video.setAttribute("referrerpolicy", "no-referrer");
       }
 
-      // Progress restore runs in parallel — don't block initial playback
-      let savedTime = 0;
-      restoreProgress().then(t => { savedTime = t; }).catch(() => {});
-
       // Destroy previous HLS instance
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
+      // Restore progress in background — apply when video has metadata
+      const progressPromise = restoreProgress();
+
       if (videoData.type === "m3u8" && Hls.isSupported()) {
-        attachHls(finalUrl, video, savedTime, null as any);
+        progressPromise.then(t => { attachHls(finalUrl, video, t, null as any); }).catch(() => {
+          attachHls(finalUrl, video, 0, null as any);
+        });
       } else if (videoData.type === "m3u8" && video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = finalUrl;
         video.load();
-        video.addEventListener("canplay", () => {
-          if (savedTime > 0) video.currentTime = savedTime;
+        video.addEventListener("loadeddata", () => {
+          progressPromise.then(t => { if (t > 0) video.currentTime = t; }).catch(() => {});
           tryPlay(video);
         }, { once: true });
       } else {
-        // MP4: use canplay for fastest possible start
+        // MP4: use loadeddata for fastest start (fires before canplay)
         video.src = finalUrl;
         video.load();
-        video.addEventListener("canplay", () => {
-          if (savedTime > 0) video.currentTime = savedTime;
+        video.addEventListener("loadeddata", () => {
+          progressPromise.then(t => { if (t > 0) video.currentTime = t; }).catch(() => {});
           tryPlay(video);
         }, { once: true });
       }

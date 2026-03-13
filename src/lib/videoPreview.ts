@@ -24,24 +24,41 @@ function getCanvas(): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D
 
 /**
  * Capture a thumbnail from the video at a given time.
- * Uses a hidden clone video to seek without affecting playback.
+ * Returns cached frame if available, or nearest cached frame within 5s.
+ * Can only capture live frame if video is near the requested time.
  */
 export function captureFrameFromVideo(
   video: HTMLVideoElement,
   timeSeconds: number
 ): string | null {
   // Reset cache if video source changed
-  if (video.src !== lastVideoSrc) {
+  const currentSrc = video.src || video.currentSrc || "";
+  if (currentSrc && currentSrc !== lastVideoSrc) {
     frameCache.clear();
-    lastVideoSrc = video.src;
+    lastVideoSrc = currentSrc;
   }
 
   const roundedTime = Math.round(timeSeconds);
+
+  // Exact cache hit
   const cached = frameCache.get(roundedTime);
   if (cached) return cached;
 
-  // Can only capture current frame if video is at this time (±1s)
+  // Try nearest cached frame within 5 seconds
+  let nearest: string | null = null;
+  let nearestDist = Infinity;
+  for (const [t, url] of frameCache) {
+    const dist = Math.abs(t - roundedTime);
+    if (dist < nearestDist && dist <= 5) {
+      nearestDist = dist;
+      nearest = url;
+    }
+  }
+  if (nearest) return nearest;
+
+  // Can only capture current frame if video is at this time (±1.5s)
   if (Math.abs(video.currentTime - timeSeconds) > 1.5) return null;
+  if (video.readyState < 2) return null;
 
   const pair = getCanvas();
   if (!pair) return null;
@@ -49,16 +66,13 @@ export function captureFrameFromVideo(
   try {
     pair.ctx.drawImage(video, 0, 0, CANVAS_W, CANVAS_H);
     const dataUrl = pair.canvas.toDataURL("image/jpeg", 0.5);
+    // Check if canvas was tainted (returns empty/tiny data)
+    if (dataUrl.length < 100) return null;
     frameCache.set(roundedTime, dataUrl);
-
-    // Keep cache bounded
-    if (frameCache.size > 120) {
-      const firstKey = frameCache.keys().next().value;
-      if (firstKey !== undefined) frameCache.delete(firstKey);
-    }
-
+    trimCache();
     return dataUrl;
   } catch {
+    // Canvas tainted by CORS — silently fail
     return null;
   }
 }
@@ -73,9 +87,10 @@ export function cacheCurrentFrame(video: HTMLVideoElement): void {
   const roundedTime = Math.round(video.currentTime);
   if (frameCache.has(roundedTime)) return;
 
-  if (video.src !== lastVideoSrc) {
+  const currentSrc = video.src || video.currentSrc || "";
+  if (currentSrc && currentSrc !== lastVideoSrc) {
     frameCache.clear();
-    lastVideoSrc = video.src;
+    lastVideoSrc = currentSrc;
   }
 
   const pair = getCanvas();
@@ -84,16 +99,25 @@ export function cacheCurrentFrame(video: HTMLVideoElement): void {
   try {
     pair.ctx.drawImage(video, 0, 0, CANVAS_W, CANVAS_H);
     const dataUrl = pair.canvas.toDataURL("image/jpeg", 0.5);
+    if (dataUrl.length < 100) return; // tainted canvas guard
     frameCache.set(roundedTime, dataUrl);
-
-    if (frameCache.size > 120) {
-      const firstKey = frameCache.keys().next().value;
-      if (firstKey !== undefined) frameCache.delete(firstKey);
-    }
+    trimCache();
   } catch { }
+}
+
+function trimCache() {
+  if (frameCache.size > 200) {
+    const firstKey = frameCache.keys().next().value;
+    if (firstKey !== undefined) frameCache.delete(firstKey);
+  }
 }
 
 export function clearFrameCache(): void {
   frameCache.clear();
   lastVideoSrc = "";
+}
+
+/** Get cache size for debugging */
+export function getFrameCacheSize(): number {
+  return frameCache.size;
 }
