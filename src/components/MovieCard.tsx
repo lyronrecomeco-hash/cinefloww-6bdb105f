@@ -1,10 +1,11 @@
-import { memo, useState } from "react";
+import { memo, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { Star, Calendar } from "lucide-react";
 import { TMDBMovie, posterUrl, getDisplayTitle, getYear, getMediaType, isValidDate, isValidPoster } from "@/services/tmdb";
 import { toSlug } from "@/lib/slugify";
 import { Skeleton } from "@/components/ui/skeleton";
 import ComingSoonModal from "@/components/ComingSoonModal";
+import { prefetchVideoUrl } from "@/hooks/usePlayerEngine";
 
 interface MovieCardProps {
   movie: TMDBMovie;
