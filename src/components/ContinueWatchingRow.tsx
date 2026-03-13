@@ -54,9 +54,10 @@ const ContinueWatchingRow = () => {
         .select("id, tmdb_id, content_type, season, episode, progress_seconds, duration_seconds")
         .eq("device_id", deviceId)
         .eq("completed", false)
-        .gt("progress_seconds", 30)
+        .gt("duration_seconds", 0)
+        .gt("progress_seconds", 20)
         .order("updated_at", { ascending: false })
-        .limit(20);
+        .limit(30);
 
       if (!progress?.length) return;
 
