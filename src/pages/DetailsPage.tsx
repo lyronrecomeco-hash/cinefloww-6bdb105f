@@ -376,11 +376,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
                   {detail.number_of_seasons} Temp.
                 </div>
                 )}
-                {ageRating && (
-                  <span className={`px-2 py-0.5 rounded-md text-[10px] sm:text-xs font-bold border ${getAgeRatingColor(ageRating)}`}>
-                    {ageRating}
-                  </span>
-                )}
+                {ageRating && <AgeRatingBadge rating={ageRating} />}
               </div>
 
             {/* Genres */}
