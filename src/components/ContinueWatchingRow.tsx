@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Play, Clock, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toSlug } from "@/lib/slugify";
+import { getScopedWatchProgressDeviceId } from "@/lib/watchProgress";
 
 interface WatchItem {
   tmdb_id: number;
@@ -16,14 +17,6 @@ interface WatchItem {
   id: string;
 }
 
-function getDeviceId(): string {
-  let id = localStorage.getItem("cineflow_device_id");
-  if (!id) {
-    id = crypto.randomUUID();
-    localStorage.setItem("cineflow_device_id", id);
-  }
-  return id;
-}
 
 const formatTime = (s: number) => {
   const h = Math.floor(s / 3600);
@@ -48,7 +41,7 @@ const ContinueWatchingRow = () => {
 
   useEffect(() => {
     const load = async () => {
-      const deviceId = getDeviceId();
+      const deviceId = getScopedWatchProgressDeviceId();
       const { data: progress } = await supabase
         .from("watch_progress")
         .select("id, tmdb_id, content_type, season, episode, progress_seconds, duration_seconds")

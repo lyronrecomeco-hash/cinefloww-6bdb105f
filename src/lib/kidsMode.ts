@@ -1,4 +1,4 @@
-import { TMDBMovie } from "@/services/tmdb";
+import type { TMDBMovie } from "@/services/tmdb";
 
 const KIDS_ALLOWED_GENRES = new Set([16, 35, 10751, 12, 14, 10402]);
 const KIDS_BLOCKED_GENRES = new Set([27, 53, 80, 99, 9648, 10752]);
