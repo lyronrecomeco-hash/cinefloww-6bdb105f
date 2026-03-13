@@ -100,6 +100,21 @@ const PlayerPage = () => {
 
   useEffect(() => { if (roomCodeParam && activeProfileId && !watchRoom.room) watchRoom.joinRoom(roomCodeParam); }, [roomCodeParam, activeProfileId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setThumbTrack(null);
+    setSpriteCue(null);
+    setPreviewThumb(null);
+
+    loadThumbnailTrack({ tmdbId, contentType, season, episode }).then((track) => {
+      if (!cancelled) setThumbTrack(track);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tmdbId, contentType, season, episode]);
+
   // Resume prompt — check once when video loads
   useEffect(() => {
     if (resumeChecked.current || !tmdbId || state.duration === 0) return;
