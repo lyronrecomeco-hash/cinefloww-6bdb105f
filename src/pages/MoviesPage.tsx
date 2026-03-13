@@ -4,8 +4,9 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import MovieCard from "@/components/MovieCard";
 import { TMDBMovie, getPopularMovies, discoverMovies } from "@/services/tmdb";
-import { Film, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import CategoriesModal from "@/components/CategoriesModal";
+import { isKidsModeEnabled, filterKidsTitles } from "@/lib/kidsMode";
 
 const MoviesPage = () => {
   const [searchParams] = useSearchParams();
@@ -22,6 +23,8 @@ const MoviesPage = () => {
   );
   const [selectedYear, setSelectedYear] = useState<string | null>(null);
 
+  const kidsMode = isKidsModeEnabled();
+
   const fetchPage = useCallback(async (p: number) => {
     setLoading(true);
     try {
@@ -36,12 +39,14 @@ const MoviesPage = () => {
       } else {
         data = await getPopularMovies(p, genreId);
       }
-      setMovies(data.results.filter(m => m.poster_path));
+      let results = data.results.filter(m => m.poster_path);
+      if (kidsMode) results = filterKidsTitles(results);
+      setMovies(results);
       setTotalPages(Math.min(data.total_pages, 500));
       setPage(p);
     } catch {}
     setLoading(false);
-  }, [selectedCategory, selectedYear]);
+  }, [selectedCategory, selectedYear, kidsMode]);
 
   useEffect(() => { fetchPage(1); }, [fetchPage]);
 
@@ -76,7 +81,7 @@ const MoviesPage = () => {
             <div className="w-1 h-6 sm:h-7 rounded-full bg-primary" />
             <div>
               <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-bold">
-                Filmes {filterLabel && <span className="text-primary text-lg">• {filterLabel}</span>}
+                {kidsMode ? "Filmes Kids" : "Filmes"} {filterLabel && <span className="text-primary text-lg">• {filterLabel}</span>}
               </h1>
               <p className="text-[10px] sm:text-xs text-muted-foreground">Página {page} de {totalPages}</p>
             </div>

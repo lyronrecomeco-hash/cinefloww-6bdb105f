@@ -3,8 +3,9 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import MovieCard from "@/components/MovieCard";
 import { TMDBMovie, getPopularSeries, discoverSeries } from "@/services/tmdb";
-import { Tv, ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
+import { ChevronLeft, ChevronRight, SlidersHorizontal } from "lucide-react";
 import CategoriesModal from "@/components/CategoriesModal";
+import { isKidsModeEnabled, filterKidsTitles } from "@/lib/kidsMode";
 
 const SeriesPage = () => {
   const [series, setSeries] = useState<TMDBMovie[]>([]);
@@ -14,6 +15,8 @@ const SeriesPage = () => {
   const [showCategories, setShowCategories] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<{ id: string; name: string } | null>(null);
   const [selectedYear, setSelectedYear] = useState<string | null>(null);
+
+  const kidsMode = isKidsModeEnabled();
 
   const fetchPage = useCallback(async (p: number) => {
     setLoading(true);
@@ -29,12 +32,14 @@ const SeriesPage = () => {
       } else {
         data = await getPopularSeries(p, genreId);
       }
-      setSeries(data.results.filter(s => s.poster_path));
+      let results = data.results.filter(s => s.poster_path);
+      if (kidsMode) results = filterKidsTitles(results);
+      setSeries(results);
       setTotalPages(Math.min(data.total_pages, 500));
       setPage(p);
     } catch {}
     setLoading(false);
-  }, [selectedCategory, selectedYear]);
+  }, [selectedCategory, selectedYear, kidsMode]);
 
   useEffect(() => { fetchPage(1); }, [fetchPage]);
 
@@ -69,7 +74,7 @@ const SeriesPage = () => {
             <div className="w-1 h-6 sm:h-7 rounded-full bg-primary" />
             <div>
               <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-bold">
-                Séries {filterLabel && <span className="text-primary text-lg">• {filterLabel}</span>}
+                {kidsMode ? "Séries Kids" : "Séries"} {filterLabel && <span className="text-primary text-lg">• {filterLabel}</span>}
               </h1>
               <p className="text-[10px] sm:text-xs text-muted-foreground">Página {page} de {totalPages}</p>
             </div>

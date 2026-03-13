@@ -101,16 +101,30 @@ const PlayerPage = () => {
 
   useEffect(() => { if (roomCodeParam && activeProfileId && !watchRoom.room) watchRoom.joinRoom(roomCodeParam); }, [roomCodeParam, activeProfileId]);
 
+  // VTT thumbnail loading — retry when video URL becomes available
+  const vttAttemptRef = useRef(0);
   useEffect(() => {
     let cancelled = false;
-    setThumbTrack(null);
     setSpriteCue(null);
     setPreviewThumb(null);
 
-    const videoUrl = videoRef.current?.dataset?.previewSrc || null;
-    loadThumbnailTrack({ tmdbId, contentType, season, episode, videoUrl }).then((track) => {
-      if (!cancelled) setThumbTrack(track);
-    });
+    const tryLoad = () => {
+      const videoUrl = videoRef.current?.dataset?.previewSrc || videoRef.current?.currentSrc || null;
+      loadThumbnailTrack({ tmdbId, contentType, season, episode, videoUrl }).then((track) => {
+        if (cancelled) return;
+        if (track) {
+          setThumbTrack(track);
+        } else if (vttAttemptRef.current < 3 && !videoUrl) {
+          // Retry after video URL is set
+          vttAttemptRef.current++;
+          setTimeout(tryLoad, 2000);
+        }
+      });
+    };
+
+    vttAttemptRef.current = 0;
+    setThumbTrack(null);
+    tryLoad();
 
     return () => { cancelled = true; };
   }, [tmdbId, contentType, season, episode, state.duration]);

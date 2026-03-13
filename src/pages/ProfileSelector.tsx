@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Plus, Pencil, Loader2, LogOut, Copy, Check, X, Headphones } from "lucide-react";
+import { Plus, Pencil, Loader2, LogOut, Copy, Check, X, Headphones, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 import avatar1 from "@/assets/avatars/avatar-1.png";
@@ -23,7 +23,7 @@ import anime8 from "@/assets/avatars/anime-8.png";
 import kidsAvatar from "@/assets/avatars/kids-avatar.png";
 
 const AVATARS = [avatar1, avatar2, avatar3, avatar4, avatar5, avatar6, avatar7, avatar8, anime1, anime2, anime3, anime4, anime5, anime6, anime7, anime8];
-const KIDS_AVATAR_INDEX = 99; // special index for kids
+const KIDS_AVATAR_INDEX = 99;
 
 interface UserProfile {
   id: string;
@@ -34,7 +34,7 @@ interface UserProfile {
   share_code: string | null;
 }
 
-const MAX_CUSTOM_PROFILES = 3; // max user-created profiles (excluding Kids)
+const MAX_CUSTOM_PROFILES = 3;
 
 const ProfileSelector = () => {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
@@ -46,6 +46,7 @@ const ProfileSelector = () => {
   const [mounted, setMounted] = useState(false);
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [avatarTab, setAvatarTab] = useState<"classic" | "anime">("classic");
+  const [showLimitModal, setShowLimitModal] = useState(false);
   
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -59,13 +60,9 @@ const ProfileSelector = () => {
     const hasKids = existingProfiles.some(p => p.is_kids);
     if (!hasKids) {
       await supabase.from("user_profiles").insert({
-        user_id: userId,
-        name: "Kids",
-        avatar_index: KIDS_AVATAR_INDEX,
-        is_default: false,
-        is_kids: true,
+        user_id: userId, name: "Kids", avatar_index: KIDS_AVATAR_INDEX, is_default: false, is_kids: true,
       });
-      return true; // created
+      return true;
     }
     return false;
   };
@@ -73,24 +70,11 @@ const ProfileSelector = () => {
   const loadProfiles = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) { navigate("/conta"); return; }
-
-    const { data } = await supabase
-      .from("user_profiles")
-      .select("*")
-      .eq("user_id", session.user.id)
-      .order("created_at");
-
+    const { data } = await supabase.from("user_profiles").select("*").eq("user_id", session.user.id).order("created_at");
     const fetched = (data as UserProfile[]) || [];
-    
-    // Auto-create Kids profile if missing
     const created = await ensureKidsProfile(session.user.id, fetched);
     if (created) {
-      // Reload after creating Kids
-      const { data: refreshed } = await supabase
-        .from("user_profiles")
-        .select("*")
-        .eq("user_id", session.user.id)
-        .order("created_at");
+      const { data: refreshed } = await supabase.from("user_profiles").select("*").eq("user_id", session.user.id).order("created_at");
       setProfiles((refreshed as UserProfile[]) || []);
     } else {
       setProfiles(fetched);
@@ -100,11 +84,7 @@ const ProfileSelector = () => {
 
   const selectProfile = (profile: UserProfile) => {
     localStorage.setItem("lyneflix_active_profile", JSON.stringify({
-      id: profile.id,
-      name: profile.name,
-      avatar_index: profile.avatar_index,
-      share_code: profile.share_code,
-      is_kids: profile.is_kids,
+      id: profile.id, name: profile.name, avatar_index: profile.avatar_index, share_code: profile.share_code, is_kids: profile.is_kids,
     }));
     navigate("/");
   };
@@ -113,27 +93,19 @@ const ProfileSelector = () => {
     if (!newName.trim()) return;
     const customProfiles = profiles.filter(p => !p.is_kids);
     if (customProfiles.length >= MAX_CUSTOM_PROFILES) {
-      toast({ title: "Limite atingido", description: `Máximo de ${MAX_CUSTOM_PROFILES} perfis por conta`, variant: "destructive" });
+      setShowLimitModal(true);
       return;
     }
-
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
-
     setLoading(true);
     const { error } = await supabase.from("user_profiles").insert({
-      user_id: session.user.id,
-      name: newName.trim(),
-      avatar_index: newAvatar,
-      is_default: customProfiles.length === 0,
+      user_id: session.user.id, name: newName.trim(), avatar_index: newAvatar, is_default: customProfiles.length === 0,
     });
-
     if (error) {
       toast({ title: "Erro", description: "Não foi possível criar o perfil", variant: "destructive" });
     } else {
-      setCreating(false);
-      setNewName("");
-      await loadProfiles();
+      setCreating(false); setNewName(""); await loadProfiles();
     }
     setLoading(false);
   };
@@ -141,22 +113,14 @@ const ProfileSelector = () => {
   const updateProfile = async (id: string) => {
     if (!newName.trim()) return;
     await supabase.from("user_profiles").update({ name: newName.trim(), avatar_index: newAvatar }).eq("id", id);
-    setEditing(null);
-    setNewName("");
-    await loadProfiles();
+    setEditing(null); setNewName(""); await loadProfiles();
   };
 
   const deleteProfile = async (id: string) => {
     const target = profiles.find(p => p.id === id);
-    if (target?.is_kids) {
-      toast({ title: "Erro", description: "O perfil Kids não pode ser excluído", variant: "destructive" });
-      return;
-    }
+    if (target?.is_kids) { toast({ title: "Erro", description: "O perfil Kids não pode ser excluído", variant: "destructive" }); return; }
     const customProfiles = profiles.filter(p => !p.is_kids);
-    if (customProfiles.length <= 1) {
-      toast({ title: "Erro", description: "Você precisa ter pelo menos 1 perfil", variant: "destructive" });
-      return;
-    }
+    if (customProfiles.length <= 1) { toast({ title: "Erro", description: "Você precisa ter pelo menos 1 perfil", variant: "destructive" }); return; }
     await supabase.from("user_profiles").delete().eq("id", id);
     await loadProfiles();
   };
@@ -204,54 +168,21 @@ const ProfileSelector = () => {
           <h2 className="font-display text-xl font-bold text-center mb-6">
             {editing ? "Editar Perfil" : "Novo Perfil"}
           </h2>
-
-          {/* Avatar preview */}
           <div className="flex justify-center mb-4">
-            <img
-              src={isKidsProfile ? kidsAvatar : (AVATARS[newAvatar] || AVATARS[0])}
-              alt="Avatar"
-              className="w-24 h-24 rounded-xl object-cover shadow-lg border-2 border-primary/30"
-            />
+            <img src={isKidsProfile ? kidsAvatar : (AVATARS[newAvatar] || AVATARS[0])} alt="Avatar" className="w-24 h-24 rounded-xl object-cover shadow-lg border-2 border-primary/30" />
           </div>
-
           {!isKidsProfile && (
             <>
-              {/* Tab selector */}
               <div className="flex justify-center gap-2 mb-4">
-                <button
-                  onClick={() => setAvatarTab("classic")}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    avatarTab === "classic"
-                      ? "bg-primary/20 text-primary border border-primary/30"
-                      : "bg-white/5 text-muted-foreground border border-white/10 hover:bg-white/10"
-                  }`}
-                >
-                  Clássicos
-                </button>
-                <button
-                  onClick={() => setAvatarTab("anime")}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                    avatarTab === "anime"
-                      ? "bg-primary/20 text-primary border border-primary/30"
-                      : "bg-white/5 text-muted-foreground border border-white/10 hover:bg-white/10"
-                  }`}
-                >
-                  🎌 Anime
-                </button>
+                <button onClick={() => setAvatarTab("classic")} className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${avatarTab === "classic" ? "bg-primary/20 text-primary border border-primary/30" : "bg-white/5 text-muted-foreground border border-white/10 hover:bg-white/10"}`}>Clássicos</button>
+                <button onClick={() => setAvatarTab("anime")} className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${avatarTab === "anime" ? "bg-primary/20 text-primary border border-primary/30" : "bg-white/5 text-muted-foreground border border-white/10 hover:bg-white/10"}`}>🎌 Anime</button>
               </div>
-
-              {/* Avatar picker */}
               <div className="flex justify-center gap-2 mb-6 flex-wrap">
                 {displayAvatars.map((src, i) => {
                   const globalIndex = avatarTab === "classic" ? i : i + 8;
                   return (
-                    <button
-                      key={globalIndex}
-                      onClick={() => setNewAvatar(globalIndex)}
-                      className={`w-12 h-12 rounded-lg overflow-hidden transition-all ${
-                        newAvatar === globalIndex ? "ring-2 ring-primary scale-110" : "opacity-60 hover:opacity-100"
-                      }`}
-                    >
+                    <button key={globalIndex} onClick={() => setNewAvatar(globalIndex)}
+                      className={`w-12 h-12 rounded-lg overflow-hidden transition-all ${newAvatar === globalIndex ? "ring-2 ring-primary scale-110" : "opacity-60 hover:opacity-100"}`}>
                       <img src={src} alt={`Avatar ${globalIndex + 1}`} className="w-full h-full object-cover" />
                     </button>
                   );
@@ -259,41 +190,15 @@ const ProfileSelector = () => {
               </div>
             </>
           )}
-
-          <input
-            type="text"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="Nome do perfil"
+          <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nome do perfil"
             className="w-full h-11 px-4 rounded-lg bg-white/5 border border-white/10 text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 transition-colors mb-4"
-            maxLength={30}
-            autoFocus
-            disabled={isKidsProfile}
-          />
-
+            maxLength={30} autoFocus disabled={isKidsProfile} />
           <div className="flex gap-3">
-            <button
-              onClick={() => { setCreating(false); setEditing(null); setNewName(""); }}
-              className="flex-1 h-11 rounded-lg border border-white/10 text-sm font-medium hover:bg-white/5 transition-colors"
-            >
-              Cancelar
-            </button>
-            <button
-              onClick={() => editing ? updateProfile(editing) : createProfile()}
-              className="flex-1 h-11 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all"
-              disabled={isKidsProfile}
-            >
-              {editing ? "Salvar" : "Criar"}
-            </button>
+            <button onClick={() => { setCreating(false); setEditing(null); setNewName(""); }} className="flex-1 h-11 rounded-lg border border-white/10 text-sm font-medium hover:bg-white/5 transition-colors">Cancelar</button>
+            <button onClick={() => editing ? updateProfile(editing) : createProfile()} className="flex-1 h-11 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-all" disabled={isKidsProfile}>{editing ? "Salvar" : "Criar"}</button>
           </div>
-
           {editing && !isKidsProfile && customProfiles.length > 1 && (
-            <button
-              onClick={() => { deleteProfile(editing); setEditing(null); }}
-              className="w-full mt-3 text-xs text-destructive/70 hover:text-destructive transition-colors"
-            >
-              Excluir este perfil
-            </button>
+            <button onClick={() => { deleteProfile(editing); setEditing(null); }} className="w-full mt-3 text-xs text-destructive/70 hover:text-destructive transition-colors">Excluir este perfil</button>
           )}
         </div>
       </div>
@@ -302,7 +207,6 @@ const ProfileSelector = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      {/* Background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/3 left-1/3 w-[400px] h-[400px] rounded-full bg-primary/5 blur-[120px]" />
         <div className="absolute bottom-1/3 right-1/3 w-[300px] h-[300px] rounded-full bg-blue-600/5 blur-[100px]" />
@@ -314,46 +218,21 @@ const ProfileSelector = () => {
 
         <div className="flex flex-wrap justify-center gap-5 sm:gap-8 mb-10">
           {profiles.map((profile, i) => (
-            <div
-              key={profile.id}
-              className="group flex flex-col items-center gap-3 cursor-pointer animate-in fade-in zoom-in-95"
-              style={{ animationDelay: `${i * 100}ms` }}
-            >
+            <div key={profile.id} className="group flex flex-col items-center gap-3 cursor-pointer animate-in fade-in zoom-in-95" style={{ animationDelay: `${i * 100}ms` }}>
               <div className="relative">
-                <button
-                  onClick={() => selectProfile(profile)}
-                  className="w-28 h-28 sm:w-36 sm:h-36 rounded-xl overflow-hidden shadow-lg transition-all duration-300 group-hover:scale-105 group-hover:shadow-xl group-hover:shadow-primary/20 border-2 border-transparent group-hover:border-primary/40"
-                >
-                  <img
-                    src={getAvatarSrc(profile.avatar_index)}
-                    alt={profile.name}
-                    className="w-full h-full object-cover"
-                  />
+                <button onClick={() => selectProfile(profile)} className="w-28 h-28 sm:w-36 sm:h-36 rounded-xl overflow-hidden shadow-lg transition-all duration-300 group-hover:scale-105 group-hover:shadow-xl group-hover:shadow-primary/20 border-2 border-transparent group-hover:border-primary/40">
+                  <img src={getAvatarSrc(profile.avatar_index)} alt={profile.name} className="w-full h-full object-cover" />
                 </button>
                 {!profile.is_kids && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setEditing(profile.id);
-                      setNewName(profile.name);
-                      setNewAvatar(profile.avatar_index);
-                      setAvatarTab(profile.avatar_index >= 8 ? "anime" : "classic");
-                    }}
-                    className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-card border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-white/10"
-                  >
+                  <button onClick={(e) => { e.stopPropagation(); setEditing(profile.id); setNewName(profile.name); setNewAvatar(profile.avatar_index); setAvatarTab(profile.avatar_index >= 8 ? "anime" : "classic"); }}
+                    className="absolute -bottom-1 -right-1 w-7 h-7 rounded-full bg-card border border-white/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all hover:bg-white/10">
                     <Pencil className="w-3 h-3" />
                   </button>
                 )}
               </div>
-              <span className="text-sm font-medium text-center max-w-[130px] truncate text-muted-foreground group-hover:text-foreground transition-colors">
-                {profile.name}
-              </span>
-
+              <span className="text-sm font-medium text-center max-w-[130px] truncate text-muted-foreground group-hover:text-foreground transition-colors">{profile.name}</span>
               {profile.share_code && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); copyCode(profile.share_code!); }}
-                  className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-primary/80 transition-colors"
-                >
+                <button onClick={(e) => { e.stopPropagation(); copyCode(profile.share_code!); }} className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-primary/80 transition-colors">
                   {copiedCode === profile.share_code ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                   {profile.share_code}
                 </button>
@@ -362,37 +241,53 @@ const ProfileSelector = () => {
           ))}
 
           {/* Add profile button */}
-          {canAddMore && (
-            <button
-              onClick={() => { setCreating(true); setNewAvatar(Math.floor(Math.random() * AVATARS.length)); setAvatarTab("classic"); }}
-              className="flex flex-col items-center gap-3 cursor-pointer group"
-            >
-              <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-xl border-2 border-dashed border-white/20 flex items-center justify-center transition-all group-hover:border-primary/50 group-hover:bg-white/5">
-                <Plus className="w-10 h-10 text-muted-foreground/50 group-hover:text-primary transition-colors" />
-              </div>
-              <span className="text-sm text-muted-foreground">Adicionar</span>
-            </button>
-          )}
+          <button
+            onClick={() => {
+              if (!canAddMore) { setShowLimitModal(true); return; }
+              setCreating(true); setNewAvatar(Math.floor(Math.random() * AVATARS.length)); setAvatarTab("classic");
+            }}
+            className={`flex flex-col items-center gap-3 group ${!canAddMore ? "cursor-default" : "cursor-pointer"}`}
+          >
+            <div className={`w-28 h-28 sm:w-36 sm:h-36 rounded-xl border-2 border-dashed flex items-center justify-center transition-all ${
+              canAddMore ? "border-white/20 group-hover:border-primary/50 group-hover:bg-white/5" : "border-white/10 opacity-40"
+            }`}>
+              <Plus className={`w-10 h-10 transition-colors ${canAddMore ? "text-muted-foreground/50 group-hover:text-primary" : "text-muted-foreground/30"}`} />
+            </div>
+            <span className={`text-sm ${canAddMore ? "text-muted-foreground" : "text-muted-foreground/40"}`}>Adicionar</span>
+          </button>
         </div>
 
         <div className="flex justify-center gap-3">
-          <button
-            onClick={() => navigate("/suporte")}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-4 py-2 rounded-lg hover:bg-white/5"
-          >
-            <Headphones className="w-4 h-4" />
-            Suporte
+          <button onClick={() => navigate("/suporte")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-4 py-2 rounded-lg hover:bg-white/5">
+            <Headphones className="w-4 h-4" /> Suporte
           </button>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-4 py-2 rounded-lg hover:bg-white/5"
-          >
-            <LogOut className="w-4 h-4" />
-            Sair
+          <button onClick={handleLogout} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors px-4 py-2 rounded-lg hover:bg-white/5">
+            <LogOut className="w-4 h-4" /> Sair
           </button>
         </div>
       </div>
 
+      {/* Limit modal */}
+      {showLimitModal && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4" onClick={() => setShowLimitModal(false)}>
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-md" />
+          <div className="relative w-full max-w-sm animate-in fade-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="bg-card border border-white/10 rounded-2xl p-6 text-center">
+              <div className="w-12 h-12 rounded-xl bg-amber-500/15 flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-6 h-6 text-amber-400" />
+              </div>
+              <h3 className="font-display text-lg font-bold mb-2">Limite de Perfis</h3>
+              <p className="text-sm text-muted-foreground mb-4">
+                Você atingiu o limite de {MAX_CUSTOM_PROFILES} perfis por conta. Para adicionar mais telas, entre em contato com o suporte.
+              </p>
+              <div className="flex gap-3">
+                <button onClick={() => setShowLimitModal(false)} className="flex-1 py-2.5 rounded-xl bg-white/5 border border-white/10 text-sm font-medium text-muted-foreground hover:bg-white/10 transition-colors">Fechar</button>
+                <button onClick={() => { setShowLimitModal(false); navigate("/suporte"); }} className="flex-1 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors">Suporte</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

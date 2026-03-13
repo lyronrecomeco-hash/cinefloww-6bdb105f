@@ -1,7 +1,25 @@
 import type { TMDBMovie } from "@/services/tmdb";
 
-const KIDS_ALLOWED_GENRES = new Set([16, 35, 10751, 12, 14, 10402]);
-const KIDS_BLOCKED_GENRES = new Set([27, 53, 80, 99, 9648, 10752]);
+// Expanded allowed genres for kids content
+const KIDS_ALLOWED_GENRES = new Set([
+  16,    // Animation
+  35,    // Comedy
+  10751, // Family
+  12,    // Adventure
+  14,    // Fantasy
+  10402, // Music
+  10762, // Kids (TV)
+  10759, // Action & Adventure (TV) - many kid shows
+]);
+
+const KIDS_BLOCKED_GENRES = new Set([
+  27,    // Horror
+  53,    // Thriller
+  80,    // Crime
+  9648,  // Mystery
+  10752, // War
+  10768, // War & Politics (TV)
+]);
 
 export interface ActiveProfileData {
   id: string;
@@ -30,8 +48,15 @@ export function isKidsSafeTitle(item: TMDBMovie): boolean {
   if (maybeAdult) return false;
 
   const genres = Array.isArray(item.genre_ids) ? item.genre_ids : [];
-  if (!genres.length) return false;
+  
+  // Block explicitly adult genres
   if (genres.some((g) => KIDS_BLOCKED_GENRES.has(Number(g)))) return false;
+
+  // If no genre info, allow animation media type as fallback
+  if (!genres.length) {
+    const mediaType = (item as any)?.media_type;
+    return mediaType === "tv" || mediaType === "movie"; // allow if no genre data but valid media
+  }
 
   return genres.some((g) => KIDS_ALLOWED_GENRES.has(Number(g)));
 }
