@@ -219,7 +219,7 @@ export function captureFrameFromVideo(
   timeSeconds: number,
   onAsyncPreview?: AsyncPreviewCallback,
 ): string | null {
-  const currentSrc = video.currentSrc || video.src || "";
+  const currentSrc = video.dataset.previewSrc || video.currentSrc || video.src || "";
   resetSourceState(currentSrc);
 
   const roundedTime = Math.round(timeSeconds);
