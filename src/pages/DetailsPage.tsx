@@ -32,6 +32,27 @@ import {
   getYear,
 } from "@/services/tmdb";
 
+const ExpandableOverview = ({ text }: { text: string }) => {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > 200;
+
+  return (
+    <div className="mb-4 sm:mb-6 max-w-2xl">
+      <p className={`text-secondary-foreground/80 leading-relaxed text-xs sm:text-sm lg:text-base ${!expanded && isLong ? "line-clamp-3" : ""}`}>
+        {text}
+      </p>
+      {isLong && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-primary text-xs sm:text-sm font-medium mt-1 hover:underline"
+        >
+          {expanded ? "ver menos" : "...ver mais"}
+        </button>
+      )}
+    </div>
+  );
+};
+
 interface DetailsPageProps {
   type: "movie" | "tv";
 }
@@ -381,9 +402,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
             </div>
 
             {/* Overview */}
-            <p className="text-secondary-foreground/80 leading-relaxed mb-4 sm:mb-6 max-w-2xl text-xs sm:text-sm lg:text-base line-clamp-4 sm:line-clamp-none">
-              {detail.overview || "Sinopse não disponível."}
-            </p>
+            <ExpandableOverview text={detail.overview || "Sinopse não disponível."} />
 
             {/* Actions */}
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 sm:gap-3 mb-4 sm:mb-6">

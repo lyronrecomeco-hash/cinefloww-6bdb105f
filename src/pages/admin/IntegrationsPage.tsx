@@ -3,18 +3,19 @@ import {
   Smartphone, Settings, Bell, Shield, Download, BarChart3,
   Users, Clock, Activity, AlertTriangle, Send, Upload,
   Power, Eye, RefreshCw, Wifi, WifiOff, ChevronRight,
-  ToggleLeft, ToggleRight, FileText, Megaphone
+  ToggleLeft, ToggleRight, FileText, Megaphone, Image, Trash2, Link as LinkIcon, Plus
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-type TabKey = "dashboard" | "manutencao" | "atualizacao" | "notificacoes";
+type TabKey = "dashboard" | "manutencao" | "atualizacao" | "notificacoes" | "download_page";
 
 const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "dashboard", label: "Dashboard", icon: <BarChart3 className="w-4 h-4" /> },
   { key: "manutencao", label: "Manutenção", icon: <Shield className="w-4 h-4" /> },
   { key: "atualizacao", label: "Atualização", icon: <Download className="w-4 h-4" /> },
   { key: "notificacoes", label: "Notificações", icon: <Bell className="w-4 h-4" /> },
+  { key: "download_page", label: "Página Download", icon: <Smartphone className="w-4 h-4" /> },
 ];
 
 const IntegrationsPage = () => {
@@ -55,6 +56,7 @@ const IntegrationsPage = () => {
       {tab === "manutencao" && <TabManutencao />}
       {tab === "atualizacao" && <TabAtualizacao />}
       {tab === "notificacoes" && <TabNotificacoes />}
+      {tab === "download_page" && <TabDownloadPage />}
     </div>
   );
 };
@@ -825,6 +827,197 @@ const TabNotificacoes = () => {
           </div>
         )}
       </SectionCard>
+    </div>
+  );
+};
+
+/* ─── Página de Download ─── */
+const TabDownloadPage = () => {
+  const [apkUrl, setApkUrl] = useState("");
+  const [appVersion, setAppVersion] = useState("");
+  const [appSize, setAppSize] = useState("");
+  const [screenshots, setScreenshots] = useState<string[]>([]);
+  const [newScreenshotUrl, setNewScreenshotUrl] = useState("");
+  const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    loadConfig();
+  }, []);
+
+  const loadConfig = async () => {
+    const { data } = await supabase
+      .from("site_settings")
+      .select("value")
+      .eq("key", "download_page_config")
+      .maybeSingle();
+
+    if (data?.value) {
+      const cfg = data.value as any;
+      setApkUrl(cfg.apk_url || "");
+      setScreenshots(cfg.screenshots || []);
+      setAppVersion(cfg.app_version || "");
+      setAppSize(cfg.app_size || "");
+    }
+  };
+
+  const saveConfig = async () => {
+    setSaving(true);
+    try {
+      const payload = { apk_url: apkUrl, screenshots, app_version: appVersion, app_size: appSize };
+
+      const { data: existing } = await supabase
+        .from("site_settings")
+        .select("id")
+        .eq("key", "download_page_config")
+        .maybeSingle();
+
+      if (existing) {
+        await supabase.from("site_settings").update({ value: payload as any }).eq("key", "download_page_config");
+      } else {
+        await supabase.from("site_settings").insert({ key: "download_page_config", value: payload as any });
+      }
+      toast.success("Configuração salva!");
+    } catch {
+      toast.error("Erro ao salvar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleScreenshotUpload = async () => {
+    if (screenshotFile) {
+      setUploading(true);
+      try {
+        const fileName = `screenshots/${Date.now()}-${screenshotFile.name}`;
+        const { error } = await supabase.storage.from("catalog").upload(fileName, screenshotFile, { upsert: true });
+        if (error) throw error;
+        const { data: urlData } = supabase.storage.from("catalog").getPublicUrl(fileName);
+        setScreenshots(prev => [...prev, urlData.publicUrl]);
+        setScreenshotFile(null);
+        toast.success("Screenshot enviada!");
+      } catch (err: any) {
+        toast.error("Erro: " + (err.message || ""));
+      } finally {
+        setUploading(false);
+      }
+    } else if (newScreenshotUrl.trim()) {
+      setScreenshots(prev => [...prev, newScreenshotUrl.trim()]);
+      setNewScreenshotUrl("");
+    }
+  };
+
+  const removeScreenshot = (index: number) => {
+    setScreenshots(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleApkFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.endsWith(".apk")) { toast.error("Selecione um arquivo .apk"); return; }
+    setUploading(true);
+    try {
+      const filePath = `apk/lyneflix-download.apk`;
+      const { error } = await supabase.storage.from("catalog").upload(filePath, file, { upsert: true });
+      if (error) throw error;
+      const { data: urlData } = supabase.storage.from("catalog").getPublicUrl(filePath);
+      setApkUrl(urlData.publicUrl);
+      toast.success("APK enviado!");
+    } catch (err: any) {
+      toast.error("Erro: " + (err.message || ""));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <SectionCard title="Arquivo APK" icon={<Download className="w-4 h-4" />}>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1 block">URL do APK (ou envie abaixo)</label>
+            <input
+              type="text"
+              value={apkUrl}
+              onChange={(e) => setApkUrl(e.target.value)}
+              placeholder="https://..."
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/40"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1 block">Upload APK</label>
+            <input type="file" accept=".apk" onChange={handleApkFileUpload} className="hidden" id="download-apk-upload" />
+            <label
+              htmlFor="download-apk-upload"
+              className="flex items-center gap-3 w-full bg-white/5 border border-white/10 border-dashed rounded-xl px-3 py-3 text-sm cursor-pointer hover:bg-white/10 hover:border-primary/30 transition-all"
+            >
+              <Upload className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+              <span className="text-foreground truncate">{uploading ? "Enviando..." : "Selecionar arquivo .apk"}</span>
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1 block">Versão do App</label>
+              <input type="text" value={appVersion} onChange={(e) => setAppVersion(e.target.value)} placeholder="2.0" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/40" />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground uppercase tracking-wider mb-1 block">Tamanho</label>
+              <input type="text" value={appSize} onChange={(e) => setAppSize(e.target.value)} placeholder="12 MB" className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/40" />
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Screenshots do App" icon={<Image className="w-4 h-4" />}>
+        <div className="space-y-3">
+          {screenshots.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-transparent">
+              {screenshots.map((url, i) => (
+                <div key={i} className="relative flex-shrink-0 w-20 rounded-lg border border-white/10 overflow-hidden group">
+                  <img src={url} alt={`Screenshot ${i + 1}`} className="w-full aspect-[9/16] object-cover" />
+                  <button
+                    onClick={() => removeScreenshot(i)}
+                    className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-500/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <Trash2 className="w-3 h-3 text-white" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newScreenshotUrl}
+              onChange={(e) => setNewScreenshotUrl(e.target.value)}
+              placeholder="Cole URL da imagem..."
+              className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/40"
+            />
+            <button onClick={handleScreenshotUpload} disabled={!newScreenshotUrl.trim() && !screenshotFile} className="px-4 py-2 rounded-xl bg-primary/20 text-primary text-sm font-medium hover:bg-primary/30 transition-colors border border-primary/20 disabled:opacity-40">
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div>
+            <input type="file" accept="image/*" onChange={(e) => { setScreenshotFile(e.target.files?.[0] || null); }} className="hidden" id="screenshot-upload" />
+            <label htmlFor="screenshot-upload" className="flex items-center gap-3 w-full bg-white/5 border border-white/10 border-dashed rounded-xl px-3 py-3 text-sm cursor-pointer hover:bg-white/10 hover:border-primary/30 transition-all">
+              <Upload className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+              <span className="text-foreground truncate">{screenshotFile ? screenshotFile.name : "Ou envie uma imagem"}</span>
+            </label>
+            {screenshotFile && (
+              <button onClick={handleScreenshotUpload} disabled={uploading} className="mt-2 w-full py-2 rounded-xl bg-green-500/20 text-green-400 text-sm font-medium border border-green-500/20 hover:bg-green-500/30 transition-colors disabled:opacity-50">
+                {uploading ? "Enviando..." : "Enviar Screenshot"}
+              </button>
+            )}
+          </div>
+        </div>
+      </SectionCard>
+
+      <button onClick={saveConfig} disabled={saving} className="w-full py-3 rounded-xl bg-primary/20 hover:bg-primary/30 text-primary font-semibold text-sm transition-all border border-primary/20 disabled:opacity-50">
+        {saving ? "Salvando..." : "Salvar Configurações da Página"}
+      </button>
     </div>
   );
 };
