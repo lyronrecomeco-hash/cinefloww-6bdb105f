@@ -427,12 +427,12 @@ export function usePlayerEngine(config: EngineConfig) {
         videoData = null;
       }
 
-      // FAST PATH 2: prefetch promise (started on DetailsPage)
+      // FAST PATH 2: prefetch promise (started on DetailsPage or MovieCard hover)
       if (!videoData) {
         const prefetchKey = `${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
         const prefetchPromise = prefetchMap.get(prefetchKey);
         if (prefetchPromise) {
-          const timeoutP = new Promise<null>((r) => setTimeout(() => r(null), 1500));
+          const timeoutP = new Promise<null>((r) => setTimeout(() => r(null), 4000));
           const prefetched = await Promise.race([prefetchPromise, timeoutP]);
           if (prefetched && !isLikelyMismatchedSource(prefetched.url, tmdbId, contentType, season, episode)) {
             videoData = prefetched;
