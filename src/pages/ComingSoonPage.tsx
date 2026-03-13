@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import MovieCard from "@/components/MovieCard";
-import { TMDBMovie, discoverMovies, discoverSeries, getDisplayTitle } from "@/services/tmdb";
+import { TMDBMovie, discoverMovies, discoverSeries, getUpcomingMovies, getOnTheAirSeries } from "@/services/tmdb";
 import { Calendar, Film, Tv, ChevronLeft, ChevronRight } from "lucide-react";
 
 type TabType = "movies" | "series";
