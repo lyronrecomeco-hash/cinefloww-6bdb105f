@@ -116,18 +116,26 @@ async function getCachedVideo(
       .order("created_at", { ascending: false })
       .limit(50);
 
-    const matchLive = (liveRows ?? []).find((row: any) => {
+    const liveCandidates = (liveRows ?? []).filter((row: any) => {
       if (contentType === "movie") return true;
       return Number(row.season ?? 0) === Number(season ?? 1) && Number(row.episode ?? 0) === Number(episode ?? 1);
     });
 
-    if (matchLive?.video_url) {
-      return {
-        url: matchLive.video_url,
-        type: matchLive.video_type || inferTypeFromUrl(matchLive.video_url),
-        provider: matchLive.provider || "video-cache",
-        cached: true,
-      };
+    for (const row of liveCandidates) {
+      if (!row.video_url) continue;
+      const ok = await probeStreamUrl(row.video_url);
+      if (ok) {
+        return {
+          url: row.video_url,
+          type: row.video_type || inferTypeFromUrl(row.video_url),
+          provider: row.provider || "video-cache",
+          cached: true,
+        };
+      }
+
+      memoBad(row.video_url);
+      console.log(`[extract] Pruning stale cache URL for tmdb=${tmdbId}: ${row.video_url}`);
+      await db.from("video_cache").delete().eq("id", row.id);
     }
 
     const { data: backupRows } = await db
@@ -138,18 +146,25 @@ async function getCachedVideo(
       .order("backed_up_at", { ascending: false })
       .limit(50);
 
-    const matchBackup = (backupRows ?? []).find((row: any) => {
+    const backupCandidates = (backupRows ?? []).filter((row: any) => {
       if (contentType === "movie") return true;
       return Number(row.season ?? 0) === Number(season ?? 1) && Number(row.episode ?? 0) === Number(episode ?? 1);
     });
 
-    if (matchBackup?.video_url) {
-      return {
-        url: matchBackup.video_url,
-        type: matchBackup.video_type || inferTypeFromUrl(matchBackup.video_url),
-        provider: matchBackup.provider || "video-cache-backup",
-        cached: true,
-      };
+    for (const row of backupCandidates) {
+      if (!row.video_url) continue;
+      const ok = await probeStreamUrl(row.video_url);
+      if (ok) {
+        return {
+          url: row.video_url,
+          type: row.video_type || inferTypeFromUrl(row.video_url),
+          provider: row.provider || "video-cache-backup",
+          cached: true,
+        };
+      }
+
+      memoBad(row.video_url);
+      console.log(`[extract] Ignoring stale backup URL for tmdb=${tmdbId}: ${row.video_url}`);
     }
   } catch (err) {
     console.log(`[extract] cache lookup failed for tmdb=${tmdbId}: ${err}`);
