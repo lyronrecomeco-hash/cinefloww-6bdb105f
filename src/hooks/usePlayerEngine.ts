@@ -400,15 +400,21 @@ export function usePlayerEngine(config: EngineConfig) {
 
       // FAST PATH 1: session storage cache (instant, zero latency)
       videoData = getCachedUrl(tmdbId, contentType, season, episode);
+      if (videoData && isLikelyMismatchedSource(videoData.url, tmdbId, contentType, season, episode)) {
+        clearCachedUrl(tmdbId, contentType, season, episode);
+        videoData = null;
+      }
 
       // FAST PATH 2: prefetch promise (started on DetailsPage)
       if (!videoData) {
         const prefetchKey = `${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
         const prefetchPromise = prefetchMap.get(prefetchKey);
         if (prefetchPromise) {
-          // Race prefetch vs 1.5s timeout
-          const timeoutP = new Promise<null>(r => setTimeout(() => r(null), 1500));
-          videoData = await Promise.race([prefetchPromise, timeoutP]);
+          const timeoutP = new Promise<null>((r) => setTimeout(() => r(null), 1500));
+          const prefetched = await Promise.race([prefetchPromise, timeoutP]);
+          if (prefetched && !isLikelyMismatchedSource(prefetched.url, tmdbId, contentType, season, episode)) {
+            videoData = prefetched;
+          }
         }
       }
 
@@ -423,26 +429,25 @@ export function usePlayerEngine(config: EngineConfig) {
         if (season) body.season = Number(season);
         if (episode) body.episode = Number(episode);
 
-        // Race API vs 1.5s timeout — start playback ASAP
         const apiPromise = supabase.functions.invoke("extract-video", { body });
-        const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 1500));
+        const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 1500));
         const raceResult = await Promise.race([apiPromise, timeoutPromise]);
 
         if (cancelledRef.current) return;
-        
-        if (raceResult && 'data' in raceResult && raceResult.data?.url) {
-          videoData = normalizeVideoForEnv({ url: raceResult.data.url, type: raceResult.data.type || "mp4" });
-          setCachedUrl(tmdbId, contentType, season, episode, videoData.url, videoData.type);
-        } else {
-          console.warn("[Engine] API slow/failed, using direct URL fallback");
+
+        if (raceResult && "data" in raceResult && raceResult.data?.url) {
+          const candidate = normalizeVideoForEnv({ url: raceResult.data.url, type: raceResult.data.type || "mp4" });
+          if (!isLikelyMismatchedSource(candidate.url, tmdbId, contentType, season, episode)) {
+            videoData = candidate;
+            setCachedUrl(tmdbId, contentType, season, episode, videoData.url, videoData.type);
+          }
+        }
+
+        if (!videoData) {
+          console.warn("[Engine] API slow/failed ou URL inválida, usando fallback direto");
           videoData = { url: directUrl, type: "mp4" };
-          // Continue API call in background to cache for next time
-          apiPromise.then(({ data }) => {
-            if (data?.url) {
-              const norm = normalizeVideoForEnv({ url: data.url, type: data.type || "mp4" });
-              setCachedUrl(tmdbId, contentType, season, episode, norm.url, norm.type);
-            }
-          }).catch(() => {});
+          clearCachedUrl(tmdbId, contentType, season, episode);
+          prefetchMap.delete(`${tmdbId}_${contentType}_${season || 0}_${episode || 0}`);
         }
       }
 
