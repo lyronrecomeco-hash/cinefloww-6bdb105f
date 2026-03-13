@@ -600,7 +600,6 @@ const PlayerPage = () => {
                 setHoverTime(null);
                 setPreviewThumb(null);
                 setSpriteCue(null);
-                setSpriteCue(null);
               }}
               onTouchStart={(e) => {
                 setTouchSeeking(true);
