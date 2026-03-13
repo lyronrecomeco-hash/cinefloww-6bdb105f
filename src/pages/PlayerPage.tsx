@@ -628,6 +628,7 @@ const PlayerPage = () => {
                 {/* Volume */}
                 <div className="flex items-center gap-1.5 group/vol">
                   <button onClick={controls.toggleMute}
+                    aria-label={state.muted ? "Ativar som" : "Silenciar"}
                     className="w-9 h-9 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all">
                     {state.muted || state.volume === 0 ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
                   </button>
