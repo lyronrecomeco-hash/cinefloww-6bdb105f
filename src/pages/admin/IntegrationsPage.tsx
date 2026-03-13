@@ -8,13 +8,14 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-type TabKey = "dashboard" | "manutencao" | "atualizacao" | "notificacoes";
+type TabKey = "dashboard" | "manutencao" | "atualizacao" | "notificacoes" | "download_page";
 
 const tabs: { key: TabKey; label: string; icon: React.ReactNode }[] = [
   { key: "dashboard", label: "Dashboard", icon: <BarChart3 className="w-4 h-4" /> },
   { key: "manutencao", label: "Manutenção", icon: <Shield className="w-4 h-4" /> },
   { key: "atualizacao", label: "Atualização", icon: <Download className="w-4 h-4" /> },
   { key: "notificacoes", label: "Notificações", icon: <Bell className="w-4 h-4" /> },
+  { key: "download_page", label: "Página Download", icon: <Smartphone className="w-4 h-4" /> },
 ];
 
 const IntegrationsPage = () => {

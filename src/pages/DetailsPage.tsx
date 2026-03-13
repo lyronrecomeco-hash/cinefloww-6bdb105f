@@ -32,6 +32,27 @@ import {
   getYear,
 } from "@/services/tmdb";
 
+const ExpandableOverview = ({ text }: { text: string }) => {
+  const [expanded, setExpanded] = useState(false);
+  const isLong = text.length > 200;
+
+  return (
+    <div className="mb-4 sm:mb-6 max-w-2xl">
+      <p className={`text-secondary-foreground/80 leading-relaxed text-xs sm:text-sm lg:text-base ${!expanded && isLong ? "line-clamp-3" : ""}`}>
+        {text}
+      </p>
+      {isLong && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="text-primary text-xs sm:text-sm font-medium mt-1 hover:underline"
+        >
+          {expanded ? "ver menos" : "...ver mais"}
+        </button>
+      )}
+    </div>
+  );
+};
+
 interface DetailsPageProps {
   type: "movie" | "tv";
 }
