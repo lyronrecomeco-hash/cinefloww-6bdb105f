@@ -98,7 +98,7 @@ async function loadPreviewVideoSource(sourceUrl: string, useAnonymousCors: boole
   if (useAnonymousCors) previewVideo.crossOrigin = "anonymous";
   else previewVideo.removeAttribute("crossorigin");
 
-  previewVideo.referrerPolicy = "no-referrer";
+  previewVideo.setAttribute("referrerpolicy", "no-referrer");
   previewVideo.src = sourceUrl;
   previewVideo.load();
 
