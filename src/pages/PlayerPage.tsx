@@ -609,15 +609,18 @@ const PlayerPage = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 sm:gap-3">
                 <button onClick={controls.togglePlay}
+                  aria-label={state.playing ? "Pausar" : "Reproduzir"}
                   className="w-9 h-9 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white hover:bg-white/10 transition-all">
                   {state.playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 ml-0.5" />}
                 </button>
 
                 <button onClick={() => { controls.seekRelative(-10); flashSeek("left", 10); }}
+                  aria-label="Voltar 10 segundos"
                   className="w-9 h-9 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all">
                   <SkipBack className="w-4 h-4" />
                 </button>
                 <button onClick={() => { controls.seekRelative(10); flashSeek("right", 10); }}
+                  aria-label="Avançar 10 segundos"
                   className="w-9 h-9 rounded-xl bg-white/5 backdrop-blur-sm border border-white/10 flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all">
                   <SkipForward className="w-4 h-4" />
                 </button>
