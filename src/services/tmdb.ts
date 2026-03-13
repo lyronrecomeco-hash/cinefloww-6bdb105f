@@ -122,10 +122,10 @@ export const discoverSeries = (page = 1, params: Record<string, string> = {}) =>
   fetchTMDB<TMDBList>("/discover/tv", { page: String(page), ...params });
 
 export const getMovieDetails = (id: number) =>
-  fetchTMDB<TMDBMovieDetail>(`/movie/${id}`, { append_to_response: "credits,similar,videos,images" });
+  fetchTMDB<TMDBMovieDetail>(`/movie/${id}`, { append_to_response: "credits,similar,videos,images,release_dates" });
 
 export const getSeriesDetails = (id: number) =>
-  fetchTMDB<TMDBMovieDetail>(`/tv/${id}`, { append_to_response: "credits,similar,videos,images,external_ids" });
+  fetchTMDB<TMDBMovieDetail>(`/tv/${id}`, { append_to_response: "credits,similar,videos,images,external_ids,content_ratings" });
 
 export const getSeasonDetails = (seriesId: number, seasonNumber: number) =>
   fetchTMDB<TMDBSeason>(`/tv/${seriesId}/season/${seasonNumber}`);
