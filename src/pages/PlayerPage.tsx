@@ -629,6 +629,7 @@ const PlayerPage = () => {
                 hoverSecondRef.current = null;
                 setHoverTime(null);
                 setPreviewThumb(null);
+                setSpriteCue(null);
               }}
             >
               {hoverTime !== null && (
