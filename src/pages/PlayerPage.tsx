@@ -59,6 +59,7 @@ const PlayerPage = () => {
   const [seekIndicator, setSeekIndicator] = useState<{ side: "left" | "right"; seconds: number } | null>(null);
   const [touchSeeking, setTouchSeeking] = useState(false);
   const [previewThumb, setPreviewThumb] = useState<string | null>(null);
+  const hoverSecondRef = useRef<number | null>(null);
 
   // Next episode
   const [nextEpUrl, setNextEpUrl] = useState<string | null>(null);
@@ -236,14 +237,35 @@ const PlayerPage = () => {
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
+
     const onTimeUpdate = () => cacheCurrentFrame(v);
+    const onSeeked = () => cacheCurrentFrame(v);
+
     v.addEventListener("timeupdate", onTimeUpdate);
-    // Also capture on seeked for scrubbing
-    v.addEventListener("seeked", () => cacheCurrentFrame(v));
+    v.addEventListener("seeked", onSeeked);
+
     return () => {
       v.removeEventListener("timeupdate", onTimeUpdate);
-      v.removeEventListener("seeked", () => cacheCurrentFrame(v));
+      v.removeEventListener("seeked", onSeeked);
     };
+  }, []);
+
+  const updateHoverPreview = useCallback((time: number) => {
+    const v = videoRef.current;
+    const rounded = Math.round(time);
+    hoverSecondRef.current = rounded;
+
+    if (!v) {
+      setPreviewThumb(null);
+      return;
+    }
+
+    const immediate = captureFrameFromVideo(v, time, (asyncThumb, requestedSecond) => {
+      if (hoverSecondRef.current !== requestedSecond) return;
+      setPreviewThumb(asyncThumb);
+    });
+
+    setPreviewThumb(immediate);
   }, []);
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -259,12 +281,7 @@ const PlayerPage = () => {
     const time = pct * state.duration;
     setHoverTime(time);
     setHoverX(e.clientX - rect.left);
-    // Try to get a preview thumbnail
-    const v = videoRef.current;
-    if (v) {
-      const thumb = captureFrameFromVideo(v, time);
-      setPreviewThumb(thumb);
-    }
+    updateHoverPreview(time);
   };
 
   const progressPct = state.duration > 0 ? (state.currentTime / state.duration) * 100 : 0;
@@ -549,14 +566,20 @@ const PlayerPage = () => {
               className="group/bar cursor-pointer relative"
               onClick={seek}
               onMouseMove={onProgressHover}
-              onMouseLeave={() => { setHoverTime(null); setPreviewThumb(null); }}
+              onMouseLeave={() => {
+                hoverSecondRef.current = null;
+                setHoverTime(null);
+                setPreviewThumb(null);
+              }}
               onTouchStart={(e) => {
                 setTouchSeeking(true);
                 const rect = e.currentTarget.getBoundingClientRect();
                 const touch = e.touches[0];
                 const pct = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
-                setHoverTime(pct * state.duration);
+                const time = pct * state.duration;
+                setHoverTime(time);
                 setHoverX(touch.clientX - rect.left);
+                updateHoverPreview(time);
               }}
               onTouchMove={(e) => {
                 if (!touchSeeking) return;
@@ -566,14 +589,14 @@ const PlayerPage = () => {
                 const time = pct * state.duration;
                 setHoverTime(time);
                 setHoverX(touch.clientX - rect.left);
-                const v = videoRef.current;
-                if (v) setPreviewThumb(captureFrameFromVideo(v, time));
+                updateHoverPreview(time);
               }}
               onTouchEnd={() => {
                 if (touchSeeking && hoverTime !== null) {
                   controls.seekTo(hoverTime);
                 }
                 setTouchSeeking(false);
+                hoverSecondRef.current = null;
                 setHoverTime(null);
                 setPreviewThumb(null);
               }}
