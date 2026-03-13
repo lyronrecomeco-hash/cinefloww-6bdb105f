@@ -22,6 +22,13 @@ const MovieCard = memo(({ movie, comingSoon }: MovieCardProps) => {
   const releaseDate = movie.release_date || movie.first_air_date;
   const isFuture = comingSoon || (isValidDate(releaseDate) && releaseDate! > new Date().toISOString().split("T")[0]);
 
+  // Prefetch video URL on hover for instant playback
+  const handleHoverPrefetch = useCallback(() => {
+    if (isFuture) return;
+    const ct = type === "movie" ? "movie" : "series";
+    prefetchVideoUrl(String(movie.id), ct, type === "tv" ? "1" : undefined, type === "tv" ? "1" : undefined);
+  }, [movie.id, type, isFuture]);
+
   const formattedDate = releaseDate ? new Date(releaseDate + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short", year: "numeric" }) : "";
 
   const cardContent = (
