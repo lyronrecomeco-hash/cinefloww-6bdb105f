@@ -12,6 +12,7 @@ import { getSeasonDetails, posterUrl, TMDBEpisode } from "@/services/tmdb";
 import { useWatchRoom } from "@/hooks/useWatchRoom";
 import { useWebRTC } from "@/hooks/useWebRTC";
 import { usePlayerEngine, prefetchVideoUrl } from "@/hooks/usePlayerEngine";
+// Access sourceUrlRef via videoRef.dataset.previewSrc
 import RoomOverlay from "@/components/watch-together/RoomOverlay";
 import { captureFrameFromVideo, cacheCurrentFrame } from "@/lib/videoPreview";
 import { getThumbnailCueAtTime, loadThumbnailTrack, warmThumbnailSprites, type ThumbnailTrack, type SpriteThumbnailCue } from "@/lib/vttThumbnails";

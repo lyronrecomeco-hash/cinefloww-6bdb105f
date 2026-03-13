@@ -133,23 +133,26 @@ const Index = () => {
     return () => clearTimeout(safetyTimer);
   }, []);
 
+  const kidsMode = isKidsModeEnabled();
+  const filterK = (items: TMDBMovie[]) => kidsMode ? filterKidsTitles(items) : items;
+
   return (
     <div className="min-h-screen bg-background animate-page-enter">
       <Navbar />
       {loading ? (
         <div className="w-full aspect-[16/7] bg-muted animate-pulse" />
       ) : (
-        <HeroSlider movies={heroSlider} />
+        <HeroSlider movies={kidsMode ? filterK(heroSlider) : heroSlider} />
       )}
 
       <div className="mt-4 sm:mt-6 lg:mt-8 relative z-10 pb-12 sm:pb-20 space-y-1 sm:space-y-2" style={{ contentVisibility: "auto", containIntrinsicSize: "0 500px" }}>
-        <ContentRow title="Em Alta" movies={nowPlaying} icon={<Flame className="w-4 h-4" />} loading={loading} />
+        <ContentRow title="Em Alta" movies={filterK(nowPlaying)} icon={<Flame className="w-4 h-4" />} loading={loading} />
         <ContinueWatchingRow />
-        {recentlyAdded.length > 0 && <ContentRow title="Últimos Adicionados" movies={recentlyAdded} icon={<Clock className="w-4 h-4" />} />}
-        <ContentRow title="Filmes Populares" movies={popularMovies} icon={<Film className="w-4 h-4" />} loading={loading} />
-        <ContentRow title="Séries Populares" movies={popularSeries} icon={<Tv className="w-4 h-4" />} loading={loading} />
-        {animes.length > 0 && <ContentRow title="Animes" movies={animes} icon={<Sparkles className="w-4 h-4" />} />}
-        {doramas.length > 0 && <ContentRow title="Doramas" movies={doramas} icon={<Heart className="w-4 h-4" />} />}
+        {recentlyAdded.length > 0 && <ContentRow title="Últimos Adicionados" movies={filterK(recentlyAdded)} icon={<Clock className="w-4 h-4" />} />}
+        <ContentRow title="Filmes Populares" movies={filterK(popularMovies)} icon={<Film className="w-4 h-4" />} loading={loading} />
+        <ContentRow title="Séries Populares" movies={filterK(popularSeries)} icon={<Tv className="w-4 h-4" />} loading={loading} />
+        {animes.length > 0 && <ContentRow title="Animes" movies={filterK(animes)} icon={<Sparkles className="w-4 h-4" />} />}
+        {doramas.length > 0 && <ContentRow title="Doramas" movies={filterK(doramas)} icon={<Heart className="w-4 h-4" />} />}
       </div>
 
       <Footer />

@@ -238,16 +238,16 @@ const Navbar = () => {
                       <button
                         key={item.id}
                         onClick={() => handleResultClick(item)}
-                        className="flex items-center gap-3 w-full p-2 rounded-xl hover:bg-white/5 transition-colors text-left"
+                        className="flex items-center gap-3 w-full p-2.5 rounded-xl hover:bg-white/5 transition-colors text-left"
                       >
                         <img
                           src={posterUrl(item.poster_path, "w92")}
                           alt={getDisplayTitle(item)}
-                          className="w-10 h-14 rounded-lg object-cover flex-shrink-0"
+                          className="w-11 h-16 rounded-md object-cover flex-shrink-0 border border-white/10"
                         />
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-medium line-clamp-1">{getDisplayTitle(item)}</p>
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-xs text-muted-foreground mt-0.5">
                             {getMediaType(item) === "movie" ? "Filme" : "Série"}
                             {item.vote_average > 0 && ` • ★ ${item.vote_average.toFixed(1)}`}
                           </p>
