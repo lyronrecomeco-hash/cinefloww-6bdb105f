@@ -101,15 +101,12 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
     }
   }, [detail, type, activeProfileId]);
 
-  // Fetch series continue progress
   useEffect(() => {
     if (!detail || type !== "tv") { setContinueEp(null); return; }
     getLatestSeriesProgress(detail.id, "series").then((prog) => {
       if (!prog) { setContinueEp(null); return; }
-      // If completed, suggest next episode
-      if (prog.completed) {
-        setContinueEp({ season: prog.season, episode: prog.episode + 1 });
-      } else if (prog.progress_seconds > 30) {
+      const watched = Number(prog.progress_seconds || 0);
+      if (prog.completed || watched > 5) {
         setContinueEp({ season: prog.season, episode: prog.episode });
       } else {
         setContinueEp(null);
