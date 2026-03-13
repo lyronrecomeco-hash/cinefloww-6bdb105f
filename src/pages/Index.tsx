@@ -3,6 +3,7 @@ import { Flame, Film, Tv, Heart, Sparkles, Clock } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import HeroSlider from "@/components/HeroSlider";
 import ContentRow from "@/components/ContentRow";
+import ContinueWatchingRow from "@/components/ContinueWatchingRow";
 import Footer from "@/components/Footer";
 import DailyVerseModal from "@/components/DailyVerseModal";
 import { fetchCatalogRow } from "@/lib/catalogFetcher";
@@ -141,6 +142,7 @@ const Index = () => {
       )}
 
       <div className="mt-4 sm:mt-6 lg:mt-8 relative z-10 pb-12 sm:pb-20 space-y-1 sm:space-y-2" style={{ contentVisibility: "auto", containIntrinsicSize: "0 500px" }}>
+        <ContinueWatchingRow />
         <ContentRow title="Em Alta" movies={nowPlaying} icon={<Flame className="w-4 h-4" />} loading={loading} />
         {recentlyAdded.length > 0 && <ContentRow title="Últimos Adicionados" movies={recentlyAdded} icon={<Clock className="w-4 h-4" />} />}
         <ContentRow title="Filmes Populares" movies={popularMovies} icon={<Film className="w-4 h-4" />} loading={loading} />

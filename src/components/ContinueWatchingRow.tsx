@@ -54,9 +54,10 @@ const ContinueWatchingRow = () => {
         .select("id, tmdb_id, content_type, season, episode, progress_seconds, duration_seconds")
         .eq("device_id", deviceId)
         .eq("completed", false)
-        .gt("progress_seconds", 30)
+        .gt("duration_seconds", 0)
+        .gt("progress_seconds", 20)
         .order("updated_at", { ascending: false })
-        .limit(20);
+        .limit(30);
 
       if (!progress?.length) return;
 
@@ -79,7 +80,8 @@ const ContinueWatchingRow = () => {
         if (!content) continue;
 
         const pct = p.duration_seconds > 0 ? p.progress_seconds / p.duration_seconds : 0;
-        if (pct >= 0.9) continue;
+        const minRealSeconds = Math.min(180, Math.max(60, Math.floor(Number(p.duration_seconds) * 0.06)));
+        if (Number(p.progress_seconds) < minRealSeconds || pct <= 0.03 || pct >= 0.9) continue;
 
         watchItems.push({
           tmdb_id: p.tmdb_id,

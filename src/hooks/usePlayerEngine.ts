@@ -43,22 +43,44 @@ const MAX_RETRIES = 5;
 const RETRY_DELAYS = [150, 400, 1000, 2000, 4000];
 
 // ── OPT 2: Client-side URL cache ──
+function getCacheKey(tmdbId: string, contentType: string, season?: string | null, episode?: string | null): string {
+  return `lyne_vc_${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
+}
+
 function getCachedUrl(tmdbId: string, contentType: string, season?: string | null, episode?: string | null): { url: string; type: string } | null {
   try {
-    const key = `lyne_vc_${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
+    const key = getCacheKey(tmdbId, contentType, season, episode);
     const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     const cached = JSON.parse(raw);
     // Cache valid for 30 minutes
-    if (Date.now() - cached.ts > 30 * 60 * 1000) { sessionStorage.removeItem(key); return null; }
+    if (Date.now() - cached.ts > 30 * 60 * 1000) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
     return { url: cached.url, type: cached.type };
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
-function setCachedUrl(tmdbId: string, contentType: string, season: string | null | undefined, episode: string | null | undefined, url: string, type: string) {
+function setCachedUrl(
+  tmdbId: string,
+  contentType: string,
+  season: string | null | undefined,
+  episode: string | null | undefined,
+  url: string,
+  type: string
+) {
   try {
-    const key = `lyne_vc_${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
+    const key = getCacheKey(tmdbId, contentType, season, episode);
     sessionStorage.setItem(key, JSON.stringify({ url, type, ts: Date.now() }));
+  } catch {}
+}
+
+function clearCachedUrl(tmdbId: string, contentType: string, season?: string | null, episode?: string | null) {
+  try {
+    sessionStorage.removeItem(getCacheKey(tmdbId, contentType, season, episode));
   } catch {}
 }
 
@@ -82,7 +104,7 @@ function deriveDirectMp4(rawUrl: string): string | null {
   try {
     const parsed = new URL(rawUrl);
     const host = parsed.hostname.toLowerCase();
-    if (!(host.includes("cineveo") || host.includes("brstream"))) return null;
+    if (!(host.includes("cineveo") || host.includes("brstream") || host.includes("streetflix"))) return null;
 
     if (parsed.pathname.toLowerCase().endsWith(".m3u8")) {
       parsed.pathname = parsed.pathname.replace(/\.m3u8$/i, ".mp4");
@@ -93,6 +115,40 @@ function deriveDirectMp4(rawUrl: string): string | null {
     return parsed.toString();
   } catch {
     return null;
+  }
+}
+
+function isLikelyMismatchedSource(
+  url: string,
+  tmdbId: string,
+  contentType: string,
+  season?: string | null,
+  episode?: string | null,
+): boolean {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    const cineveoLike = host.includes("cineveo") || host.includes("streetflix") || host.includes("brstream");
+    if (!cineveoLike) return false;
+
+    const path = parsed.pathname;
+    if (contentType === "movie") {
+      const match = path.match(/\/movie\/(?:[^/]+\/[^/]+\/)?(\d+)/i);
+      return !!match && Number(match[1]) !== Number(tmdbId);
+    }
+
+    const match = path.match(/\/(?:series|tv)\/(?:[^/]+\/[^/]+\/)?(\d+)\/(\d+)\/(\d+)/i);
+    if (!match) return false;
+
+    const sourceTmdb = Number(match[1]);
+    const sourceSeason = Number(match[2]);
+    const sourceEpisode = Number(match[3]);
+    if (sourceTmdb !== Number(tmdbId)) return true;
+    if (season != null && Number.isFinite(sourceSeason) && sourceSeason !== Number(season)) return true;
+    if (episode != null && Number.isFinite(sourceEpisode) && sourceEpisode !== Number(episode)) return true;
+    return false;
+  } catch {
+    return false;
   }
 }
 
@@ -344,15 +400,21 @@ export function usePlayerEngine(config: EngineConfig) {
 
       // FAST PATH 1: session storage cache (instant, zero latency)
       videoData = getCachedUrl(tmdbId, contentType, season, episode);
+      if (videoData && isLikelyMismatchedSource(videoData.url, tmdbId, contentType, season, episode)) {
+        clearCachedUrl(tmdbId, contentType, season, episode);
+        videoData = null;
+      }
 
       // FAST PATH 2: prefetch promise (started on DetailsPage)
       if (!videoData) {
         const prefetchKey = `${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
         const prefetchPromise = prefetchMap.get(prefetchKey);
         if (prefetchPromise) {
-          // Race prefetch vs 1.5s timeout
-          const timeoutP = new Promise<null>(r => setTimeout(() => r(null), 1500));
-          videoData = await Promise.race([prefetchPromise, timeoutP]);
+          const timeoutP = new Promise<null>((r) => setTimeout(() => r(null), 1500));
+          const prefetched = await Promise.race([prefetchPromise, timeoutP]);
+          if (prefetched && !isLikelyMismatchedSource(prefetched.url, tmdbId, contentType, season, episode)) {
+            videoData = prefetched;
+          }
         }
       }
 
@@ -367,26 +429,25 @@ export function usePlayerEngine(config: EngineConfig) {
         if (season) body.season = Number(season);
         if (episode) body.episode = Number(episode);
 
-        // Race API vs 1.5s timeout — start playback ASAP
         const apiPromise = supabase.functions.invoke("extract-video", { body });
-        const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 1500));
+        const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 1500));
         const raceResult = await Promise.race([apiPromise, timeoutPromise]);
 
         if (cancelledRef.current) return;
-        
-        if (raceResult && 'data' in raceResult && raceResult.data?.url) {
-          videoData = normalizeVideoForEnv({ url: raceResult.data.url, type: raceResult.data.type || "mp4" });
-          setCachedUrl(tmdbId, contentType, season, episode, videoData.url, videoData.type);
-        } else {
-          console.warn("[Engine] API slow/failed, using direct URL fallback");
+
+        if (raceResult && "data" in raceResult && raceResult.data?.url) {
+          const candidate = normalizeVideoForEnv({ url: raceResult.data.url, type: raceResult.data.type || "mp4" });
+          if (!isLikelyMismatchedSource(candidate.url, tmdbId, contentType, season, episode)) {
+            videoData = candidate;
+            setCachedUrl(tmdbId, contentType, season, episode, videoData.url, videoData.type);
+          }
+        }
+
+        if (!videoData) {
+          console.warn("[Engine] API slow/failed ou URL inválida, usando fallback direto");
           videoData = { url: directUrl, type: "mp4" };
-          // Continue API call in background to cache for next time
-          apiPromise.then(({ data }) => {
-            if (data?.url) {
-              const norm = normalizeVideoForEnv({ url: data.url, type: data.type || "mp4" });
-              setCachedUrl(tmdbId, contentType, season, episode, norm.url, norm.type);
-            }
-          }).catch(() => {});
+          clearCachedUrl(tmdbId, contentType, season, episode);
+          prefetchMap.delete(`${tmdbId}_${contentType}_${season || 0}_${episode || 0}`);
         }
       }
 
@@ -403,8 +464,8 @@ export function usePlayerEngine(config: EngineConfig) {
       if (!video || cancelledRef.current) return;
 
       const previewSource = videoData.type === "m3u8"
-        ? (deriveDirectMp4(videoData.url) || videoData.url)
-        : videoData.url;
+        ? (deriveDirectMp4(finalUrl) || finalUrl)
+        : finalUrl;
       video.dataset.previewSrc = previewSource;
       video.preload = "auto";
 
@@ -536,7 +597,7 @@ export function usePlayerEngine(config: EngineConfig) {
 
               signVideoUrl(mp4Url).then((finalMp4) => {
                 if (!video || cancelledRef.current) return;
-                video.dataset.previewSrc = mp4Url;
+                video.dataset.previewSrc = finalMp4;
                 video.removeAttribute("crossorigin");
                 video.setAttribute("referrerpolicy", "no-referrer");
                 video.src = finalMp4;
@@ -587,6 +648,10 @@ export function usePlayerEngine(config: EngineConfig) {
     const onPlaying = () => { patch({ loading: false, isStalled: false }); resetStallDetection(); if (!video.paused) startStallDetection(); };
     const onError = () => {
       console.error("[Engine] Video element error");
+      if (tmdbId) {
+        clearCachedUrl(tmdbId, contentType, season, episode);
+        prefetchMap.delete(`${tmdbId}_${contentType}_${season || 0}_${episode || 0}`);
+      }
       retryLoad();
     };
     const onEnded = () => {
