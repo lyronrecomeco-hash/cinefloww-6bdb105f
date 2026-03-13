@@ -43,56 +43,78 @@ const MAX_RETRIES = 5;
 const RETRY_DELAYS = [150, 400, 1000, 2000, 4000];
 
 // ── OPT 2: Client-side URL cache ──
+function getCacheKey(tmdbId: string, contentType: string, season?: string | null, episode?: string | null): string {
+  return `lyne_vc_${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
+}
+
 function getCachedUrl(tmdbId: string, contentType: string, season?: string | null, episode?: string | null): { url: string; type: string } | null {
   try {
-    const key = `lyne_vc_${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
+    const key = getCacheKey(tmdbId, contentType, season, episode);
     const raw = sessionStorage.getItem(key);
     if (!raw) return null;
     const cached = JSON.parse(raw);
     // Cache valid for 30 minutes
-    if (Date.now() - cached.ts > 30 * 60 * 1000) { sessionStorage.removeItem(key); return null; }
+    if (Date.now() - cached.ts > 30 * 60 * 1000) {
+      sessionStorage.removeItem(key);
+      return null;
+    }
     return { url: cached.url, type: cached.type };
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 }
 
-function setCachedUrl(tmdbId: string, contentType: string, season: string | null | undefined, episode: string | null | undefined, url: string, type: string) {
+function setCachedUrl(
+  tmdbId: string,
+  contentType: string,
+  season: string | null | undefined,
+  episode: string | null | undefined,
+  url: string,
+  type: string
+) {
   try {
-    const key = `lyne_vc_${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
+    const key = getCacheKey(tmdbId, contentType, season, episode);
     sessionStorage.setItem(key, JSON.stringify({ url, type, ts: Date.now() }));
   } catch {}
 }
 
-// ── OPT 1: Prefetch API (call before player mounts) ──
-const prefetchMap = new Map<string, Promise<{ url: string; type: string } | null>>();
-
-function normalizeCineveoHost(rawUrl: string): string {
+function clearCachedUrl(tmdbId: string, contentType: string, season?: string | null, episode?: string | null) {
   try {
-    const parsed = new URL(rawUrl);
-    const host = parsed.hostname.toLowerCase();
-    if (host === "cinetvembed.cineveo.site" || host.endsWith(".cineveo.site") || host.endsWith(".cineveo.lat")) {
-      parsed.hostname = "cineveo.lat";
-      parsed.protocol = "https:";
-      return parsed.toString();
-    }
+    sessionStorage.removeItem(getCacheKey(tmdbId, contentType, season, episode));
   } catch {}
-  return rawUrl;
 }
 
-function deriveDirectMp4(rawUrl: string): string | null {
+function isLikelyMismatchedSource(
+  url: string,
+  tmdbId: string,
+  contentType: string,
+  season?: string | null,
+  episode?: string | null,
+): boolean {
   try {
-    const parsed = new URL(rawUrl);
+    const parsed = new URL(url);
     const host = parsed.hostname.toLowerCase();
-    if (!(host.includes("cineveo") || host.includes("brstream"))) return null;
+    const cineveoLike = host.includes("cineveo") || host.includes("streetflix") || host.includes("brstream");
+    if (!cineveoLike) return false;
 
-    if (parsed.pathname.toLowerCase().endsWith(".m3u8")) {
-      parsed.pathname = parsed.pathname.replace(/\.m3u8$/i, ".mp4");
+    const path = parsed.pathname;
+    if (contentType === "movie") {
+      const match = path.match(/\/movie\/(?:[^/]+\/[^/]+\/)?(\d+)/i);
+      return !!match && Number(match[1]) !== Number(tmdbId);
     }
 
-    parsed.hostname = "cineveo.lat";
-    parsed.protocol = "https:";
-    return parsed.toString();
+    const match = path.match(/\/(?:series|tv)\/(?:[^/]+\/[^/]+\/)?(\d+)\/(\d+)\/(\d+)/i);
+    if (!match) return false;
+
+    const sourceTmdb = Number(match[1]);
+    const sourceSeason = Number(match[2]);
+    const sourceEpisode = Number(match[3]);
+    if (sourceTmdb !== Number(tmdbId)) return true;
+    if (season != null && Number.isFinite(sourceSeason) && sourceSeason !== Number(season)) return true;
+    if (episode != null && Number.isFinite(sourceEpisode) && sourceEpisode !== Number(episode)) return true;
+    return false;
   } catch {
-    return null;
+    return false;
   }
 }
 
