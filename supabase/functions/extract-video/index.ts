@@ -132,7 +132,7 @@ async function getCachedVideo(
 
     const { data: backupRows } = await db
       .from("video_cache_backup")
-      .select("video_url, video_type, provider, season, episode, backed_up_at")
+      .select("id, video_url, video_type, provider, season, episode, backed_up_at")
       .eq("tmdb_id", tmdbId)
       .eq("content_type", contentType)
       .order("backed_up_at", { ascending: false })
