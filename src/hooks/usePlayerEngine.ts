@@ -536,6 +536,7 @@ export function usePlayerEngine(config: EngineConfig) {
 
               signVideoUrl(mp4Url).then((finalMp4) => {
                 if (!video || cancelledRef.current) return;
+                video.dataset.previewSrc = mp4Url;
                 video.removeAttribute("crossorigin");
                 video.setAttribute("referrerpolicy", "no-referrer");
                 video.src = finalMp4;

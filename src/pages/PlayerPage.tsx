@@ -262,10 +262,10 @@ const PlayerPage = () => {
 
     const immediate = captureFrameFromVideo(v, time, (asyncThumb, requestedSecond) => {
       if (hoverSecondRef.current !== requestedSecond) return;
-      setPreviewThumb(asyncThumb);
+      if (asyncThumb) setPreviewThumb(asyncThumb);
     });
 
-    setPreviewThumb(immediate);
+    if (immediate) setPreviewThumb(immediate);
   }, []);
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
