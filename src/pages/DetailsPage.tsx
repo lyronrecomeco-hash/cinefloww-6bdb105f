@@ -381,9 +381,7 @@ const DetailsPage = ({ type }: DetailsPageProps) => {
             </div>
 
             {/* Overview */}
-            <p className="text-secondary-foreground/80 leading-relaxed mb-4 sm:mb-6 max-w-2xl text-xs sm:text-sm lg:text-base line-clamp-4 sm:line-clamp-none">
-              {detail.overview || "Sinopse não disponível."}
-            </p>
+            <ExpandableOverview text={detail.overview || "Sinopse não disponível."} />
 
             {/* Actions */}
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 sm:gap-3 mb-4 sm:mb-6">
