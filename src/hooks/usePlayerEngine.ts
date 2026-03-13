@@ -346,6 +346,7 @@ export function usePlayerEngine(config: EngineConfig) {
       const prefetchKey = `${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
       const prefetchPromise = prefetchMap.get(prefetchKey);
 
+      // Race: use whichever resolves first — cache or prefetch
       if (prefetchPromise) {
         videoData = await prefetchPromise;
       }
@@ -355,24 +356,29 @@ export function usePlayerEngine(config: EngineConfig) {
       }
 
       if (!videoData) {
+        // Build direct URL immediately as fallback while API loads
+        const tmdbNum = Number(tmdbId);
+        const directUrl = contentType === "movie"
+          ? buildMovieUrl(tmdbNum)
+          : buildEpisodeUrl(tmdbNum, Number(season || 1), Number(episode || 1));
+
         const body: Record<string, unknown> = { tmdb_id: Number(tmdbId), content_type: contentType };
         if (season) body.season = Number(season);
         if (episode) body.episode = Number(episode);
 
-        const { data, error: fnErr } = await supabase.functions.invoke("extract-video", { body });
+        // Race API vs timeout — if API takes >2s, use direct URL immediately
+        const apiPromise = supabase.functions.invoke("extract-video", { body });
+        const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 2000));
+        const raceResult = await Promise.race([apiPromise, timeoutPromise]);
+
         if (cancelledRef.current) return;
         
-        if (fnErr || !data?.url) {
-          // FALLBACK: Build URL directly from CineVeo pattern
-          console.warn("[Engine] extract-video failed, trying direct URL fallback");
-          const tmdbNum = Number(tmdbId);
-          const directUrl = contentType === "movie"
-            ? buildMovieUrl(tmdbNum)
-            : buildEpisodeUrl(tmdbNum, Number(season || 1), Number(episode || 1));
-          videoData = { url: directUrl, type: "mp4" };
-        } else {
-          videoData = normalizeVideoForEnv({ url: data.url, type: data.type || "mp4" });
+        if (raceResult && 'data' in raceResult && raceResult.data?.url) {
+          videoData = normalizeVideoForEnv({ url: raceResult.data.url, type: raceResult.data.type || "mp4" });
           setCachedUrl(tmdbId, contentType, season, episode, videoData.url, videoData.type);
+        } else {
+          console.warn("[Engine] API slow/failed, using direct URL fallback");
+          videoData = { url: directUrl, type: "mp4" };
         }
       }
 
