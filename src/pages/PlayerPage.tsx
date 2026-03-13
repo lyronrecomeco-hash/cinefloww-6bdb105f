@@ -232,13 +232,18 @@ const PlayerPage = () => {
 
   const goBack = () => navigate(-1);
 
-  // Cache thumbnail frames passively during playback
+  // Cache thumbnail frames passively during playback (every ~1s)
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
     const onTimeUpdate = () => cacheCurrentFrame(v);
     v.addEventListener("timeupdate", onTimeUpdate);
-    return () => v.removeEventListener("timeupdate", onTimeUpdate);
+    // Also capture on seeked for scrubbing
+    v.addEventListener("seeked", () => cacheCurrentFrame(v));
+    return () => {
+      v.removeEventListener("timeupdate", onTimeUpdate);
+      v.removeEventListener("seeked", () => cacheCurrentFrame(v));
+    };
   }, []);
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {

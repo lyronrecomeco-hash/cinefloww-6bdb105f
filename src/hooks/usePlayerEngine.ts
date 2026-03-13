@@ -342,21 +342,22 @@ export function usePlayerEngine(config: EngineConfig) {
     try {
       let videoData: { url: string; type: string } | null = null;
 
-      // OPT 1 + 2: Check prefetch map and session cache first (zero-latency path)
-      const prefetchKey = `${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
-      const prefetchPromise = prefetchMap.get(prefetchKey);
+      // FAST PATH 1: session storage cache (instant, zero latency)
+      videoData = getCachedUrl(tmdbId, contentType, season, episode);
 
-      // Race: use whichever resolves first — cache or prefetch
-      if (prefetchPromise) {
-        videoData = await prefetchPromise;
+      // FAST PATH 2: prefetch promise (started on DetailsPage)
+      if (!videoData) {
+        const prefetchKey = `${tmdbId}_${contentType}_${season || 0}_${episode || 0}`;
+        const prefetchPromise = prefetchMap.get(prefetchKey);
+        if (prefetchPromise) {
+          // Race prefetch vs 1.5s timeout
+          const timeoutP = new Promise<null>(r => setTimeout(() => r(null), 1500));
+          videoData = await Promise.race([prefetchPromise, timeoutP]);
+        }
       }
 
+      // FAST PATH 3: Direct URL fallback + async API call
       if (!videoData) {
-        videoData = getCachedUrl(tmdbId, contentType, season, episode);
-      }
-
-      if (!videoData) {
-        // Build direct URL immediately as fallback while API loads
         const tmdbNum = Number(tmdbId);
         const directUrl = contentType === "movie"
           ? buildMovieUrl(tmdbNum)
@@ -366,9 +367,9 @@ export function usePlayerEngine(config: EngineConfig) {
         if (season) body.season = Number(season);
         if (episode) body.episode = Number(episode);
 
-        // Race API vs timeout — if API takes >2s, use direct URL immediately
+        // Race API vs 1.5s timeout — start playback ASAP
         const apiPromise = supabase.functions.invoke("extract-video", { body });
-        const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 2000));
+        const timeoutPromise = new Promise<null>(r => setTimeout(() => r(null), 1500));
         const raceResult = await Promise.race([apiPromise, timeoutPromise]);
 
         if (cancelledRef.current) return;
@@ -379,6 +380,13 @@ export function usePlayerEngine(config: EngineConfig) {
         } else {
           console.warn("[Engine] API slow/failed, using direct URL fallback");
           videoData = { url: directUrl, type: "mp4" };
+          // Continue API call in background to cache for next time
+          apiPromise.then(({ data }) => {
+            if (data?.url) {
+              const norm = normalizeVideoForEnv({ url: data.url, type: data.type || "mp4" });
+              setCachedUrl(tmdbId, contentType, season, episode, norm.url, norm.type);
+            }
+          }).catch(() => {});
         }
       }
 
@@ -404,28 +412,29 @@ export function usePlayerEngine(config: EngineConfig) {
         video.setAttribute("referrerpolicy", "no-referrer");
       }
 
-      // Progress restore runs in parallel — don't block initial playback
-      let savedTime = 0;
-      restoreProgress().then(t => { savedTime = t; }).catch(() => {});
-
       // Destroy previous HLS instance
       if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
+      // Restore progress in background — apply when video has metadata
+      const progressPromise = restoreProgress();
+
       if (videoData.type === "m3u8" && Hls.isSupported()) {
-        attachHls(finalUrl, video, savedTime, null as any);
+        progressPromise.then(t => { attachHls(finalUrl, video, t, null as any); }).catch(() => {
+          attachHls(finalUrl, video, 0, null as any);
+        });
       } else if (videoData.type === "m3u8" && video.canPlayType("application/vnd.apple.mpegurl")) {
         video.src = finalUrl;
         video.load();
-        video.addEventListener("canplay", () => {
-          if (savedTime > 0) video.currentTime = savedTime;
+        video.addEventListener("loadeddata", () => {
+          progressPromise.then(t => { if (t > 0) video.currentTime = t; }).catch(() => {});
           tryPlay(video);
         }, { once: true });
       } else {
-        // MP4: use canplay for fastest possible start
+        // MP4: use loadeddata for fastest start (fires before canplay)
         video.src = finalUrl;
         video.load();
-        video.addEventListener("canplay", () => {
-          if (savedTime > 0) video.currentTime = savedTime;
+        video.addEventListener("loadeddata", () => {
+          progressPromise.then(t => { if (t > 0) video.currentTime = t; }).catch(() => {});
           tryPlay(video);
         }, { once: true });
       }
