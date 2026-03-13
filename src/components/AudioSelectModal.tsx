@@ -94,15 +94,6 @@ const AudioSelectModal = ({ tmdbId, type, title, subtitle, season, episode, onSe
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  // If only 1 audio available and not loading, auto-select
-  useEffect(() => {
-    if (!loading && availableAudios.size === 1) {
-      const audio = [...availableAudios][0];
-      localStorage.setItem("cineflow_audio_pref", audio);
-      onSelect(audio);
-    }
-  }, [loading, availableAudios]);
-
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-background/90 backdrop-blur-xl" />
