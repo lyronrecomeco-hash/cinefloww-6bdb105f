@@ -41,6 +41,23 @@ const MoviesPage = () => {
       }
       let results = data.results.filter(m => m.poster_path);
       if (kidsMode) results = filterKidsTitles(results);
+      // If results are too few, fetch next page to fill the grid
+      if (results.length < 14 && data.total_pages > p) {
+        try {
+          let data2;
+          if (selectedYear) {
+            const params2: Record<string, string> = { sort_by: "popularity.desc" };
+            if (genreId) params2.with_genres = String(genreId);
+            params2["primary_release_date.gte"] = `${selectedYear}-01-01`;
+            params2["primary_release_date.lte"] = `${selectedYear}-12-31`;
+            data2 = await discoverMovies(p + 1, params2);
+          } else {
+            data2 = await getPopularMovies(p + 1, genreId);
+          }
+          const extra = data2.results.filter(m => m.poster_path);
+          results = [...results, ...(kidsMode ? filterKidsTitles(extra) : extra)];
+        } catch {}
+      }
       setMovies(results);
       setTotalPages(Math.min(data.total_pages, 500));
       setPage(p);

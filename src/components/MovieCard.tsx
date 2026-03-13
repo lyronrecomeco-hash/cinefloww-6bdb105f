@@ -84,7 +84,7 @@ const MovieCard = memo(({ movie, comingSoon }: MovieCardProps) => {
   }
 
   return (
-    <Link to={link} className="group flex-shrink-0 w-full block">
+    <Link to={link} className="group flex-shrink-0 w-full block" onMouseEnter={handleHoverPrefetch}>
       {cardContent}
       <h3 className="font-medium text-[11px] sm:text-xs leading-tight line-clamp-1 group-hover:text-primary transition-colors">{title}</h3>
       <p className="text-muted-foreground text-[9px] sm:text-[10px] mt-0.5">{getYear(movie)}</p>

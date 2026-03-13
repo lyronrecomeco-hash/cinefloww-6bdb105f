@@ -452,7 +452,7 @@ export function usePlayerEngine(config: EngineConfig) {
         if (episode) body.episode = Number(episode);
 
         const apiPromise = supabase.functions.invoke("extract-video", { body });
-        const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 1500));
+        const timeoutPromise = new Promise<null>((r) => setTimeout(() => r(null), 5000));
         const raceResult = await Promise.race([apiPromise, timeoutPromise]);
 
         if (cancelledRef.current) return;
