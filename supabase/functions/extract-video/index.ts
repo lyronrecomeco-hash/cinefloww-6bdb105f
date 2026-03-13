@@ -109,7 +109,7 @@ async function getCachedVideo(
     const nowIso = new Date().toISOString();
     const { data: liveRows } = await db
       .from("video_cache")
-      .select("video_url, video_type, provider, season, episode, created_at")
+      .select("id, video_url, video_type, provider, season, episode, created_at")
       .eq("tmdb_id", tmdbId)
       .eq("content_type", contentType)
       .gt("expires_at", nowIso)
