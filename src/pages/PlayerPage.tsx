@@ -14,6 +14,7 @@ import { useWebRTC } from "@/hooks/useWebRTC";
 import { usePlayerEngine, prefetchVideoUrl } from "@/hooks/usePlayerEngine";
 import RoomOverlay from "@/components/watch-together/RoomOverlay";
 import { captureFrameFromVideo, cacheCurrentFrame } from "@/lib/videoPreview";
+import { getThumbnailCueAtTime, loadThumbnailTrack, warmThumbnailSprites, type ThumbnailTrack, type SpriteThumbnailCue } from "@/lib/vttThumbnails";
 
 const SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 
@@ -59,6 +60,8 @@ const PlayerPage = () => {
   const [seekIndicator, setSeekIndicator] = useState<{ side: "left" | "right"; seconds: number } | null>(null);
   const [touchSeeking, setTouchSeeking] = useState(false);
   const [previewThumb, setPreviewThumb] = useState<string | null>(null);
+  const [spriteCue, setSpriteCue] = useState<SpriteThumbnailCue | null>(null);
+  const [thumbTrack, setThumbTrack] = useState<ThumbnailTrack | null>(null);
   const hoverSecondRef = useRef<number | null>(null);
 
   // Next episode
@@ -96,6 +99,21 @@ const PlayerPage = () => {
   const webRTC = useWebRTC({ roomId: watchRoom.room?.id || null, profileId: activeProfileId, profileName: activeProfileName, isHost: watchRoom.isHost, enabled: roomMode === "call" && !!watchRoom.room });
 
   useEffect(() => { if (roomCodeParam && activeProfileId && !watchRoom.room) watchRoom.joinRoom(roomCodeParam); }, [roomCodeParam, activeProfileId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setThumbTrack(null);
+    setSpriteCue(null);
+    setPreviewThumb(null);
+
+    loadThumbnailTrack({ tmdbId, contentType, season, episode }).then((track) => {
+      if (!cancelled) setThumbTrack(track);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tmdbId, contentType, season, episode]);
 
   // Resume prompt — check once when video loads
   useEffect(() => {
@@ -233,10 +251,10 @@ const PlayerPage = () => {
 
   const goBack = () => navigate(-1);
 
-  // Cache thumbnail frames passively during playback (every ~1s)
+  // Cache thumbnail frames passively during playback (fallback when VTT sprites are unavailable)
   useEffect(() => {
     const v = videoRef.current;
-    if (!v) return;
+    if (!v || thumbTrack) return;
 
     const onTimeUpdate = () => cacheCurrentFrame(v);
     const onSeeked = () => cacheCurrentFrame(v);
@@ -248,13 +266,23 @@ const PlayerPage = () => {
       v.removeEventListener("timeupdate", onTimeUpdate);
       v.removeEventListener("seeked", onSeeked);
     };
-  }, []);
+  }, [thumbTrack]);
 
   const updateHoverPreview = useCallback((time: number) => {
-    const v = videoRef.current;
     const rounded = Math.round(time);
     hoverSecondRef.current = rounded;
 
+    const cue = getThumbnailCueAtTime(thumbTrack, time);
+    if (cue) {
+      warmThumbnailSprites(thumbTrack, time);
+      setSpriteCue(cue);
+      setPreviewThumb(null);
+      return;
+    }
+
+    setSpriteCue(null);
+
+    const v = videoRef.current;
     if (!v) {
       setPreviewThumb(null);
       return;
@@ -267,7 +295,7 @@ const PlayerPage = () => {
     });
 
     if (immediate) setPreviewThumb(immediate);
-  }, []);
+  }, [thumbTrack]);
 
   const seek = (e: React.MouseEvent<HTMLDivElement>) => {
     if (locked) return;
@@ -571,6 +599,7 @@ const PlayerPage = () => {
                 hoverSecondRef.current = null;
                 setHoverTime(null);
                 setPreviewThumb(null);
+                setSpriteCue(null);
               }}
               onTouchStart={(e) => {
                 setTouchSeeking(true);
@@ -600,6 +629,7 @@ const PlayerPage = () => {
                 hoverSecondRef.current = null;
                 setHoverTime(null);
                 setPreviewThumb(null);
+                setSpriteCue(null);
               }}
             >
               {hoverTime !== null && (
@@ -607,13 +637,27 @@ const PlayerPage = () => {
                   className="absolute -translate-x-1/2 pointer-events-none flex flex-col items-center"
                   style={{ left: Math.max(40, Math.min(hoverX, (containerRef.current?.clientWidth || 300) - 60)), bottom: "calc(100% + 8px)" }}
                 >
-                  {previewThumb && (
+                  {spriteCue ? (
+                    <div className="w-[160px] h-[90px] rounded-lg border border-white/20 shadow-xl overflow-hidden mb-1 bg-black/60">
+                      <div
+                        className="bg-no-repeat"
+                        style={{
+                          width: `${spriteCue.width}px`,
+                          height: `${spriteCue.height}px`,
+                          transform: `scale(${160 / Math.max(spriteCue.width, 1)}, ${90 / Math.max(spriteCue.height, 1)})`,
+                          transformOrigin: "top left",
+                          backgroundImage: `url(${spriteCue.spriteUrl})`,
+                          backgroundPosition: `-${spriteCue.x}px -${spriteCue.y}px`,
+                        }}
+                      />
+                    </div>
+                  ) : previewThumb ? (
                     <img
                       src={previewThumb}
                       alt=""
                       className="w-[160px] h-[90px] rounded-lg border border-white/20 shadow-xl object-cover mb-1"
                     />
-                  )}
+                  ) : null}
                   <span className="px-2.5 py-1 rounded-lg bg-black/90 backdrop-blur-sm border border-white/10 text-[11px] font-mono text-white">
                     {fmt(hoverTime)}
                   </span>

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import MovieCard from "@/components/MovieCard";
-import { TMDBMovie, discoverMovies, discoverSeries, getDisplayTitle } from "@/services/tmdb";
+import { TMDBMovie, discoverMovies, discoverSeries, getUpcomingMovies, getOnTheAirSeries } from "@/services/tmdb";
 import { Calendar, Film, Tv, ChevronLeft, ChevronRight } from "lucide-react";
 
 type TabType = "movies" | "series";
@@ -31,45 +31,80 @@ const ComingSoonPage = () => {
     try {
       const today = new Date().toISOString().split("T")[0];
       const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
-      const futureLimit = "2026-12-31";
+      const futureLimit = new Date(Date.now() + 1000 * 60 * 60 * 24 * 540).toISOString().split("T")[0]; // ~18 meses
 
       let cursor = p;
       let total = 1;
       const collected: RankedTMDBMovie[] = [];
 
-      for (let scanned = 0; scanned < MAX_SCAN_PAGES && collected.length < TARGET_ITEMS; scanned += 1) {
-        const data = tab === "movies"
-          ? await discoverMovies(cursor, {
+      const pushFiltered = (list: RankedTMDBMovie[], requireFutureDate: boolean) => {
+        list.forEach((item) => {
+          const date = item.release_date || item.first_air_date;
+          const popularity = Number(item.popularity || 0);
+          const votes = Number(item.vote_count || 0);
+          const rating = Number(item.vote_average || 0);
+
+          const hasInterestSignal = popularity >= 6 || votes >= 35 || rating >= 6;
+          const isFuture = !!date && date >= tomorrow;
+          if (!item.poster_path || !item.backdrop_path) return;
+          if (requireFutureDate && !isFuture) return;
+          if (!hasInterestSignal) return;
+
+          collected.push(item);
+        });
+      };
+
+      for (let scanned = 0; scanned < MAX_SCAN_PAGES && collected.length < TARGET_ITEMS * 2; scanned += 1) {
+        if (tab === "movies") {
+          const upcoming = await getUpcomingMovies(cursor);
+          total = Math.min(upcoming.total_pages || 1, 500);
+          pushFiltered(upcoming.results as RankedTMDBMovie[], true);
+
+          if (collected.length < TARGET_ITEMS) {
+            const discoverFallback = await discoverMovies(cursor, {
               "primary_release_date.gte": tomorrow,
               "primary_release_date.lte": futureLimit,
               sort_by: "popularity.desc",
-            })
-          : await discoverSeries(cursor, {
-              "first_air_date.gte": tomorrow,
-              "first_air_date.lte": futureLimit,
-              sort_by: "popularity.desc",
             });
+            pushFiltered(discoverFallback.results as RankedTMDBMovie[], true);
+          }
+        } else {
+          const upcomingSeries = await discoverSeries(cursor, {
+            "first_air_date.gte": tomorrow,
+            "first_air_date.lte": futureLimit,
+            sort_by: "popularity.desc",
+          });
+          total = Math.min(upcomingSeries.total_pages || 1, 500);
+          pushFiltered(upcomingSeries.results as RankedTMDBMovie[], true);
 
-        total = Math.min(data.total_pages, 500);
-        const future = (data.results as RankedTMDBMovie[]).filter((item) => {
-          const d = item.release_date || item.first_air_date;
-          const popularity = Number(item.popularity || 0);
-          const votes = Number(item.vote_count || 0);
-          return !!item.poster_path && !!item.backdrop_path && !!d && d > today && popularity >= 8 && votes >= 20;
-        });
-        collected.push(...future);
+          if (collected.length < TARGET_ITEMS) {
+            const onTheAir = await getOnTheAirSeries(cursor);
+            pushFiltered(onTheAir.results as RankedTMDBMovie[], false);
+          }
+        }
 
         cursor += 1;
         if (cursor > total) break;
+      }
+
+      if (collected.length < TARGET_ITEMS) {
+        const fallback = tab === "movies"
+          ? await discoverMovies(1, { sort_by: "popularity.desc" })
+          : await discoverSeries(1, { sort_by: "popularity.desc" });
+
+        pushFiltered(fallback.results as RankedTMDBMovie[], false);
       }
 
       const unique = Array.from(new Map(collected.map((m) => [m.id, m])).values());
       unique.sort((a, b) => scoreInterest(b) - scoreInterest(a));
 
       setItems(unique.slice(0, TARGET_ITEMS));
-      setTotalPages(total);
+      setTotalPages(Math.max(total, 1));
       setPage(p);
-    } catch {}
+    } catch {
+      setItems([]);
+      setTotalPages(1);
+    }
     setLoading(false);
   }, [tab]);
 
