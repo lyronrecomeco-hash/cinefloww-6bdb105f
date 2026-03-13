@@ -88,6 +88,7 @@ const PlayerLoader = forwardRef<HTMLDivElement>((_, ref) => (
 PlayerLoader.displayName = "PlayerLoader";
 
 const App = () => (
+  <ErrorBoundary>
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Toaster />
