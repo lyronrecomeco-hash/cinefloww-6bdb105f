@@ -41,7 +41,7 @@ const ContinueWatchingRow = () => {
 
   useEffect(() => {
     const load = async () => {
-      const deviceId = getDeviceId();
+      const deviceId = getScopedWatchProgressDeviceId();
       const { data: progress } = await supabase
         .from("watch_progress")
         .select("id, tmdb_id, content_type, season, episode, progress_seconds, duration_seconds")

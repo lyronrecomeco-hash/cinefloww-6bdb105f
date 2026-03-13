@@ -1,12 +1,29 @@
 import { supabase } from "@/integrations/supabase/client";
 
-function getDeviceId(): string {
+function getBaseDeviceId(): string {
   let id = localStorage.getItem("cineflow_device_id");
   if (!id) {
     id = crypto.randomUUID();
     localStorage.setItem("cineflow_device_id", id);
   }
   return id;
+}
+
+function getActiveProfileId(): string | null {
+  try {
+    const raw = localStorage.getItem("lyneflix_active_profile");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return typeof parsed?.id === "string" ? parsed.id : null;
+  } catch {
+    return null;
+  }
+}
+
+export function getScopedWatchProgressDeviceId(): string {
+  const base = getBaseDeviceId();
+  const profileId = getActiveProfileId();
+  return profileId ? `${base}:${profileId}` : `${base}:guest`;
 }
 
 export interface WatchProgressData {
@@ -20,7 +37,7 @@ export interface WatchProgressData {
 }
 
 export async function saveWatchProgress(data: WatchProgressData) {
-  const device_id = getDeviceId();
+  const device_id = getScopedWatchProgressDeviceId();
   const { error } = await supabase.from("watch_progress").upsert(
     {
       device_id,
@@ -43,7 +60,7 @@ export async function getWatchProgress(
   season?: number,
   episode?: number
 ): Promise<WatchProgressData | null> {
-  const device_id = getDeviceId();
+  const device_id = getScopedWatchProgressDeviceId();
   let query = supabase
     .from("watch_progress")
     .select("*")
@@ -73,7 +90,7 @@ export async function getLatestSeriesProgress(
   tmdb_id: number,
   content_type: string
 ): Promise<{ season: number; episode: number; progress_seconds: number; duration_seconds: number; completed: boolean } | null> {
-  const device_id = getDeviceId();
+  const device_id = getScopedWatchProgressDeviceId();
   const { data } = await supabase
     .from("watch_progress")
     .select("season, episode, progress_seconds, duration_seconds, completed, updated_at")
@@ -100,7 +117,7 @@ export async function getEpisodeProgress(
   tmdb_id: number,
   content_type: string
 ): Promise<Map<string, { progress: number; duration: number; completed: boolean }>> {
-  const device_id = getDeviceId();
+  const device_id = getScopedWatchProgressDeviceId();
   const { data } = await supabase
     .from("watch_progress")
     .select("season, episode, progress_seconds, duration_seconds, completed")
