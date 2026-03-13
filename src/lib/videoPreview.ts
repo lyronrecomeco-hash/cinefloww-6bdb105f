@@ -146,8 +146,13 @@ async function ensurePreviewVideo(sourceUrl: string): Promise<HTMLVideoElement |
       await waitForEvent(previewVideo, "loadedmetadata", CAPTURE_TIMEOUT_MS);
     }
     return previewVideo;
-  } catch {
-    blockedPreviewSources.add(sourceUrl);
+  } catch (err) {
+    if (isSecurityError(err)) {
+      blockedPreviewSources.add(sourceUrl);
+    } else {
+      previewVideoSrc = "";
+      previewVideoReadyPromise = null;
+    }
     return null;
   }
 }
