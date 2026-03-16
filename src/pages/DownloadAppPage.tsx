@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { Download, Smartphone, Shield, Zap, Wifi, MonitorSmartphone, Star, ChevronLeft, ChevronRight, Play, Info } from "lucide-react";
+import { Download, Smartphone, Shield, Zap, Wifi, MonitorSmartphone, Star, ChevronLeft, ChevronRight } from "lucide-react";
 import appLogo from "@/assets/lyneflix-L-logo.png";
 import { TMDBMovie, getTrending, backdropUrl, getDisplayTitle, getYear, getMediaType } from "@/services/tmdb";
 import { toSlug } from "@/lib/slugify";
