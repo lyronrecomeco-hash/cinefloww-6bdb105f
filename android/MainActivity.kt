@@ -28,6 +28,9 @@ class MainActivity : ComponentActivity() {
         // Inicializa auth
         SupabaseAuth.init(applicationContext)
 
+        // Sincroniza manutenção e atualização publicadas no painel admin
+        AppStatusManager.checkOnStartup(this)
+
         setContent {
             LyneflixNewTheme {
                 val vm: HomeViewModel = viewModel()
