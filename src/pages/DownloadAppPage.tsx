@@ -110,26 +110,13 @@ const DownloadAppPage = () => {
                     </p>
                   )}
                   <div className="flex items-center gap-2 sm:gap-3">
-                    <Link
-                      to={(() => {
-                        const t = getMediaType(movie);
-                        const title = getDisplayTitle(movie);
-                        return t === "movie" ? `/filme/${toSlug(title, movie.id)}` : `/serie/${toSlug(title, movie.id)}`;
-                      })()}
-                      className="flex items-center gap-1.5 px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground font-semibold text-xs sm:text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
+                    <a
+                      href={apkUrl}
+                      download
+                      className="flex items-center gap-1.5 px-5 sm:px-7 py-2.5 sm:py-3 rounded-xl sm:rounded-2xl bg-primary text-primary-foreground font-semibold text-xs sm:text-sm hover:bg-primary/90 transition-all duration-300 hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
                     >
-                      <Play className="w-3.5 h-3.5 sm:w-5 sm:h-5 fill-current" /> Assistir
-                    </Link>
-                    <Link
-                      to={(() => {
-                        const t = getMediaType(movie);
-                        const title = getDisplayTitle(movie);
-                        return t === "movie" ? `/filme/${toSlug(title, movie.id)}` : `/serie/${toSlug(title, movie.id)}`;
-                      })()}
-                      className="flex items-center gap-1.5 px-4 sm:px-6 py-2 sm:py-3 rounded-xl sm:rounded-2xl glass glass-hover font-semibold text-xs sm:text-sm"
-                    >
-                      <Info className="w-3.5 h-3.5 sm:w-5 sm:h-5" /> Detalhes
-                    </Link>
+                      <Download className="w-4 h-4 sm:w-5 sm:h-5" /> Baixar App
+                    </a>
                   </div>
                 </div>
               </div>
