@@ -8,10 +8,6 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import android.view.Gravity
-import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.TextView
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -20,10 +16,13 @@ import java.net.URL
 /**
  * AppStatusManager — Sincroniza manutenção e atualização do app com o painel admin.
  *
- * Endpoints (GET):
- *   https://lyneflix.online/functions/v1/app-catalog?action=status
- *   https://lyneflix.online/functions/v1/app-catalog?action=maintenance
- *   https://lyneflix.online/functions/v1/app-catalog?action=update
+ * A API usa diretamente a URL do Supabase Edge Functions:
+ *   https://mfcnkltcdvitxczjwoer.supabase.co/functions/v1/app-catalog
+ *
+ * Endpoints (GET com query param ?action=):
+ *   ?action=status       → retorna manutenção + atualização juntos
+ *   ?action=maintenance  → retorna apenas dados de manutenção
+ *   ?action=update       → retorna apenas dados de atualização
  *
  * Campos de manutenção (site_settings key = "app_maintenance"):
  *   enabled: Boolean          — ativa/desativa manutenção
@@ -45,7 +44,14 @@ import java.net.URL
 object AppStatusManager {
 
     private const val TAG = "AppStatusManager"
-    private const val BASE_URL = "https://lyneflix.online/functions/v1/app-catalog"
+
+    // ═══════════════════════════════════════════════════
+    //  URL BASE — Supabase Edge Function (direta, sem proxy)
+    // ═══════════════════════════════════════════════════
+    private const val BASE_URL = "https://mfcnkltcdvitxczjwoer.supabase.co/functions/v1/app-catalog"
+
+    // Anon key para autenticação com Supabase
+    private const val ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1mY25rbHRjZHZpdHhjemp3b2VyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEyMzExOTgsImV4cCI6MjA4NjgwNzE5OH0.g8R1h217oI-y7zeBsvN7kfE9aPMlQZEEEbRCQLAEbXA"
 
     // ═══════════════════════════════════════════════════
     //  ATUALIZE AQUI A CADA RELEASE DO APP
@@ -136,22 +142,31 @@ object AppStatusManager {
     }
 
     // ═══════════════════════════════════════════════════
-    //  FETCH JSON
+    //  FETCH JSON (com apikey header obrigatório)
     // ═══════════════════════════════════════════════════
     private fun fetchJson(endpoint: String): JSONObject? {
         val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
-            connectTimeout = 8000
-            readTimeout = 8000
+            connectTimeout = 10000
+            readTimeout = 10000
             setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("apikey", ANON_KEY)
+            setRequestProperty("Authorization", "Bearer $ANON_KEY")
         }
         return try {
-            if (conn.responseCode == 200) {
-                JSONObject(conn.inputStream.bufferedReader().readText())
+            val code = conn.responseCode
+            if (code == 200) {
+                val body = conn.inputStream.bufferedReader().readText()
+                Log.d(TAG, "Response ($endpoint): $body")
+                JSONObject(body)
             } else {
-                Log.w(TAG, "HTTP ${conn.responseCode} for $endpoint")
+                val errorBody = try { conn.errorStream?.bufferedReader()?.readText() } catch (_: Exception) { null }
+                Log.w(TAG, "HTTP $code for $endpoint — $errorBody")
                 null
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Fetch error ($endpoint): ${e.message}")
+            null
         } finally {
             conn.disconnect()
         }
@@ -173,7 +188,7 @@ object AppStatusManager {
         if (blockAccess) {
             builder.setPositiveButton("Tentar novamente") { dialog, _ ->
                 dialog.dismiss()
-                checkOnStartup(context) // rechecar
+                checkOnStartup(context)
             }
         } else {
             builder.setPositiveButton("Entendido") { dialog, _ -> dialog.dismiss() }
