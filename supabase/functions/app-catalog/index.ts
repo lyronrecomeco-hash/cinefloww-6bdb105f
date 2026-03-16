@@ -235,15 +235,87 @@ function checkRate(ip: string): boolean {
   return entry.count <= 120;
 }
 
+// ========== Supabase client for settings ==========
+function getSupabaseAdmin() {
+  const { createClient } = await_import;
+  return createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+}
+
+let await_import: any;
+
 // ========== Main handler ==========
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Lazy import
+  if (!await_import) {
+    await_import = await import("https://esm.sh/@supabase/supabase-js@2");
+  }
+
   const clientIP = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   if (!checkRate(clientIP)) {
     return json({ error: "Rate limited" }, 429);
+  }
+
+  // ── GET requests for app status checks (lightweight, no body parsing) ──
+  const url = new URL(req.url);
+  const queryAction = url.searchParams.get("action");
+
+  if (queryAction === "maintenance" || queryAction === "update" || queryAction === "status") {
+    const sb = getSupabaseAdmin();
+
+    if (queryAction === "maintenance") {
+      const { data } = await sb.from("site_settings").select("value").eq("key", "app_maintenance").maybeSingle();
+      const c = (data?.value as any) || {};
+      return json({
+        enabled: c.enabled || false,
+        message: c.message || "Estamos em manutenção. Voltamos em breve!",
+        estimated_minutes: c.estimated_minutes || 30,
+        block_access: c.block_access || false,
+        updated_at: c.updated_at || null,
+      });
+    }
+
+    if (queryAction === "update") {
+      const { data } = await sb.from("site_settings").select("value").eq("key", "app_update").maybeSingle();
+      const c = (data?.value as any) || {};
+      return json({
+        current_version: c.current_version || "1.0.0",
+        new_version: c.new_version || c.current_version || "1.0.0",
+        min_version: c.min_version || "1.0.0",
+        release_notes: c.release_notes || "",
+        force_update: c.force_update || false,
+        apk_url: c.apk_url || "",
+        published_at: c.published_at || null,
+      });
+    }
+
+    if (queryAction === "status") {
+      const [maintRes, updateRes] = await Promise.all([
+        sb.from("site_settings").select("value").eq("key", "app_maintenance").maybeSingle(),
+        sb.from("site_settings").select("value").eq("key", "app_update").maybeSingle(),
+      ]);
+      const m = (maintRes.data?.value as any) || {};
+      const u = (updateRes.data?.value as any) || {};
+      return json({
+        maintenance: {
+          enabled: m.enabled || false,
+          message: m.message || "Estamos em manutenção. Voltamos em breve!",
+          estimated_minutes: m.estimated_minutes || 30,
+          block_access: m.block_access || false,
+        },
+        update: {
+          current_version: u.current_version || "1.0.0",
+          new_version: u.new_version || u.current_version || "1.0.0",
+          min_version: u.min_version || "1.0.0",
+          release_notes: u.release_notes || "",
+          force_update: u.force_update || false,
+          apk_url: u.apk_url || "",
+        },
+      });
+    }
   }
 
   try {
