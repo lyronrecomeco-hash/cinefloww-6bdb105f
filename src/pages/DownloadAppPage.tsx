@@ -4,7 +4,6 @@ import Footer from "@/components/Footer";
 import { Download, Smartphone, Shield, Zap, Wifi, MonitorSmartphone, Star, ChevronLeft, ChevronRight } from "lucide-react";
 import appLogo from "@/assets/lyneflix-L-logo.png";
 import { TMDBMovie, getTrending, backdropUrl, getDisplayTitle, getYear, getMediaType } from "@/services/tmdb";
-import { toSlug } from "@/lib/slugify";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 
