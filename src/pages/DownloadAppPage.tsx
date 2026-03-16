@@ -1,9 +1,9 @@
 import { useEffect, useState, useRef } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import { Download, Smartphone, Shield, Zap, Wifi, MonitorSmartphone, Star, ChevronLeft, ChevronRight, Play, Layers, Globe, Cpu } from "lucide-react";
+import { Download, Shield, Zap, Wifi, MonitorSmartphone, Star, Play, Layers, Globe, Cpu } from "lucide-react";
 import appLogo from "@/assets/lyneflix-L-logo.png";
-import { TMDBMovie, getTrending, backdropUrl, getDisplayTitle, getYear, getMediaType, getPopularMovies, getPopularSeries } from "@/services/tmdb";
+import { TMDBMovie, getTrending, backdropUrl, getDisplayTitle, getPopularMovies, getPopularSeries } from "@/services/tmdb";
 import { supabase } from "@/integrations/supabase/client";
 
 const features = [
@@ -23,6 +23,68 @@ const steps = [
   { step: "3", title: "Instale e aproveite", desc: "Abra o arquivo baixado e siga as instruções na tela." },
 ];
 
+/* ─── Catalog auto-scroll row ─── */
+const AutoScrollRow = ({ items, title }: { items: TMDBMovie[]; title: string }) => {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || items.length === 0) return;
+    let paused = false;
+    let animId: number;
+
+    const step = () => {
+      if (el && !paused) {
+        const max = el.scrollWidth - el.clientWidth;
+        if (max > 0) {
+          el.scrollLeft += 0.4;
+          if (el.scrollLeft >= max) el.scrollLeft = 0;
+        }
+      }
+      animId = requestAnimationFrame(step);
+    };
+
+    const onEnter = () => { paused = true; };
+    const onLeave = () => { paused = false; };
+    el.addEventListener("mouseenter", onEnter);
+    el.addEventListener("mouseleave", onLeave);
+    el.addEventListener("touchstart", onEnter, { passive: true });
+    el.addEventListener("touchend", onLeave);
+    animId = requestAnimationFrame(step);
+
+    return () => {
+      cancelAnimationFrame(animId);
+      el.removeEventListener("mouseenter", onEnter);
+      el.removeEventListener("mouseleave", onLeave);
+      el.removeEventListener("touchstart", onEnter);
+      el.removeEventListener("touchend", onLeave);
+    };
+  }, [items]);
+
+  if (items.length === 0) return null;
+
+  return (
+    <section className="mx-3 sm:mx-6 lg:mx-12 mb-5">
+      <h2 className="font-display text-base sm:text-lg font-bold mb-2.5">{title}</h2>
+      <div ref={ref} className="flex gap-2.5 overflow-x-hidden pb-2">
+        {[...items, ...items].map((m, idx) => (
+          <div key={`${m.id}-${idx}`} className="flex-shrink-0 w-[100px] sm:w-[120px]">
+            <div className="aspect-[2/3] rounded-xl overflow-hidden border border-border/30 bg-card/30 mb-1">
+              <img
+                src={`https://image.tmdb.org/t/p/w300${m.poster_path}`}
+                alt={getDisplayTitle(m)}
+                loading="lazy"
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground leading-tight line-clamp-1 font-medium">{getDisplayTitle(m)}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+};
+
 const DownloadAppPage = () => {
   const [trending, setTrending] = useState<TMDBMovie[]>([]);
   const [current, setCurrent] = useState(0);
@@ -33,8 +95,7 @@ const DownloadAppPage = () => {
   const [appSize, setAppSize] = useState("12 MB");
   const [catalogMovies, setCatalogMovies] = useState<TMDBMovie[]>([]);
   const [catalogSeries, setCatalogSeries] = useState<TMDBMovie[]>([]);
-  const catalogMoviesRef = useRef<HTMLDivElement>(null);
-  const catalogSeriesRef = useRef<HTMLDivElement>(null);
+  const [catalogAnimes, setCatalogAnimes] = useState<TMDBMovie[]>([]);
 
   useEffect(() => {
     getTrending().then(d => setTrending(d.results.filter((m: TMDBMovie) => m.backdrop_path).slice(0, 8))).catch(() => {});
@@ -42,6 +103,10 @@ const DownloadAppPage = () => {
     Promise.all([
       getPopularMovies().then(d => setCatalogMovies(d.results.filter((m: TMDBMovie) => m.poster_path).slice(0, 20))),
       getPopularSeries().then(d => setCatalogSeries(d.results.filter((m: TMDBMovie) => m.poster_path).slice(0, 20))),
+      // Animes (genre 16, Japanese)
+      fetch(`https://api.themoviedb.org/3/discover/tv?language=pt-BR&with_genres=16&with_original_language=ja&sort_by=popularity.desc`, {
+        headers: { Authorization: `Bearer eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiI1MDFiOWNkYjllNDQ0NjkxMDJiODk5YjQ0YjU2MWQ5ZCIsIm5iZiI6MTc3MTIzMDg1My43NjYsInN1YiI6IjY5OTJkNjg1NzZjODAxNTdmMjFhZjMxMSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.c47JvphccOz_oyaUuQWCHQ1mXAsSH01OB14vKE2uenw` },
+      }).then(r => r.json()).then(d => setCatalogAnimes((d.results || []).filter((m: TMDBMovie) => m.poster_path).slice(0, 20))),
     ]).catch(() => {});
 
     supabase.from("site_settings").select("value").eq("key", "download_page_config").maybeSingle().then(({ data }) => {
@@ -62,63 +127,13 @@ const DownloadAppPage = () => {
     });
   }, []);
 
-  // Smooth continuous auto-scroll using requestAnimationFrame
-  useEffect(() => {
-    const refs = [catalogMoviesRef, catalogSeriesRef];
-    let animIds: number[] = [];
-    const speeds = [0.5, 0.5]; // pixels per frame
-
-    refs.forEach((ref, idx) => {
-      let paused = false;
-
-      const step = () => {
-        const el = ref.current;
-        if (el && !paused) {
-          const maxScroll = el.scrollWidth - el.clientWidth;
-          if (maxScroll > 0) {
-            el.scrollLeft += speeds[idx];
-            if (el.scrollLeft >= maxScroll) {
-              el.scrollLeft = 0;
-            }
-          }
-        }
-        animIds[idx] = requestAnimationFrame(step);
-      };
-
-      // Pause on hover/touch
-      const onEnter = () => { paused = true; };
-      const onLeave = () => { paused = false; };
-      const el = ref.current;
-      if (el) {
-        el.addEventListener("mouseenter", onEnter);
-        el.addEventListener("mouseleave", onLeave);
-        el.addEventListener("touchstart", onEnter, { passive: true });
-        el.addEventListener("touchend", onLeave);
-      }
-
-      animIds[idx] = requestAnimationFrame(step);
-    });
-
-    return () => {
-      animIds.forEach(id => cancelAnimationFrame(id));
-      refs.forEach(ref => {
-        const el = ref.current;
-        if (el) {
-          el.removeEventListener("mouseenter", () => {});
-          el.removeEventListener("mouseleave", () => {});
-        }
-      });
-    };
-  }, [catalogMovies, catalogSeries]);
-
   const goTo = (index: number) => {
     if (isTransitioning) return;
     setIsTransitioning(true);
     setCurrent(index);
     setTimeout(() => setIsTransitioning(false), 700);
   };
-  const next = () => goTo((current + 1) % trending.length);
-  const prev = () => goTo((current - 1 + trending.length) % trending.length);
+  const next = () => { if (trending.length > 0) goTo((current + 1) % trending.length); };
 
   useEffect(() => {
     if (trending.length === 0) return;
@@ -133,9 +148,9 @@ const DownloadAppPage = () => {
       <Navbar />
       <main className="pt-0 pb-20">
 
-        {/* Hero Banner Slider — TOP */}
+        {/* ── Hero Slider (no buttons) ── */}
         {trending.length > 0 && movie && (
-          <section className="relative h-[50vh] sm:h-[55vh] lg:h-[65vh] min-h-[320px] max-h-[600px] w-full overflow-hidden">
+          <section className="relative h-[44vh] sm:h-[50vh] lg:h-[60vh] min-h-[280px] max-h-[520px] w-full overflow-hidden">
             {trending.map((item, i) => (
               <div
                 key={item.id}
@@ -150,158 +165,83 @@ const DownloadAppPage = () => {
                 />
               </div>
             ))}
-
             <div className="absolute inset-0 z-20 bg-gradient-to-r from-background via-background/70 to-transparent" />
-            <div className="absolute inset-0 z-20 bg-gradient-to-t from-background via-background/20 to-transparent" />
+            <div className="absolute inset-0 z-20 bg-gradient-to-t from-background via-transparent to-transparent" />
 
-            <div className="relative z-30 h-full flex items-end pb-14 sm:pb-12 px-4 sm:px-6 lg:px-10">
-              <div className="max-w-xl w-full">
+            <div className="relative z-30 h-full flex items-end pb-10 px-4 sm:px-6 lg:px-10">
+              <div className="max-w-lg w-full">
                 <div className={`transition-all duration-500 ${isTransitioning ? "opacity-0 translate-y-4" : "opacity-100 translate-y-0"}`}>
-                  <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] sm:text-xs font-semibold uppercase tracking-wider border border-primary/30 mb-2 inline-block">
+                  <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-semibold uppercase tracking-wider border border-primary/30 mb-1.5 inline-block">
                     Disponível no App
                   </span>
-                  <h2 className="font-display text-lg sm:text-2xl lg:text-4xl font-bold mb-1 sm:mb-2 leading-tight line-clamp-2">
+                  <h2 className="font-display text-lg sm:text-2xl lg:text-3xl font-bold mb-1 leading-tight line-clamp-2">
                     {getDisplayTitle(movie)}
                   </h2>
                   {movie.overview && (
-                    <p className="text-secondary-foreground/80 text-[11px] sm:text-sm leading-relaxed line-clamp-2 max-w-md">
+                    <p className="text-muted-foreground text-[11px] sm:text-sm leading-relaxed line-clamp-2 max-w-md">
                       {movie.overview}
                     </p>
                   )}
                 </div>
               </div>
+            </div>
 
-              {/* Navigation dots */}
-              <div className="absolute bottom-4 left-4 right-4 sm:left-auto sm:right-6 flex items-center justify-center sm:justify-end gap-2">
-                <button onClick={prev} className="w-8 h-8 rounded-lg glass flex items-center justify-center hover:bg-white/10 transition-colors">
-                  <ChevronLeft className="w-4 h-4" />
-                </button>
-                <div className="flex items-center gap-1">
-                  {trending.map((_, i) => (
-                    <button
-                      key={i}
-                      onClick={() => goTo(i)}
-                      className={`h-1 rounded-full transition-all duration-300 ${i === current ? "w-5 bg-primary" : "w-1 bg-white/30 hover:bg-white/50"}`}
-                    />
-                  ))}
-                </div>
-                <button onClick={next} className="w-8 h-8 rounded-lg glass flex items-center justify-center hover:bg-white/10 transition-colors">
-                  <ChevronRight className="w-4 h-4" />
-                </button>
-              </div>
+            {/* Dots only */}
+            <div className="absolute bottom-3 left-0 right-0 z-30 flex items-center justify-center gap-1">
+              {trending.map((_, i) => (
+                <button
+                  key={i}
+                  onClick={() => goTo(i)}
+                  className={`h-1 rounded-full transition-all duration-300 ${i === current ? "w-5 bg-primary" : "w-1.5 bg-foreground/20"}`}
+                />
+              ))}
             </div>
           </section>
         )}
 
-        {/* App Info Card */}
-        <section className="mx-3 sm:mx-6 lg:mx-12 -mt-10 relative z-40 mb-6">
-          <div className="rounded-2xl border border-white/10 bg-card/80 backdrop-blur-xl p-5 sm:p-8 lg:p-10 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-72 h-72 bg-primary/5 rounded-full blur-[120px] pointer-events-none" />
-            <div className="relative flex flex-col sm:flex-row items-start sm:items-center gap-5">
-              <img src={appLogo} alt="LyneFlix" className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl shadow-lg border border-white/10 flex-shrink-0" />
-              <div className="flex-1">
-                <h1 className="font-display text-2xl sm:text-3xl lg:text-4xl font-bold mb-1">LyneFlix App</h1>
-                <p className="text-sm text-muted-foreground mb-2">O melhor app de streaming gratuito para Android.</p>
-                <div className="flex items-center gap-3 flex-wrap">
+        {/* ── App Info Card ── */}
+        <section className="mx-3 sm:mx-6 lg:mx-12 -mt-8 relative z-40 mb-6">
+          <div className="rounded-2xl border border-border bg-card/90 backdrop-blur-xl p-5 sm:p-7 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-60 h-60 bg-primary/5 rounded-full blur-[100px] pointer-events-none" />
+            <div className="relative flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <img src={appLogo} alt="LyneFlix" className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl shadow-lg border border-border flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <h1 className="font-display text-xl sm:text-2xl lg:text-3xl font-bold mb-0.5">LyneFlix App</h1>
+                <p className="text-xs text-muted-foreground mb-1.5">O melhor app de streaming gratuito para Android.</p>
+                <div className="flex items-center gap-2.5 flex-wrap">
                   <div className="flex items-center gap-0.5">
-                    {[1,2,3,4,5].map(n => <Star key={n} className="w-3.5 h-3.5 fill-primary text-primary" />)}
-                    <span className="text-xs text-muted-foreground ml-1">5.0</span>
+                    {[1,2,3,4,5].map(n => <Star key={n} className="w-3 h-3 fill-primary text-primary" />)}
+                    <span className="text-[10px] text-muted-foreground ml-0.5">5.0</span>
                   </div>
-                  <span className="px-2 py-0.5 rounded-md bg-primary/15 text-primary text-[10px] font-semibold border border-primary/20">Android</span>
-                  <span className="text-xs text-muted-foreground">v{appVersion} • {appSize}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-primary/15 text-primary text-[9px] font-semibold border border-primary/20">Android</span>
+                  <span className="text-[10px] text-muted-foreground">v{appVersion} • {appSize}</span>
                 </div>
               </div>
               <a
                 href={apkUrl}
                 download
-                className="inline-flex items-center gap-2 px-7 py-3.5 rounded-2xl bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-all hover:scale-105 hover:shadow-lg hover:shadow-primary/25 flex-shrink-0"
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all hover:scale-105 hover:shadow-lg hover:shadow-primary/25 flex-shrink-0 w-full sm:w-auto justify-center"
               >
-                <Download className="w-5 h-5" /> Baixar APK
+                <Download className="w-4 h-4" /> Baixar APK
               </a>
             </div>
           </div>
         </section>
 
-        {/* Catalog Preview - Movies (continuous smooth scroll) */}
-        {catalogMovies.length > 0 && (
-          <section className="mx-3 sm:mx-6 lg:mx-12 mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-display text-lg sm:text-xl font-bold">Filmes no App</h2>
-            </div>
-            <div
-              ref={catalogMoviesRef}
-              className="flex gap-2.5 overflow-x-hidden pb-2"
-            >
-              {/* Duplicate items for seamless loop */}
-              {[...catalogMovies, ...catalogMovies].map((m, idx) => (
-                <div key={`${m.id}-${idx}`} className="flex-shrink-0 w-[110px] sm:w-[130px] group cursor-default">
-                  <div className="aspect-[2/3] rounded-xl overflow-hidden border border-white/10 bg-card/30 mb-1.5">
-                    <img
-                      src={`https://image.tmdb.org/t/p/w300${m.poster_path}`}
-                      alt={getDisplayTitle(m)}
-                      loading="lazy"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <p className="text-[11px] text-foreground/80 leading-tight line-clamp-1 font-medium">{getDisplayTitle(m)}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
+        {/* ── Catalog Rows ── */}
+        <AutoScrollRow items={catalogMovies} title="🎬 Filmes no App" />
+        <AutoScrollRow items={catalogSeries} title="📺 Séries no App" />
+        <AutoScrollRow items={catalogAnimes} title="⚡ Animes no App" />
 
-        {/* Catalog Preview - Series (continuous smooth scroll) */}
-        {catalogSeries.length > 0 && (
-          <section className="mx-3 sm:mx-6 lg:mx-12 mb-8">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-display text-lg sm:text-xl font-bold">Séries no App</h2>
-            </div>
-            <div
-              ref={catalogSeriesRef}
-              className="flex gap-2.5 overflow-x-hidden pb-2"
-            >
-              {[...catalogSeries, ...catalogSeries].map((m, idx) => (
-                <div key={`${m.id}-${idx}`} className="flex-shrink-0 w-[110px] sm:w-[130px] group cursor-default">
-                  <div className="aspect-[2/3] rounded-xl overflow-hidden border border-white/10 bg-card/30 mb-1.5">
-                    <img
-                      src={`https://image.tmdb.org/t/p/w300${m.poster_path}`}
-                      alt={getDisplayTitle(m)}
-                      loading="lazy"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <p className="text-[11px] text-foreground/80 leading-tight line-clamp-1 font-medium">{getDisplayTitle(m)}</p>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Features */}
-        <section className="mx-3 sm:mx-6 lg:mx-12 mb-8">
-          <h2 className="font-display text-lg sm:text-xl font-bold mb-4">Por que usar o app?</h2>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            {features.map((f, i) => (
-              <div key={i} className="rounded-2xl border border-white/10 bg-card/30 p-4 hover:bg-card/50 transition-colors group">
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center mb-3 group-hover:bg-primary/20 transition-colors">
-                  <f.icon className="w-5 h-5 text-primary" />
-                </div>
-                <h3 className="font-semibold text-sm mb-1">{f.title}</h3>
-                <p className="text-xs text-muted-foreground">{f.desc}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Screenshots */}
+        {/* ── Screenshots ── */}
         {screenshots.length > 0 && (
-          <section className="mx-3 sm:mx-6 lg:mx-12 mb-8">
-            <h2 className="font-display text-lg sm:text-xl font-bold mb-4">Screenshots</h2>
-            <div className="flex gap-3 overflow-x-auto scrollbar-transparent pb-2">
+          <section className="mx-3 sm:mx-6 lg:mx-12 mb-6">
+            <h2 className="font-display text-base sm:text-lg font-bold mb-3">📱 Screenshots</h2>
+            <div className="flex gap-3 overflow-x-auto pb-2" style={{ scrollbarWidth: "none" }}>
               {screenshots.map((url, n) => (
-                <div key={n} className="flex-shrink-0 w-[140px] sm:w-[180px] rounded-2xl border border-white/10 overflow-hidden bg-card/30">
+                <div key={n} className="flex-shrink-0 w-[130px] sm:w-[160px] rounded-2xl border border-border overflow-hidden bg-card/30">
                   <div className="aspect-[9/16]">
-                    <img src={url} alt={`Screenshot ${n + 1}`} className="w-full h-full object-cover" />
+                    <img src={url} alt={`Screenshot ${n + 1}`} className="w-full h-full object-cover" loading="lazy" />
                   </div>
                 </div>
               ))}
@@ -309,33 +249,49 @@ const DownloadAppPage = () => {
           </section>
         )}
 
-        {/* How to install */}
-        <section className="mx-3 sm:mx-6 lg:mx-12 mb-8">
-          <h2 className="font-display text-lg sm:text-xl font-bold mb-4">Como instalar</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* ── Features ── */}
+        <section className="mx-3 sm:mx-6 lg:mx-12 mb-6">
+          <h2 className="font-display text-base sm:text-lg font-bold mb-3">🚀 Por que usar o app?</h2>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+            {features.map((f, i) => (
+              <div key={i} className="rounded-xl border border-border bg-card/30 p-3.5 hover:bg-card/50 transition-colors group">
+                <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center mb-2 group-hover:bg-primary/20 transition-colors">
+                  <f.icon className="w-4 h-4 text-primary" />
+                </div>
+                <h3 className="font-semibold text-xs mb-0.5">{f.title}</h3>
+                <p className="text-[10px] text-muted-foreground leading-snug">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── How to install ── */}
+        <section className="mx-3 sm:mx-6 lg:mx-12 mb-6">
+          <h2 className="font-display text-base sm:text-lg font-bold mb-3">📲 Como instalar</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
             {steps.map((s, i) => (
-              <div key={i} className="rounded-2xl border border-white/10 bg-card/30 p-5 flex gap-3">
-                <div className="w-8 h-8 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0 text-primary font-bold text-sm">{s.step}</div>
+              <div key={i} className="rounded-xl border border-border bg-card/30 p-4 flex gap-3">
+                <div className="w-7 h-7 rounded-lg bg-primary/15 flex items-center justify-center flex-shrink-0 text-primary font-bold text-xs">{s.step}</div>
                 <div>
-                  <h3 className="font-semibold text-sm mb-0.5">{s.title}</h3>
-                  <p className="text-xs text-muted-foreground">{s.desc}</p>
+                  <h3 className="font-semibold text-xs mb-0.5">{s.title}</h3>
+                  <p className="text-[10px] text-muted-foreground">{s.desc}</p>
                 </div>
               </div>
             ))}
           </div>
         </section>
 
-        {/* Final CTA */}
+        {/* ── Final CTA ── */}
         <section className="mx-3 sm:mx-6 lg:mx-12 mb-8">
-          <div className="rounded-2xl border border-white/10 bg-gradient-to-r from-primary/10 via-card/30 to-primary/5 p-6 sm:p-8 text-center">
-            <h2 className="font-display text-xl sm:text-2xl font-bold mb-2">Pronto para começar?</h2>
-            <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">Baixe agora e tenha acesso a todo o catálogo na palma da mão.</p>
+          <div className="rounded-2xl border border-border bg-gradient-to-r from-primary/10 via-card/30 to-primary/5 p-6 sm:p-8 text-center">
+            <h2 className="font-display text-lg sm:text-xl font-bold mb-1.5">Pronto para começar?</h2>
+            <p className="text-xs text-muted-foreground mb-4 max-w-sm mx-auto">Baixe agora e tenha acesso a todo o catálogo na palma da mão.</p>
             <a
               href={apkUrl}
               download
-              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-2xl bg-primary text-primary-foreground font-semibold hover:bg-primary/90 transition-all hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
+              className="inline-flex items-center gap-2 px-7 py-3 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-all hover:scale-105 hover:shadow-lg hover:shadow-primary/25"
             >
-              <Download className="w-5 h-5" /> Baixar LyneFlix App
+              <Download className="w-4 h-4" /> Baixar LyneFlix App
             </a>
           </div>
         </section>
