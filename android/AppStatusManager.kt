@@ -32,7 +32,7 @@ import java.net.URL
 object AppStatusManager {
 
     private const val TAG = "AppStatusManager"
-    private const val BASE_URL = "https://mfcnkltcdvitxczjwoer.supabase.co/functions/v1/app-catalog"
+    private const val BASE_URL = "https://lyneflix.online/functions/v1/app-catalog"
     private const val CURRENT_APP_VERSION = "2.0.0" // ← atualize a cada release
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
