@@ -4,7 +4,7 @@ import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Settings2, ArrowLeft,
   PictureInPicture2, RotateCcw, RefreshCw,
-  Lock, Unlock, Gauge, Wifi, WifiOff, ChevronUp
+  Lock, Unlock, Gauge, Wifi, WifiOff, ChevronUp, ListVideo
 } from "lucide-react";
 import { fromSlug, toSlug } from "@/lib/slugify";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
@@ -14,6 +14,7 @@ import { useWebRTC } from "@/hooks/useWebRTC";
 import { usePlayerEngine, prefetchVideoUrl } from "@/hooks/usePlayerEngine";
 // Access sourceUrlRef via videoRef.dataset.previewSrc
 import RoomOverlay from "@/components/watch-together/RoomOverlay";
+import EpisodeListPanel from "@/components/player/EpisodeListPanel";
 import { captureFrameFromVideo, cacheCurrentFrame } from "@/lib/videoPreview";
 import { getThumbnailCueAtTime, loadThumbnailTrack, warmThumbnailSprites, type ThumbnailTrack, type SpriteThumbnailCue } from "@/lib/vttThumbnails";
 
@@ -69,6 +70,7 @@ const PlayerPage = () => {
   const [nextEpUrl, setNextEpUrl] = useState<string | null>(null);
   const [showNextEp, setShowNextEp] = useState(false);
   const [nextEpInfo, setNextEpInfo] = useState<TMDBEpisode | null>(null);
+  const [showEpisodeList, setShowEpisodeList] = useState(false);
 
   // Resume prompt
   const [showResumePrompt, setShowResumePrompt] = useState(false);
@@ -176,6 +178,14 @@ const PlayerPage = () => {
     if (!nextEpUrl) return;
     setShowNextEp(false);
     navigate(nextEpUrl, { replace: true });
+  };
+
+  const handleEpisodeNavigate = (s: number, ep: number) => {
+    const slug = params.id || toSlug(title, Number(tmdbId));
+    const p = new URLSearchParams({ title, audio: audioParam, s: String(s), e: String(ep) });
+    if (imdbId) p.set("imdb", imdbId);
+    setShowEpisodeList(false);
+    navigate(`/player/${contentType}/${slug}?${p.toString()}`, { replace: true });
   };
 
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -730,6 +740,22 @@ const PlayerPage = () => {
               </div>
 
               <div className="flex items-center gap-1.5 sm:gap-2">
+                {/* Episodes list (series only) */}
+                {contentType !== "movie" && season && episode && (
+                  <button
+                    onClick={() => { setShowEpisodeList(!showEpisodeList); setShowSpeed(false); setShowQuality(false); }}
+                    className={`h-9 px-3 rounded-xl backdrop-blur-sm border flex items-center gap-1.5 text-xs font-medium transition-all ${
+                      showEpisodeList
+                        ? "bg-primary/15 border-primary/30 text-primary"
+                        : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10"
+                    }`}
+                    title="Episódios"
+                  >
+                    <ListVideo className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Episódios</span>
+                  </button>
+                )}
+
                 {/* Next episode button removed — card is sufficient */}
 
                 {/* Quality selector */}
@@ -821,6 +847,20 @@ const PlayerPage = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Episode List Panel */}
+      {showEpisodeList && contentType !== "movie" && season && episode && tmdbId && (
+        <EpisodeListPanel
+          tmdbId={Number(tmdbId)}
+          currentSeason={Number(season)}
+          currentEpisode={Number(episode)}
+          title={title}
+          audioParam={audioParam}
+          imdbId={imdbId}
+          onNavigate={handleEpisodeNavigate}
+          onClose={() => setShowEpisodeList(false)}
+        />
       )}
 
       {/* Cinematic vignette */}

@@ -440,6 +440,43 @@ async function handleApiAction(action: string, body: any): Promise<Response> {
       }
     }
 
+    case "notifySupport": {
+      const { support_message } = body;
+      if (!support_message) {
+        return new Response(JSON.stringify({ error: "support_message required" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const ADMIN_CHAT_ID = 8393477913;
+      const timeStr = support_message.created_at
+        ? new Date(support_message.created_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })
+        : new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+      const msg = `📩 <b>Nova Mensagem de Suporte</b>\n\n` +
+        `👤 <b>Email:</b> ${support_message.email}\n` +
+        `📋 <b>Assunto:</b> ${support_message.subject}\n` +
+        `🕐 <b>Horário:</b> ${timeStr}\n` +
+        `💬 <b>Mensagem:</b>\n${support_message.message}`;
+
+      const buttons = {
+        inline_keyboard: [
+          [{ text: "🎫 Ver Tickets", url: `${SITE_URL}/admin/tickets` }],
+        ],
+      };
+
+      try {
+        await sendMessage(ADMIN_CHAT_ID, msg, buttons);
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      } catch (err) {
+        return new Response(JSON.stringify({ error: String(err) }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     default:
       return new Response(JSON.stringify({ error: "Unknown action" }), {
         status: 400,
