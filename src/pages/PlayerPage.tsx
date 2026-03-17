@@ -4,7 +4,7 @@ import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   SkipForward, SkipBack, Settings2, ArrowLeft,
   PictureInPicture2, RotateCcw, RefreshCw,
-  Lock, Unlock, Gauge, Wifi, WifiOff, ChevronUp
+  Lock, Unlock, Gauge, Wifi, WifiOff, ChevronUp, ListVideo
 } from "lucide-react";
 import { fromSlug, toSlug } from "@/lib/slugify";
 import { saveWatchProgress, getWatchProgress } from "@/lib/watchProgress";
