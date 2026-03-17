@@ -88,7 +88,19 @@ async function probeStreamUrl(url: string): Promise<boolean> {
       signal: ctrl.signal,
     });
 
-    return res.ok || res.status === 206;
+    if (!res.ok && res.status !== 206) return false;
+
+    // CineVeo returns 200 with text/html "VOD link not found" for dead links
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    if (ct.includes("text/html") || ct.includes("text/plain")) {
+      const body = await res.text();
+      if (body.includes("not found") || body.includes("error") || body.length < 200) {
+        memoBad(url);
+        return false;
+      }
+    }
+
+    return true;
   } catch {
     memoBad(url);
     return false;
