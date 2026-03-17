@@ -70,6 +70,7 @@ const PlayerPage = () => {
   const [nextEpUrl, setNextEpUrl] = useState<string | null>(null);
   const [showNextEp, setShowNextEp] = useState(false);
   const [nextEpInfo, setNextEpInfo] = useState<TMDBEpisode | null>(null);
+  const [showEpisodeList, setShowEpisodeList] = useState(false);
 
   // Resume prompt
   const [showResumePrompt, setShowResumePrompt] = useState(false);
