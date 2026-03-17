@@ -1,12 +1,16 @@
 /**
  * Video URL layer — CineVeo streams on cineveo.lat.
- * Production uses Vercel rewrites, preview/dev uses raw URLs.
+ * Uses signed backend proxy for CineVeo absolute URLs and first-party rewrites when available.
  */
 
 // CineVeo credentials
 const CUSER = "lyneflix-vods";
 const CPASS = "uVljs2d";
 const CINEVEO_HOST = "cineveo.lat";
+
+function isCineveoLikeHost(host: string): boolean {
+  return host === CINEVEO_HOST || host === "cinetvembed.cineveo.site" || host.endsWith(".cineveo.site") || host.endsWith(".cineveo.lat") || host.includes("cineveo");
+}
 
 /** Check if running on production domain with proxy rewrites (Vercel or Netlify) */
 export function isProductionDomain(): boolean {
@@ -44,11 +48,11 @@ export function buildEpisodeUrl(tmdbId: number, season: number, episode: number)
  */
 export function toFirstPartyUrl(url: string): string {
   if (!isProductionDomain()) return url;
-  
+
   try {
     const parsed = new URL(url);
     const host = parsed.hostname;
-    
+
     if (host === CINEVEO_HOST || host === "cinetvembed.cineveo.site" || host.endsWith(".cineveo.site") || host.endsWith(".cineveo.lat")) {
       return `/v/e${parsed.pathname}`;
     }
@@ -56,7 +60,7 @@ export function toFirstPartyUrl(url: string): string {
       return `/v/a${parsed.pathname}`;
     }
   } catch {}
-  
+
   return url;
 }
 
@@ -65,20 +69,58 @@ export function isFirstPartyUrl(url: string): boolean {
   return url.startsWith("/v/") || url.startsWith(window.location.origin + "/v/");
 }
 
+async function signWithBackend(rawUrl: string): Promise<string> {
+  const apiUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/video-token?action=sign`;
+
+  const response = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
+    },
+    body: JSON.stringify({ video_url: rawUrl }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`video-token sign failed: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data?.stream_url || rawUrl;
+}
+
 /**
  * Sign/transform a video URL for the current environment.
- * Production: Vercel rewrites. Preview/dev: raw URL (no proxy).
+ * CineVeo absolute URLs are routed through the signed backend proxy.
  */
 export async function signVideoUrl(rawUrl: string): Promise<string> {
-  if (isProductionDomain()) {
-    return toFirstPartyUrl(rawUrl);
+  if (!rawUrl) return rawUrl;
+  if (isFirstPartyUrl(rawUrl)) return rawUrl;
+
+  try {
+    const parsed = new URL(rawUrl);
+    if (!isCineveoLikeHost(parsed.hostname.toLowerCase())) {
+      return isProductionDomain() ? toFirstPartyUrl(rawUrl) : rawUrl;
+    }
+
+    if (isProductionDomain()) {
+      try {
+        return await signWithBackend(rawUrl);
+      } catch {
+        return toFirstPartyUrl(rawUrl);
+      }
+    }
+
+    return await signWithBackend(rawUrl);
+  } catch {
+    return rawUrl;
   }
-  return rawUrl;
 }
 
 /** Legacy compat */
 export async function getSignedVideoUrl(rawUrl: string): Promise<string> {
-  return rawUrl;
+  return signVideoUrl(rawUrl);
 }
 
 export function startTokenRefresh(_rawUrl: string, _onNewUrl: (url: string) => void): () => void {
@@ -86,7 +128,7 @@ export function startTokenRefresh(_rawUrl: string, _onNewUrl: (url: string) => v
 }
 
 export async function secureVideoUrl(rawUrl: string): Promise<string> {
-  return rawUrl;
+  return signVideoUrl(rawUrl);
 }
 
 export function secureVideoUrlSync(rawUrl: string): string {

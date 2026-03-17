@@ -484,9 +484,7 @@ export function usePlayerEngine(config: EngineConfig) {
       const video = videoRef.current;
       if (!video || cancelledRef.current) return;
 
-      const previewSource = videoData.type === "m3u8"
-        ? (deriveDirectMp4(finalUrl) || finalUrl)
-        : finalUrl;
+      const previewSource = finalUrl;
       video.dataset.previewSrc = previewSource;
       video.preload = "auto";
 
