@@ -740,6 +740,22 @@ const PlayerPage = () => {
               </div>
 
               <div className="flex items-center gap-1.5 sm:gap-2">
+                {/* Episodes list (series only) */}
+                {contentType !== "movie" && season && episode && (
+                  <button
+                    onClick={() => { setShowEpisodeList(!showEpisodeList); setShowSpeed(false); setShowQuality(false); }}
+                    className={`h-9 px-3 rounded-xl backdrop-blur-sm border flex items-center gap-1.5 text-xs font-medium transition-all ${
+                      showEpisodeList
+                        ? "bg-primary/15 border-primary/30 text-primary"
+                        : "bg-white/5 border-white/10 text-white/60 hover:text-white hover:bg-white/10"
+                    }`}
+                    title="Episódios"
+                  >
+                    <ListVideo className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Episódios</span>
+                  </button>
+                )}
+
                 {/* Next episode button removed — card is sufficient */}
 
                 {/* Quality selector */}
