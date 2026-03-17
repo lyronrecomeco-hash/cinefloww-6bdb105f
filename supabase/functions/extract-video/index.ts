@@ -1,10 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 /**
- * extract-video: Real-time CineVeo API lookup.
+ * extract-video: Real-time CineVeo API lookup with automatic host rotation.
  * Searches the CineVeo catalog API by tmdb_id and returns the stream_url directly.
  * Supports: movies, series, animes.
- * No proxy, no token — raw URL for direct player consumption.
+ * Rotates between multiple CineVeo mirror hosts for resilience against ISP blocks.
  */
 
 const corsHeaders = {
@@ -13,7 +13,14 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const CINEVEO_API = "https://cineveo.lat/api/catalog.php";
+// ── Host pool for automatic rotation ──
+const CINEVEO_HOST_POOL = [
+  "cineveo.lat",
+  "cinetvembed.cineveo.site",
+  "cdn.cineveo.site",
+];
+
+const CINEVEO_API_PATH = "/api/catalog.php";
 const CUSER = "lyneflix-vods";
 const CPASS = "uVljs2d";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
@@ -51,8 +58,50 @@ interface ApiPage {
 
 const inferTypeFromUrl = (url: string) => (url.toLowerCase().includes(".m3u8") ? "m3u8" : "mp4");
 
+// ── Host health tracking ──
+// Blacklisted hosts with expiry (blocked for 5 min after failure)
+const hostBlacklist = new Map<string, number>();
+const HOST_BLACKLIST_TTL = 5 * 60 * 1000;
+
+function isHostBlacklisted(host: string): boolean {
+  const t = hostBlacklist.get(host);
+  if (!t) return false;
+  if (Date.now() - t > HOST_BLACKLIST_TTL) {
+    hostBlacklist.delete(host);
+    return false;
+  }
+  return true;
+}
+
+function blacklistHost(host: string) {
+  console.log(`[extract] Blacklisting host: ${host}`);
+  hostBlacklist.set(host, Date.now());
+}
+
+/** Get the best API host (first non-blacklisted) */
+function getBestApiHost(): string {
+  for (const host of CINEVEO_HOST_POOL) {
+    if (!isHostBlacklisted(host)) return host;
+  }
+  // All blacklisted — reset and try first
+  hostBlacklist.clear();
+  return CINEVEO_HOST_POOL[0];
+}
+
+/** Get all available hosts for stream URL verification, ordered by health */
+function getHealthyHosts(): string[] {
+  const healthy = CINEVEO_HOST_POOL.filter(h => !isHostBlacklisted(h));
+  if (healthy.length === 0) {
+    hostBlacklist.clear();
+    return [...CINEVEO_HOST_POOL];
+  }
+  return healthy;
+}
+
+// ── Stream URL verification with host rotation ──
+
 const BAD_URL_TTL_MS = 10 * 60 * 1000;
-const PROBE_TIMEOUT_MS = 2500;
+const PROBE_TIMEOUT_MS = 3000;
 const badUrlMemo = new Map<string, number>();
 
 function isMemoBad(url: string): boolean {
@@ -69,6 +118,7 @@ function memoBad(url: string) {
   badUrlMemo.set(url, Date.now());
 }
 
+/** Probe a stream URL — returns true if it's a valid video stream */
 async function probeStreamUrl(url: string): Promise<boolean> {
   if (!url) return false;
   if (isMemoBad(url)) return false;
@@ -78,26 +128,21 @@ async function probeStreamUrl(url: string): Promise<boolean> {
 
   try {
     const res = await fetch(url, {
-      method: "GET",
-      headers: {
-        "User-Agent": UA,
-        "Range": "bytes=0-1",
-        "Accept": "*/*",
-      },
+      method: "HEAD",
+      headers: { "User-Agent": UA },
       redirect: "follow",
       signal: ctrl.signal,
     });
 
-    if (!res.ok && res.status !== 206) return false;
+    if (!res.ok) {
+      memoBad(url);
+      return false;
+    }
 
-    // CineVeo returns 200 with text/html "VOD link not found" for dead links
     const ct = (res.headers.get("content-type") || "").toLowerCase();
     if (ct.includes("text/html") || ct.includes("text/plain")) {
-      const body = await res.text();
-      if (body.includes("not found") || body.includes("error") || body.length < 200) {
-        memoBad(url);
-        return false;
-      }
+      memoBad(url);
+      return false;
     }
 
     return true;
@@ -109,134 +154,141 @@ async function probeStreamUrl(url: string): Promise<boolean> {
   }
 }
 
-function swapCineveoHost(url: string): string | null {
+/** Replace the host in a CineVeo URL with a different mirror */
+function replaceHost(url: string, newHost: string): string {
   try {
     const parsed = new URL(url);
-    const host = parsed.hostname.toLowerCase();
-    if (host === "cinetvembed.cineveo.site") {
-      parsed.hostname = "cineveo.lat";
-      return parsed.toString();
+    parsed.hostname = newHost;
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+/** Try all healthy hosts for a given stream URL path, return first working one */
+async function findWorkingStreamUrl(originalUrl: string): Promise<{ url: string; verified: boolean }> {
+  const hosts = getHealthyHosts();
+
+  // Build candidate URLs from all hosts
+  const candidates: string[] = [];
+  try {
+    const parsed = new URL(originalUrl);
+    const originalHost = parsed.hostname.toLowerCase();
+
+    // Put original host first, then others
+    if (!isHostBlacklisted(originalHost)) {
+      candidates.push(originalUrl);
     }
-    if (host === "cineveo.lat") {
-      parsed.hostname = "cinetvembed.cineveo.site";
-      return parsed.toString();
+    for (const host of hosts) {
+      if (host !== originalHost) {
+        candidates.push(replaceHost(originalUrl, host));
+      }
+    }
+    // If original was blacklisted, still add it as last resort
+    if (isHostBlacklisted(originalHost)) {
+      candidates.push(originalUrl);
     }
   } catch {
-    // ignore
-  }
-  return null;
-}
-
-async function getCachedVideo(
-  tmdbId: number,
-  contentType: "movie" | "series",
-  season?: number,
-  episode?: number,
-): Promise<{ url: string; type: string; provider: string; cached: boolean } | null> {
-  if (!db) return null;
-
-  try {
-    const nowIso = new Date().toISOString();
-    const { data: liveRows } = await db
-      .from("video_cache")
-      .select("id, video_url, video_type, provider, season, episode, created_at")
-      .eq("tmdb_id", tmdbId)
-      .eq("content_type", contentType)
-      .gt("expires_at", nowIso)
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    const liveCandidates = (liveRows ?? []).filter((row: any) => {
-      if (contentType === "movie") return true;
-      return Number(row.season ?? 0) === Number(season ?? 1) && Number(row.episode ?? 0) === Number(episode ?? 1);
-    });
-
-    for (const row of liveCandidates) {
-      if (!row.video_url) continue;
-      const ok = await probeStreamUrl(row.video_url);
-      if (ok) {
-        return {
-          url: row.video_url,
-          type: row.video_type || inferTypeFromUrl(row.video_url),
-          provider: row.provider || "video-cache",
-          cached: true,
-        };
-      }
-
-      memoBad(row.video_url);
-      console.log(`[extract] Pruning stale cache URL for tmdb=${tmdbId}: ${row.video_url}`);
-      await db.from("video_cache").delete().eq("id", row.id);
-    }
-
-    const { data: backupRows } = await db
-      .from("video_cache_backup")
-      .select("id, video_url, video_type, provider, season, episode, backed_up_at")
-      .eq("tmdb_id", tmdbId)
-      .eq("content_type", contentType)
-      .order("backed_up_at", { ascending: false })
-      .limit(50);
-
-    const backupCandidates = (backupRows ?? []).filter((row: any) => {
-      if (contentType === "movie") return true;
-      return Number(row.season ?? 0) === Number(season ?? 1) && Number(row.episode ?? 0) === Number(episode ?? 1);
-    });
-
-    for (const row of backupCandidates) {
-      if (!row.video_url) continue;
-      const ok = await probeStreamUrl(row.video_url);
-      if (ok) {
-        return {
-          url: row.video_url,
-          type: row.video_type || inferTypeFromUrl(row.video_url),
-          provider: row.provider || "video-cache-backup",
-          cached: true,
-        };
-      }
-
-      memoBad(row.video_url);
-      console.log(`[extract] Ignoring stale backup URL for tmdb=${tmdbId}: ${row.video_url}`);
-    }
-  } catch (err) {
-    console.log(`[extract] cache lookup failed for tmdb=${tmdbId}: ${err}`);
+    candidates.push(originalUrl);
   }
 
-  return null;
+  // Probe candidates in parallel (fast) — first valid wins
+  const probeResults = await Promise.all(
+    candidates.map(async (url) => {
+      const ok = await probeStreamUrl(url);
+      return { url, ok };
+    })
+  );
+
+  for (const r of probeResults) {
+    if (r.ok) {
+      console.log(`[extract] Verified stream: ${r.url.substring(0, 80)}`);
+      return { url: r.url, verified: true };
+    }
+  }
+
+  // No host verified — try alternate host as best guess
+  const altHost = hosts.find(h => {
+    try { return h !== new URL(originalUrl).hostname; } catch { return false; }
+  });
+
+  if (altHost) {
+    const altUrl = replaceHost(originalUrl, altHost);
+    console.log(`[extract] No host verified, using best alternate: ${altUrl.substring(0, 60)}`);
+    return { url: altUrl, verified: false };
+  }
+
+  return { url: originalUrl, verified: false };
 }
 
-// ── Fetch a single API page ──
+// ── Fetch a single API page with host rotation ──
 async function fetchApiPage(apiType: string, page: number): Promise<ApiPage | null> {
+  const host = getBestApiHost();
+  const apiUrl = `https://${host}${CINEVEO_API_PATH}?username=${CUSER}&password=${CPASS}&type=${apiType}&page=${page}`;
+
   try {
-    const url = `${CINEVEO_API}?username=${CUSER}&password=${CPASS}&type=${apiType}&page=${page}`;
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 8000);
-    const res = await fetch(url, { signal: ctrl.signal, headers: { "User-Agent": UA } });
+    const res = await fetch(apiUrl, { signal: ctrl.signal, headers: { "User-Agent": UA, "Connection": "keep-alive" } });
     clearTimeout(t);
+
     if (!res.ok) {
-      console.log(`[extract] API responded ${res.status} for ${apiType} page ${page}`);
+      console.log(`[extract] API ${host} responded ${res.status} for ${apiType} p${page}`);
+      // If main host fails, try alternate
+      blacklistHost(host);
+      const altHost = getBestApiHost();
+      if (altHost !== host) {
+        return fetchApiPageDirect(altHost, apiType, page);
+      }
       return null;
     }
+
     const text = await res.text();
     let json: any;
     try {
       json = JSON.parse(text);
     } catch {
-      console.log(`[extract] API returned non-JSON for ${apiType} page ${page}: ${text.substring(0, 200)}`);
+      console.log(`[extract] API ${host} returned non-JSON for ${apiType} p${page}`);
+      blacklistHost(host);
       return null;
     }
+
     if (!json.success) {
-      console.log(`[extract] API success=false for ${apiType} page ${page}: ${JSON.stringify(json).substring(0, 200)}`);
+      console.log(`[extract] API ${host} success=false for ${apiType} p${page}`);
       return null;
     }
+
     const items = json.data || [];
     if (page === 1) {
-      console.log(`[extract] ${apiType} p1: ${items.length} items, totalPages=${json.pagination?.total_pages || 0}`);
-      if (items.length > 0) {
-        console.log(`[extract] First item tmdb_id=${items[0].tmdb_id} title="${items[0].title}"`);
-      }
+      console.log(`[extract] ${apiType} p1 via ${host}: ${items.length} items, total=${json.pagination?.total_pages || 0}`);
     }
     return { data: items, totalPages: json.pagination?.total_pages || 0 };
   } catch (err) {
-    console.log(`[extract] API fetch error for ${apiType} page ${page}: ${err}`);
+    console.log(`[extract] API ${host} fetch error for ${apiType} p${page}: ${err}`);
+    blacklistHost(host);
+    // Retry with next host
+    const altHost = getBestApiHost();
+    if (altHost !== host) {
+      return fetchApiPageDirect(altHost, apiType, page);
+    }
+    return null;
+  }
+}
+
+/** Direct fetch to a specific host (no retry) */
+async function fetchApiPageDirect(host: string, apiType: string, page: number): Promise<ApiPage | null> {
+  const apiUrl = `https://${host}${CINEVEO_API_PATH}?username=${CUSER}&password=${CPASS}&type=${apiType}&page=${page}`;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 8000);
+    const res = await fetch(apiUrl, { signal: ctrl.signal, headers: { "User-Agent": UA, "Connection": "keep-alive" } });
+    clearTimeout(t);
+    if (!res.ok) return null;
+    const json = await res.json();
+    if (!json.success) return null;
+    return { data: json.data || [], totalPages: json.pagination?.total_pages || 0 };
+  } catch {
+    blacklistHost(host);
     return null;
   }
 }
@@ -252,27 +304,21 @@ function findEpisode(items: CineveoItem[], tmdbId: number, season: number, episo
   const item = items.find(i => i.tmdb_id === tmdbId);
   if (!item) return null;
 
-  // If item has episodes array, try to match
   if (item.episodes && item.episodes.length > 0) {
-    // Try exact match first
     const exact = item.episodes.find(e => e.season === season && e.episode === episode);
     if (exact) return exact.stream_url;
 
-    // If episode numbers are 0 (API quirk), match by index within season
     const seasonEps = item.episodes.filter(e => e.season === season);
     if (seasonEps.length > 0 && seasonEps[0].episode === 0) {
       const idx = episode - 1;
       if (idx >= 0 && idx < seasonEps.length) return seasonEps[idx].stream_url;
     }
 
-    // Fallback: if only one season exists and episodes match by count
     if (seasonEps.length === 0 && item.episodes.length >= episode) {
       return item.episodes[episode - 1]?.stream_url || null;
     }
   }
 
-  // CRITICAL FALLBACK: If no episodes data but item has stream_url, return it
-  // This handles series where CineVeo only provides a single stream_url
   if (item.stream_url) {
     console.log(`[extract] Using item.stream_url fallback for tmdb=${tmdbId}`);
     return item.stream_url;
@@ -289,7 +335,6 @@ async function searchApi(
   season?: number,
   episode?: number,
 ): Promise<{ url: string; type: string } | null> {
-  // Fetch page 1 to get total and check
   const p1 = await fetchApiPage(apiType, 1);
   if (!p1 || p1.data.length === 0) return null;
 
@@ -297,13 +342,12 @@ async function searchApi(
     ? findMovie(p1.data, tmdbId)
     : findEpisode(p1.data, tmdbId, season || 1, episode || 1);
   if (url1) {
-    return { url: url1, type: url1.endsWith(".m3u8") ? "m3u8" : "mp4" };
+    return { url: url1, type: inferTypeFromUrl(url1) };
   }
 
   const totalPages = p1.totalPages;
   if (totalPages <= 1) return null;
 
-  // Search remaining pages in parallel batches of 50
   const BATCH = 50;
   for (let start = 2; start <= totalPages; start += BATCH) {
     const end = Math.min(start + BATCH - 1, totalPages);
@@ -323,7 +367,7 @@ async function searchApi(
     const results = await Promise.all(promises);
     const match = results.find(r => r !== null);
     if (match) {
-      return { url: match, type: match.endsWith(".m3u8") ? "m3u8" : "mp4" };
+      return { url: match, type: inferTypeFromUrl(match) };
     }
   }
 
@@ -354,22 +398,11 @@ Deno.serve(async (req: Request) => {
     const isMovie = cType === "movie";
     let result: { url: string; type: string } | null = null;
 
-    console.log(`[extract] tmdb=${tmdbId} type=${cType} s=${season} e=${episode}`);
-
-    // Cache temporarily bypassed: existing rows may contain stale provider links.
-    // We resolve from live catalog to guarantee fresh stream URLs.
-    // const cached = await getCachedVideo(tmdbId, cType, season, episode);
-    // if (cached?.url) {
-    //   return new Response(JSON.stringify(cached), {
-    //     headers: { ...corsHeaders, "Content-Type": "application/json" },
-    //   });
-    // }
+    console.log(`[extract] tmdb=${tmdbId} type=${cType} s=${season} e=${episode} activeHost=${getBestApiHost()}`);
 
     if (isMovie) {
-      // Search movies catalog
       result = await searchApi(tmdbId, "movies", true);
     } else {
-      // Try animes first (smaller catalog ~37 pages), then series (~87 pages)
       result = await searchApi(tmdbId, "animes", false, season, episode);
       if (!result) {
         result = await searchApi(tmdbId, "series", false, season, episode);
@@ -377,60 +410,24 @@ Deno.serve(async (req: Request) => {
     }
 
     if (result) {
-      console.log(`[extract] Found: ${result.url.substring(0, 80)} (${result.type})`);
+      console.log(`[extract] Found raw URL: ${result.url.substring(0, 80)} (${result.type})`);
 
-      // Always try both CineVeo hosts — cineveo.lat often returns "VOD not found"
-      // while cinetvembed.cineveo.site serves the actual stream
-      let finalUrl = result.url;
-      const alt = swapCineveoHost(finalUrl);
+      // Real-time host rotation — probe all mirrors in parallel, pick first working
+      const { url: finalUrl, verified } = await findWorkingStreamUrl(result.url);
 
-      // Strategy: try alternate host first (more reliable), then original
-      const candidates = alt ? [alt, finalUrl] : [finalUrl];
-      let verified = false;
-
-      for (const candidate of candidates) {
-        const ctrl = new AbortController();
-        const t = setTimeout(() => ctrl.abort(), 3000);
-        try {
-          const res = await fetch(candidate, {
-            method: "HEAD",
-            headers: { "User-Agent": UA },
-            redirect: "follow",
-            signal: ctrl.signal,
-          });
-          clearTimeout(t);
-          const ct = (res.headers.get("content-type") || "").toLowerCase();
-          // Valid video responses have video/* or application/octet-stream content-type
-          if (res.ok && !ct.includes("text/html") && !ct.includes("text/plain")) {
-            finalUrl = candidate;
-            verified = true;
-            console.log(`[extract] Verified: ${candidate.substring(0, 80)} (ct: ${ct})`);
-            break;
-          }
-          console.log(`[extract] Rejected ${candidate.substring(0, 60)} (status=${res.status}, ct=${ct})`);
-        } catch {
-          clearTimeout(t);
-          console.log(`[extract] Probe timeout/error: ${candidate.substring(0, 60)}`);
-        }
-      }
-
-      if (!verified && alt) {
-        // If neither host verified, prefer the alternate (cinetvembed) as fallback
-        finalUrl = alt;
-        console.log(`[extract] No host verified, defaulting to alternate: ${alt.substring(0, 60)}`);
-      }
+      console.log(`[extract] Final URL: ${finalUrl.substring(0, 80)} (verified=${verified})`);
 
       return new Response(JSON.stringify({
         url: finalUrl,
         type: result.type,
         provider: "cineveo-api",
         cached: false,
+        verified,
       }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Not found in any catalog
     console.log(`[extract] Not found in CineVeo API for tmdb=${tmdbId}`);
     return new Response(JSON.stringify({
       url: null,
