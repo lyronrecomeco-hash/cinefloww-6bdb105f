@@ -366,8 +366,26 @@ Deno.serve(async (req: Request) => {
 
     if (result) {
       console.log(`[extract] Found: ${result.url.substring(0, 80)} (${result.type})`);
+
+      // Probe the URL; if it fails, try the alternate CineVeo host
+      let finalUrl = result.url;
+      const probeOk = await probeStreamUrl(finalUrl);
+      if (!probeOk) {
+        console.log(`[extract] Primary URL dead, trying host swap...`);
+        const alt = swapCineveoHost(finalUrl);
+        if (alt) {
+          const altOk = await probeStreamUrl(alt);
+          if (altOk) {
+            console.log(`[extract] Swapped host works: ${alt.substring(0, 80)}`);
+            finalUrl = alt;
+          } else {
+            console.log(`[extract] Both hosts dead for tmdb=${tmdbId}`);
+          }
+        }
+      }
+
       return new Response(JSON.stringify({
-        url: result.url,
+        url: finalUrl,
         type: result.type,
         provider: "cineveo-api",
         cached: false,
