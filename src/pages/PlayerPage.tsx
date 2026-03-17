@@ -849,6 +849,20 @@ const PlayerPage = () => {
         </div>
       )}
 
+      {/* Episode List Panel */}
+      {showEpisodeList && contentType !== "movie" && season && episode && tmdbId && (
+        <EpisodeListPanel
+          tmdbId={Number(tmdbId)}
+          currentSeason={Number(season)}
+          currentEpisode={Number(episode)}
+          title={title}
+          audioParam={audioParam}
+          imdbId={imdbId}
+          onNavigate={handleEpisodeNavigate}
+          onClose={() => setShowEpisodeList(false)}
+        />
+      )}
+
       {/* Cinematic vignette */}
       <div className="absolute inset-0 pointer-events-none" style={{
         background: "radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.3) 100%)"
