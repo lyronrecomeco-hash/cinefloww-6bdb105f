@@ -60,6 +60,7 @@ const QrxpPage = lazy(() => import("./pages/QrxpPage"));
 const SupportPage = lazy(() => import("./pages/SupportPage"));
 const TicketsPage = lazy(() => import("./pages/admin/TicketsPage"));
 const DownloadAppPage = lazy(() => import("./pages/DownloadAppPage"));
+const AttCinePage = lazy(() => import("./pages/AttCinePage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -127,6 +128,7 @@ const App = () => (
             <Route path="/qrxp" element={<QrxpPage />} />
             <Route path="/suporte" element={<SupportPage />} />
             <Route path="/download-app" element={<DownloadAppPage />} />
+            <Route path="/attcine" element={<AttCinePage />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
