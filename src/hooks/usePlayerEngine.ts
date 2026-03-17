@@ -177,13 +177,7 @@ function isLikelyMismatchedSource(
 function normalizeVideoForEnv(video: { url: string; type: string }): { url: string; type: string } {
   if (isProductionDomain()) return video;
 
-  // Preview/dev: prefer direct MP4 to avoid HLS CORS/manifest failures.
-  if (video.type === "m3u8") {
-    const mp4 = deriveDirectMp4(video.url);
-    if (mp4) return { url: mp4, type: "mp4" };
-  }
-
-  // Even for MP4, normalize host to cineveo.lat (stable direct playback).
+  // Preview/dev: keep original stream type so signed backend proxy can serve HLS correctly.
   return { url: normalizeCineveoHost(video.url), type: video.type || "mp4" };
 }
 
