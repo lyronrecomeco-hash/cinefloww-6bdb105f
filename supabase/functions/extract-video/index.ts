@@ -88,7 +88,19 @@ async function probeStreamUrl(url: string): Promise<boolean> {
       signal: ctrl.signal,
     });
 
-    return res.ok || res.status === 206;
+    if (!res.ok && res.status !== 206) return false;
+
+    // CineVeo returns 200 with text/html "VOD link not found" for dead links
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    if (ct.includes("text/html") || ct.includes("text/plain")) {
+      const body = await res.text();
+      if (body.includes("not found") || body.includes("error") || body.length < 200) {
+        memoBad(url);
+        return false;
+      }
+    }
+
+    return true;
   } catch {
     memoBad(url);
     return false;
@@ -366,8 +378,50 @@ Deno.serve(async (req: Request) => {
 
     if (result) {
       console.log(`[extract] Found: ${result.url.substring(0, 80)} (${result.type})`);
+
+      // Always try both CineVeo hosts — cineveo.lat often returns "VOD not found"
+      // while cinetvembed.cineveo.site serves the actual stream
+      let finalUrl = result.url;
+      const alt = swapCineveoHost(finalUrl);
+
+      // Strategy: try alternate host first (more reliable), then original
+      const candidates = alt ? [alt, finalUrl] : [finalUrl];
+      let verified = false;
+
+      for (const candidate of candidates) {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 3000);
+        try {
+          const res = await fetch(candidate, {
+            method: "HEAD",
+            headers: { "User-Agent": UA },
+            redirect: "follow",
+            signal: ctrl.signal,
+          });
+          clearTimeout(t);
+          const ct = (res.headers.get("content-type") || "").toLowerCase();
+          // Valid video responses have video/* or application/octet-stream content-type
+          if (res.ok && !ct.includes("text/html") && !ct.includes("text/plain")) {
+            finalUrl = candidate;
+            verified = true;
+            console.log(`[extract] Verified: ${candidate.substring(0, 80)} (ct: ${ct})`);
+            break;
+          }
+          console.log(`[extract] Rejected ${candidate.substring(0, 60)} (status=${res.status}, ct=${ct})`);
+        } catch {
+          clearTimeout(t);
+          console.log(`[extract] Probe timeout/error: ${candidate.substring(0, 60)}`);
+        }
+      }
+
+      if (!verified && alt) {
+        // If neither host verified, prefer the alternate (cinetvembed) as fallback
+        finalUrl = alt;
+        console.log(`[extract] No host verified, defaulting to alternate: ${alt.substring(0, 60)}`);
+      }
+
       return new Response(JSON.stringify({
-        url: result.url,
+        url: finalUrl,
         type: result.type,
         provider: "cineveo-api",
         cached: false,
