@@ -180,6 +180,14 @@ const PlayerPage = () => {
     navigate(nextEpUrl, { replace: true });
   };
 
+  const handleEpisodeNavigate = (s: number, ep: number) => {
+    const slug = params.id || toSlug(title, Number(tmdbId));
+    const p = new URLSearchParams({ title, audio: audioParam, s: String(s), e: String(ep) });
+    if (imdbId) p.set("imdb", imdbId);
+    setShowEpisodeList(false);
+    navigate(`/player/${contentType}/${slug}?${p.toString()}`, { replace: true });
+  };
+
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   // Auto fullscreen mobile
