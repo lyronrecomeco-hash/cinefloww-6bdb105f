@@ -379,21 +379,45 @@ Deno.serve(async (req: Request) => {
     if (result) {
       console.log(`[extract] Found: ${result.url.substring(0, 80)} (${result.type})`);
 
-      // Probe the URL; if it fails, try the alternate CineVeo host
+      // Always try both CineVeo hosts — cineveo.lat often returns "VOD not found"
+      // while cinetvembed.cineveo.site serves the actual stream
       let finalUrl = result.url;
-      const probeOk = await probeStreamUrl(finalUrl);
-      if (!probeOk) {
-        console.log(`[extract] Primary URL dead, trying host swap...`);
-        const alt = swapCineveoHost(finalUrl);
-        if (alt) {
-          const altOk = await probeStreamUrl(alt);
-          if (altOk) {
-            console.log(`[extract] Swapped host works: ${alt.substring(0, 80)}`);
-            finalUrl = alt;
-          } else {
-            console.log(`[extract] Both hosts dead for tmdb=${tmdbId}`);
+      const alt = swapCineveoHost(finalUrl);
+
+      // Strategy: try alternate host first (more reliable), then original
+      const candidates = alt ? [alt, finalUrl] : [finalUrl];
+      let verified = false;
+
+      for (const candidate of candidates) {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 3000);
+        try {
+          const res = await fetch(candidate, {
+            method: "HEAD",
+            headers: { "User-Agent": UA },
+            redirect: "follow",
+            signal: ctrl.signal,
+          });
+          clearTimeout(t);
+          const ct = (res.headers.get("content-type") || "").toLowerCase();
+          // Valid video responses have video/* or application/octet-stream content-type
+          if (res.ok && !ct.includes("text/html") && !ct.includes("text/plain")) {
+            finalUrl = candidate;
+            verified = true;
+            console.log(`[extract] Verified: ${candidate.substring(0, 80)} (ct: ${ct})`);
+            break;
           }
+          console.log(`[extract] Rejected ${candidate.substring(0, 60)} (status=${res.status}, ct=${ct})`);
+        } catch {
+          clearTimeout(t);
+          console.log(`[extract] Probe timeout/error: ${candidate.substring(0, 60)}`);
         }
+      }
+
+      if (!verified && alt) {
+        // If neither host verified, prefer the alternate (cinetvembed) as fallback
+        finalUrl = alt;
+        console.log(`[extract] No host verified, defaulting to alternate: ${alt.substring(0, 60)}`);
       }
 
       return new Response(JSON.stringify({
