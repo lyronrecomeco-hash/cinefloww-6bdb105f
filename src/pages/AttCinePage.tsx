@@ -1,101 +1,146 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { Check, Loader2, Image, Globe, Type } from "lucide-react";
+import { Check, Globe, Image, KeyRound, Loader2, Save, Type } from "lucide-react";
 
 const PARTNER_ID = "5fd77e38-a00f-431a-af82-ed88ecb51430";
 const ACCESS_KEY = "cineveo2026";
 
+type PartnerForm = {
+  name: string;
+  logo_url: string;
+  website_url: string;
+};
+
+const EMPTY_FORM: PartnerForm = {
+  name: "",
+  logo_url: "",
+  website_url: "",
+};
+
 const AttCinePage = () => {
   const [authed, setAuthed] = useState(false);
-  const [key, setKey] = useState("");
+  const [accessKey, setAccessKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [name, setName] = useState("");
-  const [logoUrl, setLogoUrl] = useState("");
-  const [websiteUrl, setWebsiteUrl] = useState("");
   const [saved, setSaved] = useState(false);
+  const [form, setForm] = useState<PartnerForm>(EMPTY_FORM);
+  const [current, setCurrent] = useState<PartnerForm>(EMPTY_FORM);
 
-  const handleAuth = () => {
-    if (key === ACCESS_KEY) {
-      setAuthed(true);
-      loadData();
-    } else {
-      toast({ title: "Chave inválida", variant: "destructive" });
-    }
-  };
+  const hasChanges = useMemo(() => {
+    return form.name !== current.name || form.logo_url !== current.logo_url || form.website_url !== current.website_url;
+  }, [form, current]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("partners")
         .select("name, logo_url, website_url")
         .eq("id", PARTNER_ID)
         .single();
-      if (data) {
-        setName(data.name || "");
-        setLogoUrl(data.logo_url || "");
-        setWebsiteUrl(data.website_url || "");
-      }
-    } catch {}
-    setLoading(false);
+
+      if (error) throw error;
+
+      const next = {
+        name: data?.name || "",
+        logo_url: data?.logo_url || "",
+        website_url: data?.website_url || "",
+      };
+
+      setCurrent(next);
+      setForm(next);
+    } catch (err: any) {
+      toast({ title: "Erro ao carregar", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (authed) loadData();
+  }, [authed]);
+
+  const handleAuth = () => {
+    if (accessKey.trim() !== ACCESS_KEY) {
+      toast({ title: "Chave inválida", variant: "destructive" });
+      return;
+    }
+    setAuthed(true);
   };
 
   const handleSave = async () => {
-    if (!name.trim()) {
+    if (!form.name.trim()) {
       toast({ title: "Nome é obrigatório", variant: "destructive" });
       return;
     }
+
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from("partners")
-        .update({
-          name: name.trim(),
-          logo_url: logoUrl.trim() || null,
-          website_url: websiteUrl.trim() || null,
-        })
-        .eq("id", PARTNER_ID);
+      const payload = {
+        name: form.name.trim(),
+        logo_url: form.logo_url.trim() || null,
+        website_url: form.website_url.trim() || null,
+      };
 
+      const { error } = await supabase.from("partners").update(payload).eq("id", PARTNER_ID);
       if (error) throw error;
+
+      const next = {
+        name: payload.name,
+        logo_url: payload.logo_url || "",
+        website_url: payload.website_url || "",
+      };
+
+      setCurrent(next);
+      setForm(next);
       setSaved(true);
-      toast({ title: "Atualizado com sucesso!" });
-      setTimeout(() => setSaved(false), 3000);
+      toast({ title: "Informações atualizadas" });
+      window.setTimeout(() => setSaved(false), 2500);
     } catch (err: any) {
       toast({ title: "Erro ao salvar", description: err.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
+  };
+
+  const updateField = (field: keyof PartnerForm, value: string) => {
+    setSaved(false);
+    setForm((prev) => ({ ...prev, [field]: value }));
   };
 
   if (!authed) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="w-full max-w-sm space-y-6">
-          <div className="text-center space-y-2">
-            <div className="w-16 h-16 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto">
-              <Globe className="w-8 h-8 text-primary" />
+      <div className="min-h-screen bg-background px-4 py-10">
+        <div className="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-md items-center justify-center">
+          <div className="glass w-full p-6 sm:p-8 space-y-6">
+            <div className="space-y-3 text-center">
+              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+                <KeyRound className="h-6 w-6" />
+              </div>
+              <div>
+                <h1 className="font-display text-2xl font-bold text-foreground">Painel CineVeo</h1>
+                <p className="mt-1 text-sm text-muted-foreground">Entre com a chave para editar o que já está salvo.</p>
+              </div>
             </div>
-            <h1 className="text-xl font-bold text-foreground">Painel CineVeo</h1>
-            <p className="text-sm text-muted-foreground">Insira a chave de acesso</p>
-          </div>
 
-          <div className="space-y-3">
-            <input
-              type="password"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleAuth()}
-              placeholder="Chave de acesso"
-              className="w-full h-12 px-4 rounded-xl bg-card border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all"
-              autoFocus
-            />
-            <button
-              onClick={handleAuth}
-              className="w-full h-12 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors"
-            >
-              Entrar
-            </button>
+            <div className="space-y-3">
+              <input
+                type="password"
+                value={accessKey}
+                onChange={(e) => setAccessKey(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAuth()}
+                placeholder="Chave de acesso"
+                className="h-11 w-full rounded-xl border border-border bg-secondary px-4 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/50"
+                autoFocus
+              />
+              <button
+                onClick={handleAuth}
+                className="flex h-11 w-full items-center justify-center rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+              >
+                Entrar
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -105,110 +150,128 @@ const AttCinePage = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
-      <div className="w-full max-w-lg space-y-6">
-        {/* Header */}
-        <div className="text-center space-y-2">
-          {logoUrl && (
-            <img
-              src={logoUrl}
-              alt={name}
-              className="w-20 h-20 rounded-2xl object-cover mx-auto border border-border"
-              onError={(e) => (e.currentTarget.style.display = "none")}
-            />
-          )}
-          <h1 className="text-2xl font-bold text-foreground">Painel CineVeo</h1>
-          <p className="text-sm text-muted-foreground">
-            Atualize as informações exibidas no site
-          </p>
-        </div>
-
-        {/* Form */}
-        <div className="rounded-2xl bg-card border border-border p-6 space-y-5">
-          {/* Nome */}
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              <Type className="w-3.5 h-3.5" />
-              Nome
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Nome do parceiro"
-              className="w-full h-11 px-4 rounded-xl bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all"
-            />
-          </div>
-
-          {/* Logo URL */}
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              <Image className="w-3.5 h-3.5" />
-              URL da Logo
-            </label>
-            <input
-              type="url"
-              value={logoUrl}
-              onChange={(e) => setLogoUrl(e.target.value)}
-              placeholder="https://exemplo.com/logo.png"
-              className="w-full h-11 px-4 rounded-xl bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all"
-            />
-            {logoUrl && (
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/50 border border-border">
-                <img
-                  src={logoUrl}
-                  alt="Preview"
-                  className="w-12 h-12 rounded-lg object-cover border border-border"
-                  onError={(e) => (e.currentTarget.src = "/placeholder.svg")}
-                />
-                <span className="text-xs text-muted-foreground truncate flex-1">{logoUrl}</span>
+    <div className="min-h-screen bg-background px-4 py-8 sm:py-10">
+      <div className="mx-auto w-full max-w-3xl space-y-6 animate-page-enter">
+        <div className="glass p-6 sm:p-7 space-y-5">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-4 min-w-0">
+              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-secondary border border-border flex-shrink-0">
+                {form.logo_url ? (
+                  <img
+                    src={form.logo_url}
+                    alt={form.name || "CineVeo"}
+                    className="h-full w-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                ) : (
+                  <Image className="h-6 w-6 text-muted-foreground" />
+                )}
               </div>
-            )}
+
+              <div className="min-w-0">
+                <h1 className="font-display text-2xl font-bold text-foreground">Painel CineVeo</h1>
+                <p className="text-sm text-muted-foreground">Atualize apenas nome, logo e URL do site.</p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleSave}
+              disabled={saving || !hasChanges}
+              className="flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+              {saving ? "Salvando..." : saved ? "Salvo" : "Salvar"}
+            </button>
           </div>
 
-          {/* Website URL */}
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-              <Globe className="w-3.5 h-3.5" />
-              URL do Site
-            </label>
-            <input
-              type="url"
-              value={websiteUrl}
-              onChange={(e) => setWebsiteUrl(e.target.value)}
-              placeholder="https://cineveo.lat"
-              className="w-full h-11 px-4 rounded-xl bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all"
-            />
-          </div>
-
-          {/* Save button */}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className={`w-full h-12 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2 ${
-              saved
-                ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20"
-                : "bg-primary text-primary-foreground hover:bg-primary/90"
-            } disabled:opacity-50`}
-          >
-            {saving ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : saved ? (
-              <Check className="w-4 h-4" />
-            ) : null}
-            {saving ? "Salvando..." : saved ? "Salvo!" : "Salvar Alterações"}
-          </button>
+          <p className="text-xs text-muted-foreground">Os campos abaixo já carregam os valores atuais que estão salvos em configurações.</p>
         </div>
 
-        <p className="text-center text-[11px] text-muted-foreground">
-          Alterações são refletidas imediatamente no site
-        </p>
+        <div className="glass p-6 space-y-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <Type className="h-4 w-4" />
+            </div>
+            <h2 className="font-display text-lg font-bold text-foreground">Editar parceiro</h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-[10px] font-medium uppercase text-muted-foreground">Nome</label>
+              <input
+                value={form.name}
+                onChange={(e) => updateField("name", e.target.value)}
+                className="h-10 w-full rounded-lg border border-border bg-secondary px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/50"
+                placeholder="CineVeo"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[10px] font-medium uppercase text-muted-foreground">URL do site</label>
+              <input
+                value={form.website_url}
+                onChange={(e) => updateField("website_url", e.target.value)}
+                className="h-10 w-full rounded-lg border border-border bg-secondary px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/50"
+                placeholder="https://cineveo.lat"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase text-muted-foreground">
+              <Image className="h-3.5 w-3.5" />
+              URL da logo
+            </label>
+            <input
+              value={form.logo_url}
+              onChange={(e) => updateField("logo_url", e.target.value)}
+              className="h-10 w-full rounded-lg border border-border bg-secondary px-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/50"
+              placeholder="https://exemplo.com/logo.png"
+            />
+          </div>
+        </div>
+
+        <div className="glass p-6 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <Globe className="h-4 w-4" />
+            </div>
+            <h2 className="font-display text-lg font-bold text-foreground">Configuração salva atual</h2>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-[96px_1fr] sm:items-center rounded-xl border border-border bg-card/50 p-4">
+            <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-xl border border-border bg-secondary">
+              {current.logo_url ? (
+                <img src={current.logo_url} alt={current.name || "CineVeo"} className="h-full w-full object-cover" />
+              ) : (
+                <Image className="h-6 w-6 text-muted-foreground" />
+              )}
+            </div>
+
+            <div className="min-w-0 space-y-2">
+              <div>
+                <p className="text-[10px] uppercase text-muted-foreground">Nome atual</p>
+                <p className="truncate text-sm font-semibold text-foreground">{current.name || "—"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase text-muted-foreground">Site atual</p>
+                <p className="truncate text-sm text-foreground">{current.website_url || "—"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase text-muted-foreground">Logo atual</p>
+                <p className="truncate text-sm text-foreground">{current.logo_url || "—"}</p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
