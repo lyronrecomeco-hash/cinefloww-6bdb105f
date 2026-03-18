@@ -10,6 +10,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 
 import Index from "./pages/Index";
 import MobileBottomNav from "./components/MobileBottomNav";
+import MaintenanceModal from "./components/MaintenanceModal";
 
 // Lazy load ALL non-index pages for faster initial load
 const DetailsPage = lazy(() => import("./pages/DetailsPage"));
