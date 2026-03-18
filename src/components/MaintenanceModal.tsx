@@ -79,20 +79,20 @@ const MaintenanceModal = () => {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[99999] flex items-center justify-center p-4"
+      className="fixed inset-0 z-[99999] flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
       onKeyDown={(e) => e.preventDefault()}
     >
       {/* Fundo desfocado opaco — bloqueia tudo */}
       <div className="absolute inset-0 bg-black/95 backdrop-blur-2xl" />
 
-      <div className="relative w-full max-w-lg glass-strong p-6 sm:p-8 animate-page-enter space-y-5 select-none">
+      <div className="relative w-full max-w-lg glass-strong p-4 sm:p-6 md:p-8 animate-page-enter space-y-3 sm:space-y-5 select-none my-auto">
         {/* Header */}
         <div className="flex items-center justify-center">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
-              <Server className="w-5 h-5 text-primary" />
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-primary/15 flex items-center justify-center">
+              <Server className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
             </div>
-            <h2 className="text-lg sm:text-xl font-bold font-display text-foreground">
+            <h2 className="text-base sm:text-lg md:text-xl font-bold font-display text-foreground">
               Migração de Servidor
             </h2>
           </div>
@@ -100,24 +100,24 @@ const MaintenanceModal = () => {
 
         {/* Logo */}
         <div className="flex justify-center">
-          <LyneflixLogo size="lg" animate className="py-1" />
+          <LyneflixLogo size="lg" animate className="py-0.5 sm:py-1" />
         </div>
 
         {/* Message */}
-        <p className="text-muted-foreground text-sm leading-relaxed text-center whitespace-pre-wrap">
+        <p className="text-muted-foreground text-xs sm:text-sm leading-relaxed text-center whitespace-pre-wrap">
           {message}
         </p>
 
         {/* Progress bar */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span className="flex items-center gap-1.5">
-              <RefreshCw className="w-3 h-3 animate-spin" />
+        <div className="space-y-1.5 sm:space-y-2">
+          <div className="flex items-center justify-between text-[10px] sm:text-xs text-muted-foreground">
+            <span className="flex items-center gap-1 sm:gap-1.5">
+              <RefreshCw className="w-2.5 h-2.5 sm:w-3 sm:h-3 animate-spin" />
               Progresso da migração
             </span>
             <span className="text-primary font-semibold">{countdown.progress.toFixed(1)}%</span>
           </div>
-          <div className="w-full h-2.5 rounded-full bg-white/5 overflow-hidden">
+          <div className="w-full h-2 sm:h-2.5 rounded-full bg-white/5 overflow-hidden">
             <div
               className="h-full rounded-full bg-gradient-to-r from-primary/80 to-primary transition-all duration-1000 ease-linear"
               style={{ width: `${countdown.progress}%` }}
@@ -126,12 +126,12 @@ const MaintenanceModal = () => {
         </div>
 
         {/* Countdown */}
-        <div className="glass p-4 space-y-3">
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Clock className="w-3.5 h-3.5" />
+        <div className="glass p-3 sm:p-4 space-y-2 sm:space-y-3">
+          <div className="flex items-center gap-1 sm:gap-1.5 text-[10px] sm:text-xs text-muted-foreground">
+            <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
             <span>Prazo máximo estimado</span>
           </div>
-          <div className="flex items-center justify-center gap-2 sm:gap-3">
+          <div className="flex items-center justify-center gap-1.5 sm:gap-3">
             {[
               { value: countdown.days, label: "Dias" },
               { value: countdown.hours, label: "Horas" },
@@ -139,36 +139,36 @@ const MaintenanceModal = () => {
               { value: countdown.seconds, label: "Seg" },
             ].map((unit) => (
               <div key={unit.label} className="flex flex-col items-center">
-                <div className="w-14 sm:w-16 h-14 sm:h-16 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-                  <span className="text-xl sm:text-2xl font-bold font-display text-foreground tabular-nums">
+                <div className="w-12 sm:w-14 md:w-16 h-12 sm:h-14 md:h-16 rounded-lg sm:rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+                  <span className="text-lg sm:text-xl md:text-2xl font-bold font-display text-foreground tabular-nums">
                     {pad(unit.value)}
                   </span>
                 </div>
-                <span className="text-[10px] text-muted-foreground mt-1">{unit.label}</span>
+                <span className="text-[9px] sm:text-[10px] text-muted-foreground mt-0.5 sm:mt-1">{unit.label}</span>
               </div>
             ))}
           </div>
         </div>
 
         {/* Status items */}
-        <div className="glass p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-foreground">O que estamos fazendo?</h3>
-          <ul className="text-muted-foreground text-xs leading-relaxed space-y-2.5">
-            <li className="flex items-start gap-2.5">
-              <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
-                <Server className="w-3 h-3" />
+        <div className="glass p-3 sm:p-4 space-y-2 sm:space-y-3">
+          <h3 className="text-xs sm:text-sm font-semibold text-foreground">O que estamos fazendo?</h3>
+          <ul className="text-muted-foreground text-[11px] sm:text-xs leading-relaxed space-y-2 sm:space-y-2.5">
+            <li className="flex items-start gap-2">
+              <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Server className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
               </span>
               <span>Migrando toda a infraestrutura para um novo servidor de alta performance.</span>
             </li>
-            <li className="flex items-start gap-2.5">
-              <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
-                <Database className="w-3 h-3" />
+            <li className="flex items-start gap-2">
+              <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Database className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
               </span>
               <span>Reconstruindo o catálogo completo com novas fontes de vídeo.</span>
             </li>
-            <li className="flex items-start gap-2.5">
-              <span className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
-                <Shield className="w-3 h-3" />
+            <li className="flex items-start gap-2">
+              <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center flex-shrink-0 mt-0.5">
+                <Shield className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
               </span>
               <span>Otimizando segurança e velocidade para uma experiência superior.</span>
             </li>
@@ -176,7 +176,7 @@ const MaintenanceModal = () => {
         </div>
 
         {/* Footer */}
-        <p className="text-muted-foreground/60 text-[10px] sm:text-xs text-center">
+        <p className="text-muted-foreground/60 text-[9px] sm:text-[10px] md:text-xs text-center">
           ⏳ A plataforma voltará automaticamente quando a migração estiver concluída.
         </p>
       </div>
