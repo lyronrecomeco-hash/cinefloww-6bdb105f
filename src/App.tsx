@@ -98,6 +98,7 @@ const App = () => (
       <Sonner />
       <SpeedInsights />
       <BrowserRouter>
+        <MaintenanceModal />
         <MobileBottomNav />
         <Suspense fallback={<PageLoader />}>
           <Routes>
