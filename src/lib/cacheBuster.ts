@@ -11,7 +11,7 @@ import {
   setLocalCacheVersion,
 } from "./cacheVersion";
 
-const APP_CACHE_VERSION = "541";
+const APP_CACHE_VERSION = "543";
 const CHECK_TIMEOUT_MS = 2000; // 2s max — if Cloud is slow, skip silently
 const NONCE_KEY = "lyneflix_cache_nonce";
 

@@ -116,8 +116,8 @@ const App = () => (
             <Route path="/assistir/:type/:id" element={<ApiRedirect />} />
             <Route path="/player" element={<Suspense fallback={<PlayerLoader />}><PlayerPage /></Suspense>} />
             <Route path="/player/:type/:id" element={<Suspense fallback={<PlayerLoader />}><PlayerPage /></Suspense>} />
-            <Route path="/lynetv" element={<TVPage />} />
-            <Route path="/lynetv/:channelId" element={<TVPage />} />
+            {/* <Route path="/lynetv" element={<TVPage />} /> */}
+            {/* <Route path="/lynetv/:channelId" element={<TVPage />} /> */}
             {/* <Route path="/download" element={<TVDownloadPage />} /> */}
             {/* <Route path="/download/:channelId" element={<TVDownloadPage />} /> */}
             <Route path="/dmca" element={<DmcaPage />} />
