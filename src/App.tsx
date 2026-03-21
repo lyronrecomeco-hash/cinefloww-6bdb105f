@@ -132,6 +132,7 @@ const App = () => (
             <Route path="/suporte" element={<SupportPage />} />
             <Route path="/download-app" element={<DownloadAppPage />} />
             <Route path="/attcine" element={<AttCinePage />} />
+            <Route path="/baixar-json" element={<BaixarJsonPage />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
