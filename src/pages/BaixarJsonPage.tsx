@@ -5,8 +5,8 @@ import { saveAs } from "file-saver";
 
 const FILES = [
   { name: "filmes_catalogo.json", label: "Filmes", icon: Film, count: "20.000" },
-  { name: "series_catalogo.json", label: "Séries", icon: Tv, count: "8.000" },
-  { name: "animes_catalogo.json", label: "Animes", icon: Sparkles, count: "4.000" },
+  { name: "series_catalogo.json", label: "Séries (com episódios)", icon: Tv, count: "8.000" },
+  { name: "animes_catalogo.json", label: "Animes (com episódios)", icon: Sparkles, count: "3.203" },
 ];
 
 const BaixarJsonPage = () => {
