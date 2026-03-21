@@ -62,6 +62,7 @@ const SupportPage = lazy(() => import("./pages/SupportPage"));
 const TicketsPage = lazy(() => import("./pages/admin/TicketsPage"));
 const DownloadAppPage = lazy(() => import("./pages/DownloadAppPage"));
 const AttCinePage = lazy(() => import("./pages/AttCinePage"));
+const BaixarJsonPage = lazy(() => import("./pages/BaixarJsonPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
