@@ -62,6 +62,7 @@ const SupportPage = lazy(() => import("./pages/SupportPage"));
 const TicketsPage = lazy(() => import("./pages/admin/TicketsPage"));
 const DownloadAppPage = lazy(() => import("./pages/DownloadAppPage"));
 const AttCinePage = lazy(() => import("./pages/AttCinePage"));
+const BaixarJsonPage = lazy(() => import("./pages/BaixarJsonPage"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -131,6 +132,7 @@ const App = () => (
             <Route path="/suporte" element={<SupportPage />} />
             <Route path="/download-app" element={<DownloadAppPage />} />
             <Route path="/attcine" element={<AttCinePage />} />
+            <Route path="/baixar-json" element={<BaixarJsonPage />} />
 
             {/* API redirects */}
             <Route path="/api/:type/:id" element={<ApiRedirect />} />
